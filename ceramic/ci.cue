@@ -2,25 +2,34 @@ package ceramic
 
 import (
 	"dagger.io/dagger"
+	"universe.dagger.io/alpine"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
-//	"universe.dagger.io/docker/cli"
+	"universe.dagger.io/docker/cli"
 )
 
 dagger.#Plan & {
 	client: {
 		env: {
-			BRANCH:                string
-			GITHUB_SHA:            string
+			AWS_ACCOUNT_ID:        string
 			AWS_ACCESS_KEY_ID:     dagger.#Secret
 			AWS_SECRET_ACCESS_KEY: dagger.#Secret
-			AWS_DEFAULT_REGION:    dagger.#Secret
-			DOCKERHUB_USERNAME:    dagger.#Secret
+			AWS_DEFAULT_REGION:    string
+			DOCKERHUB_USERNAME:    string
 			DOCKERHUB_TOKEN:       dagger.#Secret
 		}
+		commands: aws: {
+			name: "aws"
+			args: ["ecr", "get-login-password"]
+			stdout: dagger.#Secret
+		}
 		filesystem: {
-			"./": read: contents: dagger.#FS
-			".":  read: {
+			fullSource: read: {
+				path: "."
+				contents: dagger.#FS
+			}
+			imageSource: read: {
+				path: "."
 				contents: dagger.#FS
 				include: [
 					"Dockerfile.daemon",
@@ -35,42 +44,149 @@ dagger.#Plan & {
 		}
 		network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 	}
-	actions: {
-		_source:      client.filesystem["./"].read.contents
-		_imageSource: client.filesystem["."].read.contents
 
-		test: docker.#Build & {
-			steps: [
-				docker.#Pull & {
-					source: "node:16"
-				},
-				docker.#Copy & {
-					contents: _source
-					dest:     "./src"
-				},
-			  bash.#Run & {
-			  	workdir: "./src"
-			  	script: contents: #"""
-			  		npm ci
-			  		npm run build
-			  		npm run test
-			  	"""#
-			  	}
-			]
+	actions: {
+		_testImageName: "test-image"
+
+		build: {
+			_cli: docker.#Pull & {
+				source: "node:16"
+			}
+			unitTest: bash.#Run & {
+				input:   _cli.output
+				workdir: "./src"
+				mounts: source: {
+					dest:     "/src"
+					contents: client.filesystem.fullSource.read.contents
+				}
+				script:  contents: #"""
+					echo -n $(git rev-parse HEAD) > /sha
+					echo -n $(git rev-parse --short HEAD) > /shaTag
+					echo -n $(git rev-parse --abbrev-ref HEAD) > /branch
+					echo -n $(git log -1 --pretty=%B) > /message
+
+					npm ci
+					npm run build
+					npm run test
+				"""#
+				export: files: {
+					"/sha":     string
+					"/shaTag":  string
+					"/branch":  string
+					"/message": string
+				}
+			}
+			sha:     unitTest.export.files["/sha"]
+			shaTag:  unitTest.export.files["/shaTag"]
+			branch:  unitTest.export.files["/branch"]
+			message: unitTest.export.files["/message"]
 		}
-    push: {
-      _image: docker.#Dockerfile & {
-      	source: _imageSource
-      	dockerfile: path: "Dockerfile.daemon"
-      }
-      _pushDH: docker.#Push & {
-      	image: _image.output
-      	dest: "js-ceramic:debug"
-      }
-      _pushECR: docker.#Push & {
-      	image: _image.output
-      	dest: "js-ceramic:debug"
-      }
-    }
+
+		_clean: cli.#Run & {
+			host:   client.network."unix:///var/run/docker.sock".connect
+			always: true
+			env: IMAGE_NAME: _testImageName
+			command: {
+				name: "sh"
+				flags: "-c": #"""
+					docker rm --force "$IMAGE_NAME"
+				"""#
+			}
+		}
+
+		verify: {
+			buildImage: docker.#Dockerfile & {
+				source: client.filesystem.imageSource.read.contents
+				dockerfile: path: "Dockerfile.daemon"
+			}
+			testImage: {
+				_preload: _clean
+				_loadImage: cli.#Load & {
+					env: DEP: "\(_preload.success)"
+					image:    buildImage.output
+					host:     client.network."unix:///var/run/docker.sock".connect
+					tag:      _testImageName
+				}
+				startImage: cli.#Run & {
+					host:   client.network."unix:///var/run/docker.sock".connect
+					always: true
+					env: {
+						IMAGE_NAME: _testImageName
+						PORTS:      "7007:7007"
+						DEP:        "\(_loadImage.success)"
+					}
+					command: {
+						name: "sh"
+						flags: "-c": #"""
+							docker run -d --rm --name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
+						"""#
+					}
+				}
+				_cli: alpine.#Build & {
+					packages: {
+						bash: {}
+						curl: {}
+					}
+				}
+				healthcheck: bash.#Run & {
+					env: {
+						URL:     "http://0.0.0.0:7007/api/v0/node/healthcheck"
+						TIMEOUT: "60"
+						DEP:     "\(startImage.success)"
+					}
+					input: _cli.output
+					always: true
+					script: contents: #"""
+						timeout=$TIMEOUT
+						until [[ $timeout -le 0 ]]; do
+							echo Waiting for Ceramic daemon to start...
+							curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
+
+							if grep -q "Alive!" curl.out
+							then
+								echo Healthcheck passed
+								exit 0
+							fi
+
+							sleep 1
+							timeout=$(( timeout - 1 ))
+						done
+
+						if [ $timeout -le 0 ]; then
+							echo Healthcheck failed
+							exit 1
+						fi
+					"""#
+				}
+				_postload: _clean & {
+					env: DEP: "\(healthcheck.success)"
+				}
+			}
+			output: buildImage.output
+		}
+
+		push: {
+			tags: [...string]
+
+			for tag in tags {
+				"dockerhub_\(tag)":  docker.#Push & {
+					image: verify.output
+					dest:  "ceramicnetwork/js-ceramic:\(tag)"
+					auth: {
+						username: client.env.DOCKERHUB_USERNAME
+						secret: client.env.DOCKERHUB_TOKEN
+					}
+				}
+				// TODO: Add branch-specific handling
+				"ecr_\(tag)":  docker.#Push & {
+					image: verify.buildImage.output
+					dest:  "\(client.env.AWS_ACCOUNT_ID).dkr.ecr.\(client.env.AWS_DEFAULT_REGION).amazonaws.com/ceramic-dev:\(tag)"
+					auth: {
+						username: "AWS"
+						secret: client.commands.aws.stdout
+					}
+				}
+			}
+		}
 	}
 }
