@@ -60,10 +60,20 @@ dagger.#Plan & {
 					contents: client.filesystem.fullSource.read.contents
 				}
 				script:  contents: #"""
+					BRANCH=$(git rev-parse --abbrev-ref HEAD)
+					if [[ "$BRANCH" == 'main' || "$BRANCH" == 'master' || "$BRANCH" == 'prod' ]]; then
+						ENV_TAG='prod'
+					elif [[ "$BRANCH" == 'release-candidate' || "$BRANCH" == 'rc' || "$BRANCH" == 'tnet' ]]; then
+						ENV_TAG='tnet'
+					else
+						ENV_TAG='dev'
+					fi
+
 					echo -n $(git rev-parse HEAD) > /sha
 					echo -n $(git rev-parse --short HEAD) > /shaTag
-					echo -n $(git rev-parse --abbrev-ref HEAD) > /branch
 					echo -n $(git log -1 --pretty=%B) > /message
+					echo -n $BRANCH > /branch
+					echo -n $ENV_TAG > /envTag
 
 					npm ci
 					npm run build
@@ -74,12 +84,14 @@ dagger.#Plan & {
 					"/shaTag":  string
 					"/branch":  string
 					"/message": string
+					"/envTag":	string
 				}
 			}
 			sha:     unitTest.export.files["/sha"]
 			shaTag:  unitTest.export.files["/shaTag"]
 			branch:  unitTest.export.files["/branch"]
 			message: unitTest.export.files["/message"]
+			envTag:	 unitTest.export.files["/envTag"]
 		}
 
 		_clean: cli.#Run & {
@@ -165,7 +177,7 @@ dagger.#Plan & {
 			output: buildImage.output
 		}
 
-		push: {
+		push: [envTag=string]: {
 			tags: [...string]
 
 			for tag in tags {
