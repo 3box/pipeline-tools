@@ -191,7 +191,7 @@ dagger.#Plan & {
 				}
 				"ecr_\(tag)":  docker.#Push & {
 					image: verify.buildImage.output
-					dest:  "\(client.env.AWS_ACCOUNT_ID).dkr.ecr.\(client.env.AWS_DEFAULT_REGION).amazonaws.com/ceramic-dev:\(tag)"
+					dest:  "\(client.env.AWS_ACCOUNT_ID).dkr.ecr.\(client.env.AWS_DEFAULT_REGION).amazonaws.com/ceramic-\(envTag):\(tag)"
 					auth: {
 						username: "AWS"
 						secret: client.commands.aws.stdout
