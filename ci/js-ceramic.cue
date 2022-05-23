@@ -177,7 +177,6 @@ dagger.#Plan & {
 						secret: client.env.DOCKERHUB_TOKEN
 					}
 				}
-				// TODO: Add branch-specific handling
 				"ecr_\(tag)":  docker.#Push & {
 					image: verify.buildImage.output
 					dest:  "\(client.env.AWS_ACCOUNT_ID).dkr.ecr.\(client.env.AWS_DEFAULT_REGION).amazonaws.com/ceramic-dev:\(tag)"
