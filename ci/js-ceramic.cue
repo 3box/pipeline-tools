@@ -24,7 +24,6 @@ dagger.#Plan & {
 		DAGGER_LOG_FORMAT:     string | *"auto"
 		DAGGER_CACHE_FROM:     string | *""
 		DAGGER_CACHE_TO:       string | *""
-		GITHUB_ACTIONS:        string | *""
 		ACTIONS_RUNTIME_TOKEN: string | *""
 		ACTIONS_CACHE_URL:     string | *""
 	}
@@ -86,9 +85,9 @@ dagger.#Plan & {
 					echo -n $BRANCH > /branch
 					echo -n $ENV_TAG > /envTag
 
-					#npm ci
-					#npm run build
-					#npm run test
+					npm ci
+					npm run build
+					npm run test
 				"""#
 				export: files: {
 					"/sha":     string
