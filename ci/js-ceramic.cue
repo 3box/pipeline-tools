@@ -2,6 +2,7 @@ package ceramic
 
 import (
 	"dagger.io/dagger"
+	"dagger.io/dagger/core"
 
 	"universe.dagger.io/alpine"
 	"universe.dagger.io/bash"
@@ -15,9 +16,9 @@ dagger.#Plan & {
 	client: env: {
 		// Secrets
 		AWS_ACCOUNT_ID:        string
+		AWS_DEFAULT_REGION:    string
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY: dagger.#Secret
-		AWS_DEFAULT_REGION:    string
 		DOCKERHUB_USERNAME:    string
 		DOCKERHUB_TOKEN:       dagger.#Secret
 		// Runtime
@@ -30,6 +31,7 @@ dagger.#Plan & {
 		args: ["ecr", "get-login-password"]
 		stdout: dagger.#Secret
 	}
+	// Full source to use for building/testing code
 	client: filesystem: fullSource: read: {
 		path: "."
 		contents: dagger.#FS
@@ -38,11 +40,11 @@ dagger.#Plan & {
 			"cue.mod",
 		]
 	}
+	// Subset of source required to build Docker image
 	client: filesystem: imageSource: read: {
 		path: "."
 		contents: dagger.#FS
 		include: [
-			"Dockerfile.daemon",
 			"package.json",
 			"package-lock.json",
 			"lerna.json",
@@ -51,19 +53,26 @@ dagger.#Plan & {
 			"types"
 		]
 	}
+	// Dockerfile
+	client: filesystem: dockerfile: read: {
+		path: "."
+		contents: dagger.#FS
+		include: ["Dockerfile.daemon"]
+	}
 	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
 		_testImageName: "js-ceramic-ci"
 
-		build: {
+		_unitTest: {
 			_node: docker.#Pull & {
 				source: "node:16"
 			}
-			unitTest: bash.#Run & {
+			run: bash.#Run & {
+				env:     IPFS_FLAVOR: "js" | *"go"
 				input:   _node.output
 				workdir: "./src"
-				mounts: source: {
+				mounts:  source: {
 					dest:     "/src"
 					contents: client.filesystem.fullSource.read.contents
 				}
@@ -83,6 +92,7 @@ dagger.#Plan & {
 					echo -n $BRANCH > /branch
 					echo -n $ENV_TAG > /envTag
 
+					npm run lint
 					npm ci
 					npm run build
 					npm run test
@@ -95,11 +105,27 @@ dagger.#Plan & {
 					"/envTag":	string
 				}
 			}
-			sha:     unitTest.export.files["/sha"]
-			shaTag:  unitTest.export.files["/shaTag"]
-			branch:  unitTest.export.files["/branch"]
-			message: unitTest.export.files["/message"]
-			envTag:	 unitTest.export.files["/envTag"]
+			sha:     run.export.files["/sha"]
+			shaTag:  run.export.files["/shaTag"]
+			branch:  run.export.files["/branch"]
+			message: run.export.files["/message"]
+			envTag:  run.export.files["/envTag"]
+		}
+
+		build: {
+			// These steps can be run in parallel in separate containers
+			testJs:  _unitTest & {
+				run: env: IPFS_FLAVOR: "js"
+				run: env: NODE_OPTIONS: "--max_old_space_size=4096"
+			}
+			testGo:  _unitTest & {
+				run: env: IPFS_FLAVOR: "go"
+			}
+			sha:     testGo.sha
+			shaTag:  testGo.shaTag
+			branch:  testGo.branch
+			message: testGo.message
+			envTag:  testGo.envTag
 		}
 
 		_clean: cli.#Run & {
@@ -116,8 +142,12 @@ dagger.#Plan & {
 
 		verify: {
 			buildImage: docker.#Dockerfile & {
+				_dockerfile: core.#ReadFile & {
+					input: client.filesystem.dockerfile.read.contents
+					path: "Dockerfile.daemon"
+				}
 				source: client.filesystem.imageSource.read.contents
-				dockerfile: path: "Dockerfile.daemon"
+				dockerfile: contents: _dockerfile.contents
 			}
 			testImage: {
 				_preload: _clean
@@ -185,10 +215,10 @@ dagger.#Plan & {
 			output: buildImage.output
 		}
 
-		push: [EnvTag=string]: {
+		push: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
 			tags: [...string]
 
-			for tag in tags {
+			for tag in [EnvTag, Branch, Sha, ShaTag] {
 				"dockerhub_\(tag)":  docker.#Push & {
 					image: verify.output
 					dest:  "ceramicnetwork/js-ceramic:\(tag)"
