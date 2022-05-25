@@ -86,9 +86,9 @@ dagger.#Plan & {
 					echo -n $BRANCH > /branch
 					echo -n $ENV_TAG > /envTag
 
-					npm ci
-					npm run build
-					npm run test
+					#npm ci
+					#npm run build
+					#npm run test
 				"""#
 				export: files: {
 					"/sha":     string
