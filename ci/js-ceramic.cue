@@ -2,58 +2,69 @@ package ceramic
 
 import (
 	"dagger.io/dagger"
+
 	"universe.dagger.io/alpine"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
 	"universe.dagger.io/docker/cli"
+
+	"github.com/3box/pipelinetools/utils"
 )
 
 dagger.#Plan & {
-	client: {
-		env: {
-			AWS_ACCOUNT_ID:        string
-			AWS_ACCESS_KEY_ID:     dagger.#Secret
-			AWS_SECRET_ACCESS_KEY: dagger.#Secret
-			AWS_DEFAULT_REGION:    string
-			DOCKERHUB_USERNAME:    string
-			DOCKERHUB_TOKEN:       dagger.#Secret
-		}
-		commands: aws: {
-			name: "aws"
-			args: ["ecr", "get-login-password"]
-			stdout: dagger.#Secret
-		}
-		filesystem: {
-			fullSource: read: {
-				path: "."
-				contents: dagger.#FS
-			}
-			imageSource: read: {
-				path: "."
-				contents: dagger.#FS
-				include: [
-					"Dockerfile.daemon",
-					"package.json",
-					"package-lock.json",
-					"lerna.json",
-					"tsconfig.json",
-					"packages",
-					"types"
-				]
-			}
-		}
-		network: "unix:///var/run/docker.sock": connect: dagger.#Socket
+	client: env: {
+		// Secrets
+		AWS_ACCOUNT_ID:        string
+		AWS_ACCESS_KEY_ID:     dagger.#Secret
+		AWS_SECRET_ACCESS_KEY: dagger.#Secret
+		AWS_DEFAULT_REGION:    string
+		DOCKERHUB_USERNAME:    string
+		DOCKERHUB_TOKEN:       dagger.#Secret
+		// Runtime
+		DAGGER_LOG_FORMAT:     string | *"auto"
+		DAGGER_CACHE_FROM:     string | *""
+		DAGGER_CACHE_TO:       string | *""
+		GITHUB_ACTIONS:        string | *""
+		ACTIONS_RUNTIME_TOKEN: string | *""
+		ACTIONS_CACHE_URL:     string | *""
 	}
+	client: commands: aws: {
+		name: "aws"
+		args: ["ecr", "get-login-password"]
+		stdout: dagger.#Secret
+	}
+	client: filesystem: fullSource: read: {
+		path: "."
+		contents: dagger.#FS
+		exclude: [
+			"node_modules",
+			"cue.mod",
+		]
+	}
+	client: filesystem: imageSource: read: {
+		path: "."
+		contents: dagger.#FS
+		include: [
+			"Dockerfile.daemon",
+			"package.json",
+			"package-lock.json",
+			"lerna.json",
+			"tsconfig.json",
+			"packages",
+			"types"
+		]
+	}
+	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
-		_testImageName: "test-image"
+		_testImageName: "js-ceramic-ci"
 
 		build: {
-			_cli: docker.#Pull & {
+			_node: docker.#Pull & {
 				source: "node:16"
 			}
 			unitTest: bash.#Run & {
-				input:   _cli.output
+				input:   _node.output
 				workdir: "./src"
 				mounts: source: {
 					dest:     "/src"
@@ -177,7 +188,7 @@ dagger.#Plan & {
 			output: buildImage.output
 		}
 
-		push: [envTag=string]: {
+		push: [EnvTag=string]: {
 			tags: [...string]
 
 			for tag in tags {
@@ -191,11 +202,30 @@ dagger.#Plan & {
 				}
 				"ecr_\(tag)":  docker.#Push & {
 					image: verify.buildImage.output
-					dest:  "\(client.env.AWS_ACCOUNT_ID).dkr.ecr.\(client.env.AWS_DEFAULT_REGION).amazonaws.com/ceramic-\(envTag):\(tag)"
+					dest:  "\(client.env.AWS_ACCOUNT_ID).dkr.ecr.\(client.env.AWS_DEFAULT_REGION).amazonaws.com/ceramic-\(EnvTag):\(tag)"
 					auth: {
 						username: "AWS"
 						secret: client.commands.aws.stdout
 					}
+				}
+			}
+		}
+
+		queue: [Region=string]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
+			_queue: utils.#Queue & {
+				env: {
+					AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
+					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
+					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
+					AWS_REGION: 		   "\(Region)"
+				}
+				params: {
+					event:  "deploy"
+					repo:   "js-ceramic"
+					envTag: "\(EnvTag)"
+					branch: "\(Branch)"
+					sha:    "\(Sha)"
+					shaTag: "\(ShaTag)"
 				}
 			}
 		}
