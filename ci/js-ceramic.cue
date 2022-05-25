@@ -22,8 +22,6 @@ dagger.#Plan & {
 		DOCKERHUB_TOKEN:       dagger.#Secret
 		// Runtime
 		DAGGER_LOG_FORMAT:     string | *"auto"
-		DAGGER_CACHE_FROM:     string | *""
-		DAGGER_CACHE_TO:       string | *""
 		ACTIONS_RUNTIME_TOKEN: string | *""
 		ACTIONS_CACHE_URL:     string | *""
 	}
@@ -36,7 +34,7 @@ dagger.#Plan & {
 		path: "."
 		contents: dagger.#FS
 		exclude: [
-			"node_modules",
+			".github",
 			"cue.mod",
 		]
 	}
