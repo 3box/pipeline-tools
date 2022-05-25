@@ -92,8 +92,8 @@ dagger.#Plan & {
 					echo -n $BRANCH > /branch
 					echo -n $ENV_TAG > /envTag
 
-					npm run lint
 					npm ci
+					npm run lint
 					npm run build
 					npm run test
 				"""#
