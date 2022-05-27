@@ -4,19 +4,17 @@ import (
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
 
-	"universe.dagger.io/alpine"
-	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
-	"universe.dagger.io/docker/cli"
 
 	"github.com/3box/pipelinetools/utils"
+	"github.com/3box/pipelinetools/utils/testing"
 )
 
 dagger.#Plan & {
 	client: env: {
 		// Secrets
 		AWS_ACCOUNT_ID:        string
-		AWS_DEFAULT_REGION:    string
+		AWS_REGION:    		   string
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY: dagger.#Secret
 		DOCKERHUB_USERNAME:    string
@@ -63,178 +61,57 @@ dagger.#Plan & {
 
 	actions: {
 		_testImageName: "js-ceramic-ci"
+		_fullSource:	client.filesystem.fullSource.read.contents
+		_imageSource:	client.filesystem.imageSource.read.contents
+		_dockerfile:	client.filesystem.dockerfile.read.contents
 
-		_unitTest: {
-			_node: docker.#Pull & {
-				source: "node:16"
-			}
-			run: bash.#Run & {
-				env:     IPFS_FLAVOR: "js" | *"go"
-				input:   _node.output
-				workdir: "./src"
-				mounts:  source: {
-					dest:     "/src"
-					contents: client.filesystem.fullSource.read.contents
-				}
-				script:  contents: #"""
-					BRANCH=$(git rev-parse --abbrev-ref HEAD)
-					if [[ "$BRANCH" == 'main' || "$BRANCH" == 'master' || "$BRANCH" == 'prod' ]]; then
-						ENV_TAG='prod'
-					elif [[ "$BRANCH" == 'release-candidate' || "$BRANCH" == 'rc' || "$BRANCH" == 'tnet' ]]; then
-						ENV_TAG='tnet'
-					else
-						ENV_TAG='dev'
-					fi
-
-					echo -n $(git rev-parse HEAD) > /sha
-					echo -n $(git rev-parse --short HEAD) > /shaTag
-					echo -n $(git log -1 --pretty=%B) > /message
-					echo -n $BRANCH > /branch
-					echo -n $ENV_TAG > /envTag
-
-					npm ci
-					npm run lint
-					npm run build
-					npm run test
-				"""#
-				export: files: {
-					"/sha":     string
-					"/shaTag":  string
-					"/branch":  string
-					"/message": string
-					"/envTag":	string
-				}
-			}
-			sha:     run.export.files["/sha"]
-			shaTag:  run.export.files["/shaTag"]
-			branch:  run.export.files["/branch"]
-			message: run.export.files["/message"]
-			envTag:  run.export.files["/envTag"]
+		version: utils.#Version & {
+			src: _fullSource
 		}
 
-		build: {
+		test: {
 			// These steps can be run in parallel in separate containers
-			testJs:  _unitTest & {
+			testJs:  testing.#Node & {
+				src: _fullSource
 				run: env: IPFS_FLAVOR: "js"
 				run: env: NODE_OPTIONS: "--max_old_space_size=4096"
 			}
-			testGo:  _unitTest & {
+			testGo:  testing.#Node & {
+				src: _fullSource
 				run: env: IPFS_FLAVOR: "go"
 			}
-			sha:     testGo.sha
-			shaTag:  testGo.shaTag
-			branch:  testGo.branch
-			message: testGo.message
-			envTag:  testGo.envTag
 		}
 
-		_clean: cli.#Run & {
-			host:   client.network."unix:///var/run/docker.sock".connect
-			always: true
-			env: IMAGE_NAME: _testImageName
-			command: {
-				name: "sh"
-				flags: "-c": #"""
-					docker rm --force "$IMAGE_NAME"
-				"""#
+		image: docker.#Dockerfile & {
+			_file: core.#ReadFile & {
+				input: _dockerfile
+				path:  "Dockerfile.daemon"
 			}
+			source: _imageSource
+			dockerfile: contents: _file.contents
 		}
 
-		verify: {
-			buildImage: docker.#Dockerfile & {
-				_dockerfile: core.#ReadFile & {
-					input: client.filesystem.dockerfile.read.contents
-					path: "Dockerfile.daemon"
-				}
-				source: client.filesystem.imageSource.read.contents
-				dockerfile: contents: _dockerfile.contents
-			}
-			testImage: {
-				_preload: _clean
-				_loadImage: cli.#Load & {
-					env: DEP: "\(_preload.success)"
-					image:    buildImage.output
-					host:     client.network."unix:///var/run/docker.sock".connect
-					tag:      _testImageName
-				}
-				startImage: cli.#Run & {
-					host:   client.network."unix:///var/run/docker.sock".connect
-					always: true
-					env: {
-						IMAGE_NAME: _testImageName
-						PORTS:      "7007:7007"
-						DEP:        "\(_loadImage.success)"
-					}
-					command: {
-						name: "sh"
-						flags: "-c": #"""
-							docker run -d --rm --name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
-						"""#
-					}
-				}
-				_cli: alpine.#Build & {
-					packages: {
-						bash: {}
-						curl: {}
-					}
-				}
-				healthcheck: bash.#Run & {
-					env: {
-						URL:     "http://0.0.0.0:7007/api/v0/node/healthcheck"
-						TIMEOUT: "60"
-						DEP:     "\(startImage.success)"
-					}
-					input: _cli.output
-					always: true
-					script: contents: #"""
-						timeout=$TIMEOUT
-						until [[ $timeout -le 0 ]]; do
-							echo Waiting for Ceramic daemon to start...
-							curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
-
-							if grep -q "Alive!" curl.out
-							then
-								echo Healthcheck passed
-								exit 0
-							fi
-
-							sleep 1
-							timeout=$(( timeout - 1 ))
-						done
-
-						if [ $timeout -le 0 ]; then
-							echo Healthcheck failed
-							exit 1
-						fi
-					"""#
-				}
-				_postload: _clean & {
-					env: DEP: "\(healthcheck.success)"
-				}
-			}
-			output: buildImage.output
+		verify: testing.#Image & {
+			testImage:  image.output
+			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
-		push: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
-			tags: [...string]
-
-			for tag in [EnvTag, Branch, Sha, ShaTag] {
-				"dockerhub_\(tag)":  docker.#Push & {
-					image: verify.output
-					dest:  "ceramicnetwork/js-ceramic:\(tag)"
-					auth: {
-						username: client.env.DOCKERHUB_USERNAME
-						secret: client.env.DOCKERHUB_TOKEN
-					}
-				}
-				"ecr_\(tag)":  docker.#Push & {
-					image: verify.buildImage.output
-					dest:  "\(client.env.AWS_ACCOUNT_ID).dkr.ecr.\(client.env.AWS_DEFAULT_REGION).amazonaws.com/ceramic-\(EnvTag):\(tag)"
-					auth: {
-						username: "AWS"
-						secret: client.commands.aws.stdout
-					}
-				}
+		push: utils.#Push & {
+			env: {
+				AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
+				AWS_ECR_SECRET: 	client.commands.aws.stdout
+				AWS_REGION: 		client.env.AWS_REGION
+				DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
+				DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
+			}
+			params: {
+				envTag:   version.envTag
+				branch:   "develop" //version.branch
+				repo:     version.repo
+				repoType: version.repoType
+				sha:      version.sha
+				shaTag:   version.shaTag
+				image:    actions.image.output
 			}
 		}
 
