@@ -29,99 +29,65 @@ dagger.#Plan & {
 		stdout: dagger.#Secret
 	}
 	// Full source to use for building/testing code
-	client: filesystem: fullSource: read: {
+	client: filesystem: source: read: {
 		path: "."
 		contents: dagger.#FS
 		exclude: [
 			".github",
 			"cue.mod",
-			"node_modules",
-		]
-	}
-	// Subset of source required to build Docker image
-	client: filesystem: imageSource: read: {
-		path: "."
-		contents: dagger.#FS
-		include: [
-			"package.json",
-			"package-lock.json",
-			"lerna.json",
-			"tsconfig.json",
-			"packages",
-			"types"
 		]
 	}
 	// Dockerfile
 	client: filesystem: dockerfile: read: {
 		path: "."
 		contents: dagger.#FS
-		include: ["Dockerfile.daemon"]
+		include: ["Dockerfile"]
 	}
 	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
-		_repo:			"js-ceramic"
-		_fullSource:	client.filesystem.fullSource.read.contents
-		_imageSource:	client.filesystem.imageSource.read.contents
+		_repo:			"go-ipfs-daemon"
+		_source:		client.filesystem.source.read.contents
 		_dockerfile:	client.filesystem.dockerfile.read.contents
 
 		version: utils.#Version & {
-			src: _fullSource
+			src: _source
 		}
 
-		test: {
-			// These steps can be run in parallel in separate containers
-			testJs:  utils.#TestNode & {
-				src: _fullSource
-				run: env: IPFS_FLAVOR: "js"
-				run: env: NODE_OPTIONS: "--max_old_space_size=4096"
-			}
-			testGo:  utils.#TestNode & {
-				src: _fullSource
-				run: env: IPFS_FLAVOR: "go"
-			}
+		test: utils.#Version & {
+			src: _source
 		}
 
 		image: docker.#Dockerfile & {
 			_file: core.#ReadFile & {
 				input: _dockerfile
-				path:  "Dockerfile.daemon"
+				path:  "Dockerfile"
 			}
-			source: _imageSource
+			source: _source
 			dockerfile: contents: _file.contents
 		}
 
-		verify: utils.#TestImage & {
+		verify: image.#Test & {
 			testImage:  image.output
-			endpoint:	"api/v0/node/healthcheck"
-			port:		7007
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
-		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
-			_params: {
+		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: utils.#Push & {
+			ecrRepo: "go-ipfs-\(EnvTag)"
+			env: {
+				AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
+				AWS_ECR_SECRET: 	client.commands.aws.stdout
+				AWS_REGION: 		Region
+				DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
+				DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
+			}
+			params: {
 				repo:     _repo
 				envTag:   EnvTag
 				branch:   Branch
 				sha:      Sha
 				shaTag:   ShaTag
 				image:    actions.image.output
-			}
-			ecr: utils.#ECR & {
-				repo: "ceramic-\(EnvTag)"
-				env: {
-					AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
-					AWS_ECR_SECRET: 	client.commands.aws.stdout
-					AWS_REGION: 		Region
-				}
-				params: _params
-			}
-			dockerhub: utils.#Dockerhub & {
-				env: {
-					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
-					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
-				}
-				params: _params
 			}
 		}
 

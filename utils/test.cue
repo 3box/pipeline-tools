@@ -1,4 +1,4 @@
-package testing
+package utils
 
 import (
 	"dagger.io/dagger"
@@ -9,21 +9,46 @@ import (
 	"universe.dagger.io/docker/cli"
 )
 
-#Image: {
+#TestNode: {
+    src: dagger.#FS
+    ver: int | *16
+
+    _node: docker.#Pull & {
+        source: "node:16"
+    }
+    run: bash.#Run & {
+        input:   _node.output
+        workdir: "./src"
+        mounts:  source: {
+            dest:     "/src"
+            contents: src
+        }
+        script:  contents: #"""
+            npm ci
+            npm run lint
+            npm run build
+            npm run test
+        """#
+    }
+}
+
+#TestImage: {
 	testImage:		docker.#Image
+	testImageName:  string | *"ci-test-image"
 	dockerHost:		dagger.#Socket
-	_testImageName: "ci-test-image"
+	endpoint:		string
+	port:			int
 
 	run: {
 		_loadImage: cli.#Load & {
 			image:    testImage
 			host:     dockerHost
-			tag:      _testImageName
+			tag:      testImageName
 		}
 		startImage: cli.#Run & {
 			env: {
-				IMAGE_NAME: _testImageName
-				PORTS:      "7007:7007"
+				IMAGE_NAME: testImageName
+				PORTS:      "\(port):\(port)"
 				DEP:        "\(_loadImage.success)"
 			}
 			host:   dockerHost
@@ -43,8 +68,8 @@ import (
 		}
 		healthcheck: bash.#Run & {
 			env: {
-				URL:     "http://0.0.0.0:7007/api/v0/node/healthcheck"
-				TIMEOUT: "60"
+				URL:     "http://0.0.0.0:\(port)/\(endpoint)"
+				TIMEOUT: "30"
 				DEP:     "\(startImage.success)"
 			}
 			input: _cli.output
@@ -52,10 +77,10 @@ import (
 			script: contents: #"""
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do
-					echo Waiting for Ceramic daemon to start...
+					echo Waiting for image to start...
 					curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 
-					if grep -q "200" curl.out
+					if grep -q "200 OK" curl.out
 					then
 						echo Healthcheck passed
 						exit 0
@@ -73,7 +98,7 @@ import (
 		}
 		_clean: cli.#Run & {
 			env: {
-				IMAGE_NAME: _testImageName
+				IMAGE_NAME: testImageName
 				DEP:        "\(healthcheck.success)"
 			}
 			host:   dockerHost
