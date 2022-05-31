@@ -4,6 +4,7 @@ import (
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
 
+	"universe.dagger.io/aws"
 	"universe.dagger.io/docker"
 
 	"github.com/3box/pipelinetools/utils"
@@ -12,7 +13,7 @@ import (
 
 dagger.#Plan & {
 	client: env: {
-		// Secrets
+		// Secret
 		AWS_ACCOUNT_ID:        string
 		AWS_REGION:    		   string
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
@@ -96,41 +97,40 @@ dagger.#Plan & {
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
-		push: utils.#Push & {
+		push: [Region=aws.#Region]: [EnvTag=string]: [Repo=string]: [RepoType=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: utils.#Push & {
 			env: {
 				AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
 				AWS_ECR_SECRET: 	client.commands.aws.stdout
-				AWS_REGION: 		client.env.AWS_REGION
+				AWS_REGION: 		Region
 				DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 				DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
 			}
 			params: {
-				envTag:   version.envTag
-				branch:   "develop" //version.branch
-				repo:     version.repo
-				repoType: version.repoType
-				sha:      version.sha
-				shaTag:   version.shaTag
+				envTag:   EnvTag
+				repo:     Repo
+				repoType: RepoType
+				branch:   Branch
+				sha:      Sha
+				shaTag:   ShaTag
 				image:    actions.image.output
 			}
 		}
 
-		queue: [Region=string]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
-			_queue: utils.#Queue & {
-				env: {
-					AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
-					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
-					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
-					AWS_REGION: 		   "\(Region)"
-				}
-				params: {
-					event:  "deploy"
-					repo:   "js-ceramic"
-					envTag: "\(EnvTag)"
-					branch: "\(Branch)"
-					sha:    "\(Sha)"
-					shaTag: "\(ShaTag)"
-				}
+		queue: [Region=aws.#Region]: [EnvTag=string]: [Repo=string]: [RepoType=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: utils.#Queue & {
+			env: {
+				AWS_ACCOUNT_ID: 	   client.env.AWS_ACCOUNT_ID
+				AWS_ACCESS_KEY_ID: 	   client.env.AWS_ACCESS_KEY_ID
+				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
+				AWS_REGION: 		   Region
+			}
+			params: {
+				event:	  "deploy"
+				envTag:   EnvTag
+				repo:     Repo
+				repoType: RepoType
+				branch:   Branch
+				sha:      Sha
+				shaTag:   ShaTag
 			}
 		}
 	}

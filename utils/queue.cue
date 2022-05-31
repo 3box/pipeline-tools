@@ -18,12 +18,13 @@ import (
 	}
 
 	params: {
-		event:  "deploy" | "smoke" | "e2e" | "anchor"
-		envTag: "dev" | "qa" | "tnet" | "prod"
-		repo:   "js-ceramic" | "ceramic-anchor-service" | "go-ipfs-daemon"
-		branch: "dev" | "develop" | "release-candidate" | "tnet" | "main" | "master"
-		sha:    string
-		shaTag: string
+		event:    "deploy" | "smoke" | "e2e" | "anchor"
+		envTag:   "dev" | "qa" | "tnet" | "prod"
+		repo:     "js-ceramic" | "ceramic-anchor-service" | "go-ipfs-daemon"
+		repoType: "ceramic" | "cas" | "ipfs"
+		branch:   "dev" | "develop" | "release-candidate" | "tnet" | "main" | "master"
+		sha:      string
+		shaTag:   string
 	}
 
 	send: cli.#Command & {

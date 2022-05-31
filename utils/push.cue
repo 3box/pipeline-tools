@@ -17,7 +17,7 @@ import (
 	}
 
 	params: {
-		envTag:   *"dev" | "qa" | "tnet" | "prod"
+		envTag:   "dev" | "qa" | "tnet" | "prod"
 		repo:     "js-ceramic" | "ceramic-anchor-service" | "go-ipfs-daemon"
 		repoType: "ceramic" | "cas" | "ipfs"
 		branch:   "dev" | "develop" | "release-candidate" | "tnet" | "main" | "master"

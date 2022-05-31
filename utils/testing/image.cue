@@ -55,7 +55,7 @@ import (
 					echo Waiting for Ceramic daemon to start...
 					curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 
-					if grep -q "Alive!" curl.out
+					if grep -q "200" curl.out
 					then
 						echo Healthcheck passed
 						exit 0
