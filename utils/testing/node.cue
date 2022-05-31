@@ -23,10 +23,10 @@ import (
         }
         script:  contents: #"""
         	pwd
-            #npm ci
-            #npm run lint
-            #npm run build
-            #npm run test
+            npm ci
+            npm run lint
+            npm run build
+            npm run test
         """#
     }
 }
