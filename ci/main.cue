@@ -84,7 +84,10 @@ dagger.#Plan & {
                 curl -fsSL "https://raw.githubusercontent.com/dagger/dagger/v$DAGGER_VERSION/pkg/universe.dagger.io/aws/_scripts/install.sh" > $AWS_SCRIPTS/install.sh
                 chmod +x $AWS_SCRIPTS/install.sh
 
-                dagger project update "github.com/3box/pipeline-tools@v$PIPELINE_TOOLS_VER"
+                if [[ "$PIPELINE_TOOLS_VER" != 'develop' ]]; then
+                    PIPELINE_TOOLS_VER="v$PIPELINE_TOOLS_VER"
+                fi
+                dagger project update "github.com/3box/pipeline-tools@$PIPELINE_TOOLS_VER"
 
                 dagger do test -p $DAGGER_PLAN
                 dagger do verify -p $DAGGER_PLAN
