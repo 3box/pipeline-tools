@@ -41,7 +41,7 @@ import (
 							glibc-i18n-${GLIBC_VERSION}.apk \
 						&& /usr/glibc-compat/bin/localedef -i en_US -f UTF-8 en_US.UTF-8 \
 						&& curl -sL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip \
-						&& unzip awscliv2.zip \
+						&& unzip -q awscliv2.zip \
 						&& aws/install \
 						&& rm -rf \
 							awscliv2.zip \
