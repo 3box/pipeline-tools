@@ -5,7 +5,6 @@ import (
 
 	"universe.dagger.io/aws"
 	"universe.dagger.io/docker"
-	"universe.dagger.io/docker/cli"
 
 	"github.com/3box/pipeline-tools/utils"
 )
