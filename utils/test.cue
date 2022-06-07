@@ -38,6 +38,7 @@ import (
 	dockerHost:		dagger.#Socket
 	endpoint:		string
 	port:			int
+	cmd:			*"GET" | "POST" | "PUT"
 
 	run: {
 		_loadImage: cli.#Load & {
@@ -70,6 +71,7 @@ import (
 			env: {
 				URL:     "http://0.0.0.0:\(port)/\(endpoint)"
 				TIMEOUT: "30"
+				CMD:	 "\(cmd)"
 				DEP:     "\(startImage.success)"
 			}
 			input: _cli.output
@@ -78,7 +80,7 @@ import (
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do
 					echo Waiting for image to start...
-					curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
+					curl -X $CMD --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 
 					if grep -q "200 OK" curl.out
 					then
@@ -92,6 +94,7 @@ import (
 
 				if [ $timeout -le 0 ]; then
 					echo Healthcheck failed
+					cat curl.out
 					exit 1
 				fi
 			"""#
@@ -111,4 +114,18 @@ import (
 			}
 		}
 	}
+}
+
+#TestNoop: {
+	_cli: alpine.#Build & {
+		packages: {
+			bash: {}
+		}
+	}
+    run: bash.#Run & {
+        input:  _cli.output
+        script: contents: #"""
+            echo "I'm a successful test!"
+        """#
+    }
 }

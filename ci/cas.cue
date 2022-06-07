@@ -3,8 +3,11 @@ package ci
 import (
 	"dagger.io/dagger"
 
+	"universe.dagger.io/alpine"
 	"universe.dagger.io/aws"
+	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
+	"universe.dagger.io/docker/cli"
 
 	"github.com/3box/pipeline-tools/utils"
 )
@@ -43,6 +46,7 @@ dagger.#Plan & {
 	actions: {
 		_repo:	   	   "ceramic-anchor-service"
 		_source:   	   client.filesystem.source.read.contents
+		_dockerHost:   client.network."unix:///var/run/docker.sock".connect
 
 		version: utils.#Version & {
 			src: _source
@@ -56,11 +60,65 @@ dagger.#Plan & {
 			source: _source
 		}
 
-		verify: utils.#TestImage & {
-			testImage:     image.output
-			endpoint:	   "api/v0/healthcheck"
-			port:		   8081
-			dockerHost:    client.network."unix:///var/run/docker.sock".connect
+		verify: {
+			_endpoint:	"api/v0/healthcheck"
+			_port:		8081
+			_loadImage: cli.#Load & {
+				image:    actions.image.output
+				host:     _dockerHost
+				tag:      "cas-ci-test"
+			}
+			_cli: alpine.#Build & {
+				packages: {
+					bash:             {}
+					curl:             {}
+					"docker-cli":     {}
+					"docker-compose": {}
+				}
+			}
+			healthcheck: bash.#Run & {
+				env: {
+					URL:     "http://0.0.0.0:\(_port)/\(_endpoint)"
+					TIMEOUT: "60"
+					DEP:	 "\(_loadImage.success)"
+				}
+				input: _cli.output
+				workdir: "/src"
+				mounts: source: {
+					dest:     "/src"
+					contents: _source
+				}
+				mounts: docker: {
+					contents: _dockerHost
+					dest:     "/var/run/docker.sock"
+				}
+				always: true
+                script: contents: #"""
+                    docker-compose down
+                    docker-compose up -d
+                    timeout=$TIMEOUT
+                    until [[ $timeout -le 0 ]]; do
+                        echo Waiting for image to start...
+                        curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
+
+                        if grep -q "200 OK" curl.out
+                        then
+                            echo Healthcheck passed
+                            docker-compose down
+                            exit 0
+                        fi
+
+                        sleep 1
+                        timeout=$(( timeout - 1 ))
+                    done
+
+                    if [ $timeout -le 0 ]; then
+                        echo Healthcheck failed
+                        docker-compose down
+                        exit 1
+                    fi
+                """#
+			}
 		}
 
 		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {

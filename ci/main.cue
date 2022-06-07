@@ -90,6 +90,7 @@ dagger.#Plan & {
                 dagger project update "github.com/3box/pipeline-tools@$PIPELINE_TOOLS_VER"
 
                 dagger do test -p $DAGGER_PLAN
+                dagger do image -p $DAGGER_PLAN
                 dagger do verify -p $DAGGER_PLAN
 
                 # The JSON output of the `build` action provides additional repository metadata to be used subsequently.

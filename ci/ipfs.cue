@@ -2,7 +2,6 @@ package ci
 
 import (
 	"dagger.io/dagger"
-	"dagger.io/dagger/core"
 
 	"universe.dagger.io/aws"
 	"universe.dagger.io/docker"
@@ -37,57 +36,54 @@ dagger.#Plan & {
 			"cue.mod",
 		]
 	}
-	// Dockerfile
-	client: filesystem: dockerfile: read: {
-		path: "."
-		contents: dagger.#FS
-		include: ["Dockerfile"]
-	}
 	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
-		_repo:			"go-ipfs-daemon"
-		_source:		client.filesystem.source.read.contents
-		_dockerfile:	client.filesystem.dockerfile.read.contents
+		_repo:	 "go-ipfs-daemon"
+		_source: client.filesystem.source.read.contents
 
 		version: utils.#Version & {
 			src: _source
 		}
 
-		test: utils.#Version & {
-			src: _source
-		}
+		test: utils.#TestNoop
 
 		image: docker.#Dockerfile & {
-			_file: core.#ReadFile & {
-				input: _dockerfile
-				path:  "Dockerfile"
-			}
 			source: _source
-			dockerfile: contents: _file.contents
 		}
 
-		verify: image.#Test & {
+		verify: utils.#TestImage & {
 			testImage:  image.output
+			endpoint:	"api/v0/version"
+			port:		5001
+			cmd:		"POST"
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
-		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: utils.#Push & {
-			ecrRepo: "go-ipfs-\(EnvTag)"
-			env: {
-				AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
-				AWS_ECR_SECRET: 	client.commands.aws.stdout
-				AWS_REGION: 		Region
-				DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
-				DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
-			}
-			params: {
+		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
+			_params: {
 				repo:     _repo
 				envTag:   EnvTag
 				branch:   Branch
 				sha:      Sha
 				shaTag:   ShaTag
 				image:    actions.image.output
+			}
+			ecr: utils.#ECR & {
+				repo: "go-ipfs-\(EnvTag)"
+				env: {
+					AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
+					AWS_ECR_SECRET: 	client.commands.aws.stdout
+					AWS_REGION: 		Region
+				}
+				params: _params
+			}
+			dockerhub: utils.#Dockerhub & {
+				env: {
+					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
+					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
+				}
+				params: _params
 			}
 		}
 

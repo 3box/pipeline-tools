@@ -6,7 +6,7 @@ import (
 )
 
 #Runner: {
-	ver: string
+	ver: string | *"0.2.15"
 	docker.#Build & {
 		steps: [
 			alpine.#Build & {
