@@ -7,7 +7,6 @@ import (
 	"universe.dagger.io/aws"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
-	"universe.dagger.io/docker/cli"
 
 	"github.com/3box/pipeline-tools/utils"
 )
@@ -63,11 +62,6 @@ dagger.#Plan & {
 		verify: {
 			_endpoint:	"api/v0/healthcheck"
 			_port:		8081
-			_loadImage: cli.#Load & {
-				image:    actions.image.output
-				host:     _dockerHost
-				tag:      "cas-ci-test"
-			}
 			_cli: alpine.#Build & {
 				packages: {
 					bash:             {}
@@ -79,8 +73,7 @@ dagger.#Plan & {
 			healthcheck: bash.#Run & {
 				env: {
 					URL:     "http://0.0.0.0:\(_port)/\(_endpoint)"
-					TIMEOUT: "60"
-					DEP:	 "\(_loadImage.success)"
+					TIMEOUT: "30"
 				}
 				input: _cli.output
 				workdir: "/src"
@@ -129,15 +122,6 @@ dagger.#Plan & {
 				sha:      Sha
 				shaTag:   ShaTag
 				image:    actions.image.output
-			}
-			ecr: utils.#ECR & {
-				repo: "ceramic-\(EnvTag)-cas"
-				env: {
-					AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
-					AWS_ECR_SECRET: 	client.commands.aws.stdout
-					AWS_REGION: 		Region
-				}
-				params: _params
 			}
 			dockerhub: utils.#Dockerhub & {
 				env: {

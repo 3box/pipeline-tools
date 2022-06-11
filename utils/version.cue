@@ -57,14 +57,14 @@ import (
                 COMPONENT='ipfs'
             fi
 
-            echo -n $ENV_TAG                      > /envTag
-            echo -n $REPO                         > /repo
-            echo -n $COMPONENT                    > /component
-            echo -n $BRANCH                       > /branch
-            echo -n $(git rev-parse HEAD)         > /sha
-            echo -n $(git rev-parse --short HEAD) > /shaTag
-            echo -n $(git log -1 --pretty=%B)     > /message
-            echo -n $PUBLISH                      > /publish
+            echo -n $ENV_TAG                         > /envTag
+            echo -n $REPO                            > /repo
+            echo -n $COMPONENT                       > /component
+            echo -n $BRANCH                          > /branch
+            echo -n $(git rev-parse HEAD)            > /sha
+            echo -n $(git rev-parse --short=12 HEAD) > /shaTag
+            echo -n $(git log -1 --pretty=%B)        > /message
+            echo -n $PUBLISH                         > /publish
         """#
         export: files: {
             "/envTag":	  string
