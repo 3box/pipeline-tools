@@ -73,7 +73,7 @@ dagger.#Plan & {
 			healthcheck: bash.#Run & {
 				env: {
 					URL:     "http://0.0.0.0:\(_port)/\(_endpoint)"
-					TIMEOUT: "30"
+					TIMEOUT: "60"
 				}
 				input: _cli.output
 				workdir: "/src"
@@ -115,20 +115,19 @@ dagger.#Plan & {
 		}
 
 		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
-			_params: {
-				repo:     _repo
-				envTag:   EnvTag
-				branch:   Branch
-				sha:      Sha
-				shaTag:   ShaTag
-				image:    actions.image.output
-			}
 			dockerhub: utils.#Dockerhub & {
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
 				}
-				params: _params
+				params: {
+					repo:     _repo
+					envTag:   EnvTag
+					branch:   Branch
+					sha:      Sha
+					shaTag:   ShaTag
+					image:    actions.image.output
+				}
 			}
 		}
 

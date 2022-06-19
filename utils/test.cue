@@ -70,7 +70,7 @@ import (
 		healthcheck: bash.#Run & {
 			env: {
 				URL:     "http://0.0.0.0:\(port)/\(endpoint)"
-				TIMEOUT: "30"
+				TIMEOUT: "60"
 				CMD:	 "\(cmd)"
 				DEP:     "\(startImage.success)"
 			}
