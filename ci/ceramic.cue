@@ -20,8 +20,16 @@ dagger.#Plan & {
 		DOCKERHUB_USERNAME:    string
 		DOCKERHUB_TOKEN:       dagger.#Secret
 		// Runtime
-		DAGGER_LOG_FORMAT:     string | *"plain"
-		DAGGER_LOG_LEVEL:      string | *"info"
+        PIPELINE_TOOLS_VER:    string | *"develop"
+        DAGGER_LOG_FORMAT:     string | *"plain"
+        DAGGER_LOG_LEVEL:      string | *"info"
+        DAGGER_VERSION:        string | *"0.2.20"
+        DAGGER_CACHE_TO:       string | *""
+        DAGGER_CACHE_FROM:     string | *""
+        GITHUB_ACTIONS:        string | *""
+        ACTIONS_CONTEXT:       string | *""
+        ACTIONS_RUNTIME_TOKEN: string | *""
+        ACTIONS_CACHE_URL:     string | *""
 	}
 	client: commands: aws: {
 		name: "aws"
@@ -65,24 +73,17 @@ dagger.#Plan & {
 		_imageSource:	client.filesystem.imageSource.read.contents
 		_dockerfile:	client.filesystem.dockerfile.read.contents
 
-		version: utils.#Version & {
+        testJs:  utils.#TestNode & {
 			src: _fullSource
+			run: env: IPFS_FLAVOR: "js"
 		}
 
-		test: {
-			// These steps can be run in parallel in separate containers
-			testJs:  utils.#TestNode & {
-				src: _fullSource
-				run: env: IPFS_FLAVOR: "js"
-				run: env: NODE_OPTIONS: "--max_old_space_size=4096"
-			}
-			testGo:  utils.#TestNode & {
-				src: _fullSource
-				run: env: IPFS_FLAVOR: "go"
-			}
+		testGo:  utils.#TestNode & {
+			src: _fullSource
+			run: env: IPFS_FLAVOR: "go"
 		}
 
-		image: docker.#Dockerfile & {
+		_image: docker.#Dockerfile & {
 			_file: core.#ReadFile & {
 				input: _dockerfile
 				path:  "Dockerfile.daemon"
@@ -92,7 +93,7 @@ dagger.#Plan & {
 		}
 
 		verify: utils.#TestImage & {
-			testImage:  image.output
+			testImage:  _image.output
 			endpoint:	"api/v0/node/healthcheck"
 			port:		7007
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
@@ -105,7 +106,7 @@ dagger.#Plan & {
 				branch:   Branch
 				sha:      Sha
 				shaTag:   ShaTag
-				image:    actions.image.output
+				image:    _image.output
 			}
 			ecr: utils.#ECR & {
 				repo: "ceramic-\(EnvTag)"
@@ -140,6 +141,11 @@ dagger.#Plan & {
 				sha:      Sha
 				shaTag:   ShaTag
 			}
+		}
+
+		docs: utils.#Docs & {
+			src: _fullSource
+			run: env: NODE_OPTIONS: "--max_old_space_size=3584"
 		}
 	}
 }

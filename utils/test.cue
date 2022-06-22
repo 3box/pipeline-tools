@@ -14,9 +14,10 @@ import (
     ver: int | *16
 
     _node: docker.#Pull & {
-        source: "node:16"
+        source: "node:\(ver)"
     }
     run: bash.#Run & {
+    	env: NODE_OPTIONS: "--max_old_space_size=4096"
         input:   _node.output
         workdir: "./src"
         mounts:  source: {
