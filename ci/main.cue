@@ -15,6 +15,7 @@ dagger.#Plan & {
         AWS_REGION:            dagger.#Secret
         AWS_ACCESS_KEY_ID:     dagger.#Secret
         AWS_SECRET_ACCESS_KEY: dagger.#Secret
+        AWS_SQS_URL:           dagger.#Secret
         DOCKERHUB_USERNAME:    dagger.#Secret
         DOCKERHUB_TOKEN:       dagger.#Secret
         // Runtime
@@ -49,6 +50,7 @@ dagger.#Plan & {
                 AWS_REGION:            client.env.AWS_REGION
                 AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
                 AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
+                AWS_SQS_URL:           client.env.AWS_SQS_URL
                 DOCKERHUB_USERNAME:    client.env.DOCKERHUB_USERNAME
                 DOCKERHUB_TOKEN:       client.env.DOCKERHUB_TOKEN
                 // Runtime
