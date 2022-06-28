@@ -10,6 +10,11 @@ import (
 	"github.com/3box/pipeline-tools/utils"
 )
 
+#Branch: "develop" | "release-candidate" | "main"
+#EnvTag: "dev" | "qa" | "tnet" | "prod"
+#Sha:	 =~"[0-9a-f]{40}"
+#ShaTag: =~"[0-9a-f]{12}"
+
 dagger.#Plan & {
 	client: env: {
 		// Secrets
@@ -20,16 +25,8 @@ dagger.#Plan & {
 		DOCKERHUB_USERNAME:    string
 		DOCKERHUB_TOKEN:       dagger.#Secret
 		// Runtime
-        PIPELINE_TOOLS_VER:    string | *"develop"
         DAGGER_LOG_FORMAT:     string | *"plain"
         DAGGER_LOG_LEVEL:      string | *"info"
-        DAGGER_VERSION:        string | *"0.2.20"
-        DAGGER_CACHE_TO:       string | *""
-        DAGGER_CACHE_FROM:     string | *""
-        GITHUB_ACTIONS:        string | *""
-        ACTIONS_CONTEXT:       string | *""
-        ACTIONS_RUNTIME_TOKEN: string | *""
-        ACTIONS_CACHE_URL:     string | *""
 	}
 	client: commands: aws: {
 		name: "aws"
@@ -99,30 +96,47 @@ dagger.#Plan & {
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
-		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
-			_params: {
-				repo:     _repo
-				envTag:   EnvTag
-				branch:   Branch
-				sha:      Sha
-				shaTag:   ShaTag
-				image:    _image.output
+		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
+			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
+			_tags:	   [...string]
+			{
+				Branch == "main"
+				_tags: _baseTags + ["latest"]
+			} | {
+				_tags: _baseTags
 			}
-			ecr: utils.#ECR & {
-				repo: "ceramic-\(EnvTag)"
-				env: {
-					AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
-					AWS_ECR_SECRET: 	client.commands.aws.stdout
-					AWS_REGION: 		Region
+			ecr: {
+				if Branch == "develop" {
+					qa: utils.#ECR & {
+						img: _image.output
+						env: {
+							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+							AWS_ECR_SECRET: client.commands.aws.stdout
+							AWS_REGION: 	Region
+							REPO:			"ceramic-qa"
+							TAGS:			_baseTags + ["qa"]
+						}
+					}
 				}
-				params: _params
+				utils.#ECR & {
+					img: _image.output
+					env: {
+						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+						AWS_ECR_SECRET: client.commands.aws.stdout
+						AWS_REGION: 	Region
+						REPO:			"ceramic-\(EnvTag)"
+						TAGS:			_tags
+					}
+				}
 			}
 			dockerhub: utils.#Dockerhub & {
+				img: _image.output
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
+					REPO:				_repo
+					TAGS:				_tags
 				}
-				params: _params
 			}
 		}
 

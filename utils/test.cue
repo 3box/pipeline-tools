@@ -64,23 +64,30 @@ import (
 		}
 		_cli: alpine.#Build & {
 			packages: {
-				bash: {}
-				curl: {}
+				bash: 		  {}
+				curl: 		  {}
+				"docker-cli": {}
 			}
 		}
 		healthcheck: bash.#Run & {
 			env: {
-				URL:     "http://0.0.0.0:\(port)/\(endpoint)"
-				TIMEOUT: "60"
-				CMD:	 "\(cmd)"
-				DEP:     "\(startImage.success)"
+				URL:     	"http://0.0.0.0:\(port)/\(endpoint)"
+				TIMEOUT: 	"60"
+				CMD:	 	"\(cmd)"
+				IMAGE_NAME: testImageName
+				DEP:     	"\(startImage.success)"
 			}
 			input: _cli.output
 			always: true
+			mounts: docker: {
+				contents: dockerHost
+				dest:     "/var/run/docker.sock"
+			}
 			script: contents: #"""
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do
-					echo Waiting for image to start...
+					echo -e "\n=============== Startup Logs ===============\n"
+					docker logs --details --timestamps --tail 100 "$IMAGE_NAME"
 					curl -X $CMD --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 
 					if grep -q "200 OK" curl.out

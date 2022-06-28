@@ -11,6 +11,11 @@ import (
 	"github.com/3box/pipeline-tools/utils"
 )
 
+#Branch: "develop" | "release-candidate" | "main"
+#EnvTag: "dev" | "qa" | "tnet" | "prod"
+#Sha:	 =~"[0-9a-f]{40}"
+#ShaTag: =~"[0-9a-f]{12}"
+
 dagger.#Plan & {
 	client: env: {
 		// Secrets
@@ -47,15 +52,11 @@ dagger.#Plan & {
 		_source:   	   client.filesystem.source.read.contents
 		_dockerHost:   client.network."unix:///var/run/docker.sock".connect
 
-		version: utils.#Version & {
-			src: _source
-		}
-
 		test: utils.#TestNode & {
 			src: _source
 		}
 
-		image: docker.#Dockerfile & {
+		_image: docker.#Dockerfile & {
 			source: _source
 		}
 
@@ -91,7 +92,8 @@ dagger.#Plan & {
                     docker-compose up -d
                     timeout=$TIMEOUT
                     until [[ $timeout -le 0 ]]; do
-                        echo Waiting for image to start...
+                        echo -e "\n=============== Startup Logs ===============\n"
+                        docker-compose logs --timestamps --tail=100
                         curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 
                         if grep -q "200 OK" curl.out
@@ -114,19 +116,22 @@ dagger.#Plan & {
 			}
 		}
 
-		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
+		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
+			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
+			_tags:	   [...string]
+			{
+				Branch == "main"
+				_tags: _baseTags + ["latest"]
+			} | {
+				_tags: _baseTags
+			}
 			dockerhub: utils.#Dockerhub & {
+				img: _image.output
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
-				}
-				params: {
-					repo:     _repo
-					envTag:   EnvTag
-					branch:   Branch
-					sha:      Sha
-					shaTag:   ShaTag
-					image:    actions.image.output
+					REPO:				_repo
+					TAGS:				_tags
 				}
 			}
 		}

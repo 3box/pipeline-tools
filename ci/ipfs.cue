@@ -9,6 +9,11 @@ import (
 	"github.com/3box/pipeline-tools/utils"
 )
 
+#Branch: "develop" | "release-candidate" | "main"
+#EnvTag: "dev" | "qa" | "tnet" | "prod"
+#Sha:	 =~"[0-9a-f]{40}"
+#ShaTag: =~"[0-9a-f]{12}"
+
 dagger.#Plan & {
 	client: env: {
 		// Secrets
@@ -42,48 +47,61 @@ dagger.#Plan & {
 		_repo:	 "go-ipfs-daemon"
 		_source: client.filesystem.source.read.contents
 
-		version: utils.#Version & {
-			src: _source
-		}
-
 		test: utils.#TestNoop
 
-		image: docker.#Dockerfile & {
+		_image: docker.#Dockerfile & {
 			source: _source
 		}
 
 		verify: utils.#TestImage & {
-			testImage:  image.output
+			testImage:  _image.output
 			endpoint:	"api/v0/version"
 			port:		5001
 			cmd:		"POST"
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
-		push: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: {
-			_params: {
-				repo:     _repo
-				envTag:   EnvTag
-				branch:   Branch
-				sha:      Sha
-				shaTag:   ShaTag
-				image:    actions.image.output
+		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
+			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
+			_tags:	   [...string]
+			{
+				Branch == "main"
+				_tags: _baseTags + ["latest"]
+			} | {
+				_tags: _baseTags
 			}
-			ecr: utils.#ECR & {
-				repo: "go-ipfs-\(EnvTag)"
-				env: {
-					AWS_ACCOUNT_ID: 	client.env.AWS_ACCOUNT_ID
-					AWS_ECR_SECRET: 	client.commands.aws.stdout
-					AWS_REGION: 		Region
+			ecr: {
+				if Branch == "develop" {
+					qa: utils.#ECR & {
+						img: _image.output
+						env: {
+							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+							AWS_ECR_SECRET: client.commands.aws.stdout
+							AWS_REGION: 	Region
+							REPO:			"go-ipfs-qa"
+							TAGS:			_baseTags + ["qa"]
+						}
+					}
 				}
-				params: _params
+				utils.#ECR & {
+					img: _image.output
+					env: {
+						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+						AWS_ECR_SECRET: client.commands.aws.stdout
+						AWS_REGION: 	Region
+						REPO:			"go-ipfs-\(EnvTag)"
+						TAGS:			_tags
+					}
+				}
 			}
 			dockerhub: utils.#Dockerhub & {
+				img: _image.output
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
+					REPO:				_repo
+					TAGS:				_tags
 				}
-				params: _params
 			}
 		}
 
