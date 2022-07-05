@@ -1,0 +1,19 @@
+[package]
+name = "ceramic-cd-manager"
+version = "0.1.0"
+authors = ["smrz2001 <2236875+smrz2001@users.noreply.github.com>", "v-stickykeys <8445610+v-stickykeys@users.noreply.github.com>"]
+edition = "2021"
+
+[dependencies]
+aws-config = "0.15.0"
+aws-sdk-ecs = "0.15.0"
+aws-sdk-dynamodb = "0.15.0"
+aws-sdk-sqs= "0.15.0"
+bytes = "1"
+futures = "0.3.21"
+rocket = "0.5.0-rc.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.59"
+structopt = { version = "0.3", default-features = false }
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = "0.2.18"
