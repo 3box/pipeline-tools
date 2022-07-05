@@ -10,7 +10,7 @@ on:
 
 env:
   # Dagger
-  DAGGER_PLAN: cue.mod/pkg/github.com/3box/pipeline-tools/ci/cd-manager.cue
+  DAGGER_PLAN: ../../ci/cd-manager.cue
   DAGGER_VERSION: "0.2.21"
   DAGGER_LOG_FORMAT: "plain"
   PIPELINE_TOOLS_VER: "0.1.3"
