@@ -18,14 +18,12 @@ env:
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  AWS_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
   # GitHub
   RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   STATUS_URL: "https://api.github.com/repos/3box/pipeline-tools/statuses/${{ github.sha }}"
-  BRANCH: "develop"
-  # TODO:
-  # ${{ github.ref_name }}
+  BRANCH: ${{ github.ref_name }}
   SHA: ${{ github.sha }}
 
 jobs:
