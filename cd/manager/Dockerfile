@@ -4,7 +4,6 @@ RUN USER=root cargo new --bin ceramic-cd-manager
 WORKDIR ./ceramic-cd-manager
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
-COPY ./Rocket.toml ./Rocket.toml
 RUN cargo build --release
 RUN rm src/*.rs
 
@@ -31,6 +30,7 @@ RUN apk update \
     && rm -rf /var/cache/apk/*
 
 COPY --from=builder /home/rust/src/ceramic-cd-manager/target/x86_64-unknown-linux-musl/release/ceramic-cd-manager ${APP}/ceramic-cd-manager
+COPY --from=builder /home/rust/src/ceramic-cd-manager/Rocket.toml ${APP}/
 
 RUN chown -R $APP_USER:$APP_USER ${APP}
 
