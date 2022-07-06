@@ -23,8 +23,7 @@ env:
   # GitHub
   RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   STATUS_URL: "https://api.github.com/repos/3box/pipeline-tools/statuses/${{ github.sha }}"
-  BRANCH: "develop"
-  #${{ github.ref_name }}
+  BRANCH: ${{ github.ref_name }}
   SHA: ${{ github.sha }}
 
 jobs:
