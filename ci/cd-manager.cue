@@ -61,18 +61,18 @@ dagger.#Plan & {
 				_tags: _baseTags
 			}
 			ecr: {
-//				if Branch == "develop" {
-//					qa: utils.#ECR & {
-//						img: _image.output
-//						env: {
-//							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
-//							AWS_ECR_SECRET: client.commands.aws.stdout
-//							AWS_REGION: 	Region
-//							REPO:			"ceramic-qa"
-//							TAGS:			_baseTags + ["qa"]
-//						}
-//					}
-//				}
+				if Branch == "develop" {
+					qa: utils.#ECR & {
+						img: _image.output
+						env: {
+							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+							AWS_ECR_SECRET: client.commands.aws.stdout
+							AWS_REGION: 	Region
+							REPO:			"ceramic-qa"
+							TAGS:			_baseTags + ["qa"]
+						}
+					}
+				}
 				utils.#ECR & {
 					img: _image.output
 					env: {
