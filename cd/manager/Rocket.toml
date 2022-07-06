@@ -1,0 +1,4 @@
+[release]
+address = "0.0.0.0"
+log_level = "normal"
+cli_colors = false
