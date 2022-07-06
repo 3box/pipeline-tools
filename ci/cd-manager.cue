@@ -22,8 +22,8 @@ dagger.#Plan & {
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY: dagger.#Secret
 		// Runtime
-        DAGGER_LOG_FORMAT:     string | *"plain"
-        DAGGER_LOG_LEVEL:      string | *"info"
+		DAGGER_LOG_FORMAT:     string | *"plain"
+		DAGGER_LOG_LEVEL:      string | *"info"
 	}
 	client: commands: aws: {
 		name: "aws"
@@ -68,7 +68,7 @@ dagger.#Plan & {
 							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 							AWS_ECR_SECRET: client.commands.aws.stdout
 							AWS_REGION: 	Region
-							REPO:			"ceramic-qa-cd-manager"
+							REPO:			"ceramic-qa-ops-cd-manager"
 							TAGS:			_baseTags + ["qa"]
 						}
 					}
@@ -79,7 +79,7 @@ dagger.#Plan & {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION: 	Region
-						REPO:			"ceramic-\(EnvTag)-cd-manager"
+						REPO:			"ceramic-\(EnvTag)-ops-cd-manager"
 						TAGS:			_tags
 					}
 				}

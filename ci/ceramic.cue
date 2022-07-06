@@ -4,7 +4,9 @@ import (
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
 
+	"universe.dagger.io/alpine"
 	"universe.dagger.io/aws"
+	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
 
 	"github.com/3box/pipeline-tools/utils"
@@ -25,8 +27,8 @@ dagger.#Plan & {
 		DOCKERHUB_USERNAME:    string
 		DOCKERHUB_TOKEN:       dagger.#Secret
 		// Runtime
-        DAGGER_LOG_FORMAT:     string | *"plain"
-        DAGGER_LOG_LEVEL:      string | *"info"
+		DAGGER_LOG_FORMAT:     string | *"plain"
+		DAGGER_LOG_LEVEL:      string | *"info"
 	}
 	client: commands: aws: {
 		name: "aws"
@@ -70,7 +72,7 @@ dagger.#Plan & {
 		_imageSource:	client.filesystem.imageSource.read.contents
 		_dockerfile:	client.filesystem.dockerfile.read.contents
 
-        testJs:  utils.#TestNode & {
+		testJs:  utils.#TestNode & {
 			src: _fullSource
 			run: env: IPFS_FLAVOR: "js"
 		}
@@ -96,17 +98,56 @@ dagger.#Plan & {
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
-		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
-			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
-			_tags:	   [...string]
+		version: {
+			_cli: alpine.#Build & {
+				packages: {
+					bash: {}
+					git:  {}
+					npm:  {}
+				}
+			}
+			run: bash.#Run & {
+				input:   _cli.output
+				workdir: "./src"
+				mounts:  source: {
+					dest:     "/src"
+					contents: _fullSource
+				}
+				script:  contents: #"""
+					npm install -g genversion
+					cd packages/cli
+					genversion version.ts
+					echo -n $(git rev-parse --abbrev-ref HEAD)					> /branch
+					echo -n $(git rev-parse HEAD)            					> /sha
+					echo -n $(git rev-parse --short=12 HEAD) 					> /shaTag
+					echo -n $(cat version.ts | sed -n "s/^.*'\(.*\)'.*$/\1/ p") > /version
+				"""#
+				export: files: {
+					"/branch": 	string
+					"/sha":		string
+					"/shaTag": 	string
+					"/version": string
+				}
+			}
+			branch:		run.export.files["/branch"]
+			sha:		run.export.files["/sha"]
+			shaTag:		run.export.files["/shaTag"]
+			version:	run.export.files["/version"]
+		}
+
+		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: [Version=string]: {
+			_tags:		["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)", "\(Version)"]
+			_extraTags:	[...string] | *[]
+			if EnvTag == "prod"
 			{
-				Branch == "main"
-				_tags: _baseTags + ["latest"]
-			} | {
-				_tags: _baseTags
+				_extraTags: ["latest"]
+			}
+			if EnvTag == "dev"
+			{
+				_extraTags: ["qa"]
 			}
 			ecr: {
-				if Branch == "develop" {
+				if EnvTag == "dev" {
 					qa: utils.#ECR & {
 						img: _image.output
 						env: {
@@ -114,7 +155,7 @@ dagger.#Plan & {
 							AWS_ECR_SECRET: client.commands.aws.stdout
 							AWS_REGION: 	Region
 							REPO:			"ceramic-qa"
-							TAGS:			_baseTags + ["qa"]
+							TAGS:			_tags + _extraTags
 						}
 					}
 				}
@@ -125,7 +166,7 @@ dagger.#Plan & {
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION: 	Region
 						REPO:			"ceramic-\(EnvTag)"
-						TAGS:			_tags
+						TAGS:			_tags + _extraTags
 					}
 				}
 			}
@@ -135,25 +176,32 @@ dagger.#Plan & {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
 					REPO:				_repo
-					TAGS:				_tags
+					TAGS:				_tags + _extraTags
 				}
 			}
 		}
 
-		queue: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: utils.#Queue & {
+		queue: [Region=aws.#Region]: [EnvTag=string]: utils.#Queue & {
+			_version: version
+			_envTag: string | *EnvTag
+			// Push to the QA queue for "dev"
+			if EnvTag == "dev"
+			{
+				_envTag: "qa"
+			}
 			env: {
 				AWS_ACCOUNT_ID: 	   client.env.AWS_ACCOUNT_ID
 				AWS_ACCESS_KEY_ID: 	   client.env.AWS_ACCESS_KEY_ID
 				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
 				AWS_REGION: 		   Region
+				ENV_TAG:			   _envTag
 			}
 			params: {
-				event:	  "deploy"
-				repo:     _repo
-				envTag:   EnvTag
-				branch:   Branch
-				sha:      Sha
-				shaTag:   ShaTag
+				event:		"deploy"
+				component:	"ceramic"
+				sha:		"\(_version.sha)"
+				shaTag:		"\(_version.shaTag)"
+				version:	"\(_version.version)"
 			}
 		}
 

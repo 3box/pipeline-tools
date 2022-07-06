@@ -8,23 +8,23 @@ import (
 )
 
 #Docs: {
-    src: dagger.#FS
-    ver: int | *16
+	src: dagger.#FS
+	ver: int | *16
 
-    _node: docker.#Pull & {
-        source: "node:\(ver)"
+	_node: docker.#Pull & {
+		source: "node:\(ver)"
    }
-    run: bash.#Run & {
-        input:   _node.output
-        workdir: "./src"
-        mounts:  source: {
-            dest:     "/src"
-            contents: src
-        }
-        script:  contents: #"""
-            npm ci
-            npm run build
-            npm run docs
-        """#
-    }
+	run: bash.#Run & {
+		input:   _node.output
+		workdir: "./src"
+		mounts:  source: {
+			dest:     "/src"
+			contents: src
+		}
+		script:  contents: #"""
+			npm ci
+			npm run build
+			npm run docs
+		"""#
+	}
 }

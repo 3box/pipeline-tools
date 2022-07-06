@@ -87,32 +87,32 @@ dagger.#Plan & {
 					dest:     "/var/run/docker.sock"
 				}
 				always: true
-                script: contents: #"""
-                    docker-compose down
-                    docker-compose up -d
-                    timeout=$TIMEOUT
-                    until [[ $timeout -le 0 ]]; do
-                        echo -e "\n=============== Startup Logs ===============\n"
-                        docker-compose logs --timestamps --tail=100
-                        curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
+				script: contents: #"""
+					docker-compose down
+					docker-compose up -d
+					timeout=$TIMEOUT
+					until [[ $timeout -le 0 ]]; do
+						echo -e "\n=============== Startup Logs ===============\n"
+						docker-compose logs --timestamps --tail=100
+						curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 
-                        if grep -q "200 OK" curl.out
-                        then
-                            echo Healthcheck passed
-                            docker-compose down
-                            exit 0
-                        fi
+						if grep -q "200 OK" curl.out
+						then
+							echo Healthcheck passed
+							docker-compose down
+							exit 0
+						fi
 
-                        sleep 1
-                        timeout=$(( timeout - 1 ))
-                    done
+						sleep 1
+						timeout=$(( timeout - 1 ))
+					done
 
-                    if [ $timeout -le 0 ]; then
-                        echo Healthcheck failed
-                        docker-compose down
-                        exit 1
-                    fi
-                """#
+					if [ $timeout -le 0 ]; then
+						echo Healthcheck failed
+						docker-compose down
+						exit 1
+					fi
+				"""#
 			}
 		}
 

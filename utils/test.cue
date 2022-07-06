@@ -10,27 +10,27 @@ import (
 )
 
 #TestNode: {
-    src: dagger.#FS
-    ver: int | *16
+	src: dagger.#FS
+	ver: int | *16
 
-    _node: docker.#Pull & {
-        source: "node:\(ver)"
-    }
-    run: bash.#Run & {
-    	env: NODE_OPTIONS: "--max_old_space_size=4096"
-        input:   _node.output
-        workdir: "./src"
-        mounts:  source: {
-            dest:     "/src"
-            contents: src
-        }
-        script:  contents: #"""
-            npm ci
-            npm run lint
-            npm run build
-            npm run test
-        """#
-    }
+	_node: docker.#Pull & {
+		source: "node:\(ver)"
+	}
+	run: bash.#Run & {
+		env: NODE_OPTIONS: "--max_old_space_size=4096"
+		input:   _node.output
+		workdir: "./src"
+		mounts:  source: {
+			dest:     "/src"
+			contents: src
+		}
+		script:  contents: #"""
+			npm ci
+			npm run lint
+			npm run build
+			npm run test
+		"""#
+	}
 }
 
 #TestImage: {
@@ -58,7 +58,7 @@ import (
 			command: {
 				name: "sh"
 				flags: "-c": #"""
-					docker run -d --rm --name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
+					docker run -d --name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
 				"""#
 			}
 		}
@@ -130,10 +130,10 @@ import (
 			bash: {}
 		}
 	}
-    run: bash.#Run & {
-        input:  _cli.output
-        script: contents: #"""
-            echo "I'm a successful test!"
-        """#
-    }
+	run: bash.#Run & {
+		input:  _cli.output
+		script: contents: #"""
+			echo "I'm a successful test!"
+		"""#
+	}
 }

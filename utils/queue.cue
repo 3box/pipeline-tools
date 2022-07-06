@@ -15,15 +15,15 @@ import (
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY: dagger.#Secret
 		AWS_REGION: 		   aws.#Region
+		ENV_TAG:			   string
 	}
 
 	params: {
-		event:    "deploy" | "smoke" | "e2e" | "anchor"
-		envTag:   "dev" | "qa" | "tnet" | "prod"
-		repo:     "js-ceramic" | "ceramic-anchor-service" | "go-ipfs-daemon"
-		branch:   "dev" | "develop" | "release-candidate" | "tnet" | "main" | "master"
-		sha:      string
-		shaTag:   string
+		event:    	"deploy"
+		component:  "ceramic" | "cas" | "ipfs"
+		sha:      	string
+		shaTag:   	string
+		version:	string | *""
 	}
 
 	send: cli.#Command & {
@@ -37,7 +37,7 @@ import (
 			command: "send-message"
 			args: [
 				"--queue-url",
-				"https://sqs.\(env.AWS_REGION).amazonaws.com/\(env.AWS_ACCOUNT_ID)/ceramic-ci-\(params.envTag).fifo",
+				"https://sqs.\(env.AWS_REGION).amazonaws.com/\(env.AWS_ACCOUNT_ID)/ceramic-\(env.ENV_TAG)-ops.fifo",
 				"--message-body",
 				"\"\(json.Marshal(params))\"",
 				"--message-group-id",

@@ -1,8 +1,8 @@
 package utils
 
 import (
-    "universe.dagger.io/alpine"
-    "universe.dagger.io/docker"
+	"universe.dagger.io/alpine"
+	"universe.dagger.io/docker"
 )
 
 #Runner: {
