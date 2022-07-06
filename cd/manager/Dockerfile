@@ -4,6 +4,7 @@ RUN USER=root cargo new --bin ceramic-cd-manager
 WORKDIR ./ceramic-cd-manager
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
+COPY ./Rocket.toml ./Rocket.toml
 RUN cargo build --release
 RUN rm src/*.rs
 
