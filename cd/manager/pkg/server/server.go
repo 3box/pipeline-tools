@@ -1,34 +1,27 @@
 package server
 
 import (
-	"log"
+	"context"
 	"net/http"
-	"os"
+	"time"
 )
 
-//HelloHandler handles requests for the `/hello` resource
-func HelloHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Hello, Web!\n"))
+func healthcheckHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Alive!\n"))
+	}
 }
 
-func server() {
-	addr := os.Getenv("SERVER_ADDR")
-
-	//if it's blank, default to ":80", which means
-	//listen port 80 for requests addressed to any host
-	if len(addr) == 0 {
-		addr = ":80"
+func timeHandler(format string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tm := time.Now().Format(format)
+		w.Write([]byte("The time is: " + tm))
 	}
+}
 
-	//create a new mux (router)
-	//the mux calls different functions for
-	//different resource paths
+func SetUp(addr string, ctx context.Context) http.Server {
 	mux := http.NewServeMux()
-
-	//tell it to call the HelloHandler() function
-	//when someone requests the resource path `/hello`
-	mux.HandleFunc("/hello", HelloHandler)
-
-	log.Printf("server is listening at %s...", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	mux.Handle("/healthcheck", healthcheckHandler())
+	mux.Handle("/time", timeHandler(time.RFC1123))
+	return http.Server{Addr: addr, Handler: mux}
 }

@@ -2,8 +2,8 @@ package aws
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -55,7 +55,7 @@ func (s Sqs) Send(ctx context.Context, job cloud.Job) (string, error) {
 	return "", nil
 }
 
-func (s Sqs) Receive(ctx context.Context) ([]cloud.Job, error) {
+func (s Sqs) Receive(messages chan cloud.QueueMessage, ctx context.Context) error {
 	// Must always be above `WaitTimeSeconds` otherwise `ReceiveMessage` will trigger a context timeout error.
 	ctx, cancel := context.WithTimeout(ctx, WaitTime+1*time.Second)
 	defer cancel()
@@ -69,34 +69,25 @@ func (s Sqs) Receive(ctx context.Context) ([]cloud.Job, error) {
 		VisibilityTimeout:     int32(VisibilityTimeout.Seconds()),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("sqs: receive error: %w", err)
+		return fmt.Errorf("sqs: receive error: %w", err)
 	}
 
-	jobs := make([]cloud.Job, len(res.Messages))
-	for idx, message := range res.Messages {
-		jobs[idx].Id = *message.MessageId
-		jobs[idx].RxId = *message.ReceiptHandle
-		msgGrpId := message.Attributes["MessageGroupId"]
-		switch msgGrpId {
-		case "deploy":
-			{
-				jobs[idx].Type = cloud.JobType_Deploy
-				// Parse deployment parameters
-				if err = json.Unmarshal([]byte(*message.Body), &jobs[idx].Params); err != nil {
-					return nil, fmt.Errorf("sqs: could not unmarshal job: %w", err)
-				}
-			}
-		case "anchor":
-			jobs[idx].Type = cloud.JobType_Anchor
-		case "e2e":
-			jobs[idx].Type = cloud.JobType_E2E
-		case "smoke":
-			jobs[idx].Type = cloud.JobType_Smoke
-		default:
-			return nil, fmt.Errorf("sqs: invalid job: %v", message)
-		}
+	log.Println(len(res.Messages))
+	if len(res.Messages) < 1 {
+		log.Println("No messages received")
 	}
-	return jobs, nil
+
+	for _, message := range res.Messages {
+		log.Println("in message go")
+		queueMessage := cloud.QueueMessage{
+			Id:         *message.MessageId,
+			ReceiptId:  *message.ReceiptHandle,
+			Attributes: message.Attributes,
+			Body:       *message.Body,
+		}
+		messages <- queueMessage
+	}
+	return nil
 }
 
 func (s Sqs) Delete(ctx context.Context, rxId string) error {

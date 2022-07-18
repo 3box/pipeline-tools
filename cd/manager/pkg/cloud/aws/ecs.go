@@ -3,11 +3,12 @@ package aws
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
+
 	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
-	"log"
-	"time"
 )
 
 var _ cloud.Deployment = &Ecs{}
@@ -41,23 +42,26 @@ func (e Ecs) UpdateService(service, cluster string) error {
 	return nil
 }
 
-func (e Ecs) LaunchService(family, cluster string) error {
+func (e Ecs) Launch(cluster, service, family string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
 	defer cancel()
 
 	in := &ecs.DescribeServicesInput{
-		Services: []string{family},
+		Services: []string{service},
 		Cluster:  aws.String(cluster),
 	}
 	op, err := e.client.DescribeServices(ctx, in)
 	if err != nil {
 		return fmt.Errorf("ecs: describe service error: %s, %s, %w", family, cluster, err)
 	}
-	log.Printf("ecs: describe service: %s", op)
+	log.Printf("ecs: describe service: %v", op)
 	input := &ecs.RunTaskInput{
-		TaskDefinition: aws.String(family),
-		Cluster:        aws.String(cluster),
-		Count:          aws.Int32(1),
+		TaskDefinition:       aws.String(family),
+		Cluster:              aws.String(cluster),
+		Count:                aws.Int32(1),
+		LaunchType:           "FARGATE",
+		NetworkConfiguration: op.Services[0].NetworkConfiguration,
+		StartedBy:            aws.String("cd-manager"),
 	}
 	_, err = e.client.RunTask(ctx, input)
 	if err != nil {

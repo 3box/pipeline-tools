@@ -1,20 +1,29 @@
 package cloud
 
-import "context"
+import (
+	"context"
+)
+
+type QueueMessage struct {
+	Id         string
+	ReceiptId  string
+	Body       string
+	Attributes map[string]string
+}
 
 type Queue interface {
-	Receive(context.Context) ([]Job, error)
+	Receive(chan QueueMessage, context.Context) error
 	Send(context.Context, Job) (string, error)
 }
 
 type JobType uint8
 
 const (
-	JobTypeInvalid JobType = iota
+	JobType_Invalid JobType = iota
 	JobType_Deploy
 	JobType_Anchor
-	JobType_E2E
-	JobType_Smoke
+	JobType_TestE2E
+	JobType_TestSmoke
 )
 
 type Job struct {
@@ -35,7 +44,7 @@ type Database interface {
 }
 
 type Deployment interface {
-	LaunchService(string, string) error
+	Launch(string, string, string) error
 	RestartService(string, string) error
 	UpdateService(string, string) error
 }
