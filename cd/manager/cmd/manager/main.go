@@ -58,6 +58,7 @@ func main() {
 		log.Println("Server stopped listening")
 	}()
 
+	// TODO: We either need to skip the following code, or use a fake SQS queue when validating the Docker image
 	cfg, accountId, err := aws.Config()
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
