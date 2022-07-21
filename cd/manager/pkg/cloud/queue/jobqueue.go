@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud"
 )
@@ -14,11 +15,12 @@ type JobQueue struct {
 	deployment cloud.Deployment
 	queue      cloud.Queue
 	db         cloud.Database
+	apiGw      cloud.ApiGw
 }
 
-func NewJobQueue(q cloud.Queue, db cloud.Database, d cloud.Deployment) (*JobQueue, error) {
+func NewJobQueue(q cloud.Queue, db cloud.Database, d cloud.Deployment, a cloud.ApiGw) (*JobQueue, error) {
 	block := make(chan bool)
-	return &JobQueue{block, d, q, db}, nil
+	return &JobQueue{block, d, q, db, a}, nil
 }
 
 func (jq *JobQueue) Stop() error {
@@ -134,6 +136,14 @@ func (jq *JobQueue) processJobs(
 					log.Printf("e2e: %v", job)
 				case cloud.JobType_TestSmoke:
 					log.Printf("smoke: %v", job)
+					// TODO: Replace this API call with an ECS task launch.
+					resourceId := os.Getenv("SMOKE_TEST_RESOURCE_ID")
+					restApiId := os.Getenv("SMOKE_TEST_REST_API_ID")
+					if resp, err := jq.apiGw.Invoke("GET", resourceId, restApiId, ""); err != nil {
+						log.Printf("smoke: api call failed: %s", err)
+					} else {
+						log.Printf("result: %s", resp)
+					}
 				default:
 					// TODO: Handle error
 					fmt.Errorf("sqs: invalid job: %v", job)

@@ -38,6 +38,10 @@ type State struct {
 	Id string
 }
 
+type ApiGw interface {
+	Invoke(string, string, string, string) (string, error)
+}
+
 type Database interface {
 	GetState(context.Context) (*State, error)
 	UpdateState(context.Context, *State) error

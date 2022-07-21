@@ -50,7 +50,8 @@ func main() {
 	q := aws.NewSqs(cfg, accountId, "dev")
 	db := aws.NewDynamoDb(cfg, env)
 	d := aws.NewEcs(cfg, env)
-	jq, err := queue.NewJobQueue(q, db, d)
+	a := aws.NewApi(cfg)
+	jq, err := queue.NewJobQueue(q, db, d, a)
 	if err != nil {
 		log.Fatalf("Failed to create job queue: %q", err)
 	}
