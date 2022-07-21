@@ -3,7 +3,6 @@ package aws
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
@@ -16,7 +15,6 @@ type Api struct {
 }
 
 func NewApi(cfg aws.Config) cloud.ApiGw {
-	log.Printf("api client: %s", cfg.HTTPClient)
 	return &Api{apigateway.NewFromConfig(cfg)}
 }
 

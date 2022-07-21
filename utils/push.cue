@@ -11,11 +11,11 @@ import (
 	img: docker.#Image
 
 	env: {
-		AWS_ACCOUNT_ID:     string
-		AWS_ECR_SECRET: 	dagger.#Secret
-		AWS_REGION: 		aws.#Region
-		REPO:				string
-		TAGS:				[...string]
+		AWS_ACCOUNT_ID: string
+		AWS_ECR_SECRET: dagger.#Secret
+		AWS_REGION:     aws.#Region
+		REPO:           string
+		TAGS: [...string]
 	}
 
 	push: {
@@ -25,7 +25,7 @@ import (
 				dest:  "\(env.AWS_ACCOUNT_ID).dkr.ecr.\(env.AWS_REGION).amazonaws.com/\(env.REPO):\(tag)"
 				auth: {
 					username: "AWS"
-					secret: env.AWS_ECR_SECRET
+					secret:   env.AWS_ECR_SECRET
 				}
 			}
 		}
@@ -37,9 +37,9 @@ import (
 
 	env: {
 		DOCKERHUB_USERNAME: string
-		DOCKERHUB_TOKEN: 	dagger.#Secret
-		REPO:				string
-		TAGS:				[...string]
+		DOCKERHUB_TOKEN:    dagger.#Secret
+		REPO:               string
+		TAGS: [...string]
 	}
 
 	push: {
@@ -49,7 +49,7 @@ import (
 				dest:  "ceramicnetwork/\(env.REPO):\(tag)"
 				auth: {
 					username: env.DOCKERHUB_USERNAME
-					secret: env.DOCKERHUB_TOKEN
+					secret:   env.DOCKERHUB_TOKEN
 				}
 			}
 		}

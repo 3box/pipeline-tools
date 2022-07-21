@@ -13,18 +13,18 @@ import (
 
 	_node: docker.#Pull & {
 		source: "node:\(ver)"
-   }
+	}
 	run: bash.#Run & {
 		input:   _node.output
 		workdir: "./src"
-		mounts:  source: {
+		mounts: source: {
 			dest:     "/src"
 			contents: src
 		}
-		script:  contents: #"""
-			npm ci
-			npm run build
-			npm run docs
-		"""#
+		script: contents: #"""
+				npm ci
+				npm run build
+				npm run docs
+			"""#
 	}
 }

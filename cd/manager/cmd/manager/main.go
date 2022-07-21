@@ -9,10 +9,12 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/alecthomas/kong"
+	"github.com/joho/godotenv"
+
 	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud/aws"
 	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud/queue"
 	"github.com/3box/pipeline-tools/cd/manager/pkg/server"
-	"github.com/alecthomas/kong"
 )
 
 type CliOptions struct {
@@ -20,6 +22,16 @@ type CliOptions struct {
 }
 
 func main() {
+	envFile := "env/.env"
+	env := os.Getenv("ENV")
+	if len(env) > 0 {
+		envFile += "." + env
+	}
+	err := godotenv.Load(envFile)
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
 	var cli CliOptions
@@ -29,12 +41,16 @@ func main() {
 	waitGroup.Add(3)
 	shutdownBlock := make(chan bool)
 
-	serverAddress := os.Getenv("CD_MANAGER_SERVER_ADDR")
-	serverContext := context.Background()
-	serverInstance := server.SetUp(serverAddress, serverContext)
+	serverAddress := os.Getenv("SERVER_ADDR")
 	if len(serverAddress) == 0 {
-		serverAddress = ":80"
+		serverAddress = "0.0.0.0"
 	}
+	serverPort := os.Getenv("SERVER_PORT")
+	if len(serverAddress) == 0 {
+		serverAddress = "8080"
+	}
+	serverContext := context.Background()
+	serverInstance := server.SetUp(serverAddress+":"+serverPort, serverContext)
 	go func() {
 		defer waitGroup.Done()
 		log.Printf("\nServer is listening at %s", serverAddress)
@@ -46,7 +62,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
 	}
-	env := os.Getenv("ENV")
 	q := aws.NewSqs(cfg, accountId, "dev")
 	db := aws.NewDynamoDb(cfg, env)
 	d := aws.NewEcs(cfg, env)
