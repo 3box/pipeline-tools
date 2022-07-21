@@ -41,11 +41,10 @@ import (
 	port:          int
 	cmd:           *"GET" | "POST" | "PUT"
 	testEnv: {
-		AWS_ACCOUNT_ID?:        string
 		AWS_REGION?:            string
 		AWS_ACCESS_KEY_ID?:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY?: dagger.#Secret
-		ENV?:                   "dev" | "tnet" | "prod"
+		ENV_TAG?:               "dev" | "qa" | "tnet" | "prod"
 	}
 
 	run: {
@@ -71,6 +70,7 @@ import (
 							-e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
 							-e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
 							-e AWS_REGION=$AWS_REGION \
+							-e ENV_TAG=$ENV_TAG \
 							--name "$IMAGE_NAME" \
 							-p "$PORTS" "$IMAGE_NAME"
 					"""#

@@ -24,6 +24,7 @@ dagger.#Plan & {
 		// Runtime
 		DAGGER_LOG_FORMAT: string | *"plain"
 		DAGGER_LOG_LEVEL:  string | *"info"
+		ENV_TAG:           #EnvTag
 	}
 	client: commands: aws: {
 		name: "aws"
@@ -46,10 +47,10 @@ dagger.#Plan & {
 
 		verify: utils.#TestImage & {
 			testEnv: {
-				AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
 				AWS_REGION:            client.env.AWS_REGION
 				AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
 				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
+				ENV_TAG:               client.env.ENV_TAG
 			}
 			testImage:  _image.output
 			endpoint:   "/healthcheck"

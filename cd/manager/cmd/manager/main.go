@@ -23,7 +23,7 @@ type CliOptions struct {
 
 func main() {
 	envFile := "env/.env"
-	env := os.Getenv("ENV")
+	env := os.Getenv("ENV_TAG")
 	if len(env) > 0 {
 		envFile += "." + env
 	}
@@ -62,7 +62,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
 	}
-	q := aws.NewSqs(cfg, accountId, "dev")
+	q := aws.NewSqs(cfg, accountId, env)
 	db := aws.NewDynamoDb(cfg, env)
 	d := aws.NewEcs(cfg, env)
 	a := aws.NewApi(cfg)
