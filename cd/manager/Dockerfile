@@ -1,40 +1,58 @@
-FROM ekidd/rust-musl-builder:stable as builder
+FROM golang:1.18.3-buster
 
-RUN USER=root cargo new --bin ceramic-cd-manager
-WORKDIR ./ceramic-cd-manager
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
-RUN cargo build --release
-RUN rm src/*.rs
+# Install deps
+RUN apt-get update && apt-get install -y \
+  libssl-dev \
+  ca-certificates \
+  fuse
 
-ADD . ./
+ENV SRC_DIR /cd-manager
 
-RUN rm ./target/x86_64-unknown-linux-musl/release/deps/ceramic_cd_manager*
-RUN cargo build --release
+# Download packages first so they can be cached.
+COPY go.mod go.sum $SRC_DIR/
+RUN cd $SRC_DIR \
+  && go mod download
+
+COPY . $SRC_DIR
+
+RUN cd $SRC_DIR/cmd/manager \
+  && CGO_ENABLED=0 GOOS=linux GOTAGS=openssl go build -a -o cd-manager .
+
+# Get tini, a very minimal init daemon for containers.
+ENV TINI_VERSION v0.19.0
+RUN set -eux; \
+    dpkgArch="$(dpkg --print-architecture)"; \
+    case "${dpkgArch##*-}" in \
+        "amd64" | "armhf" | "arm64") tiniArch="tini-static-$dpkgArch" ;;\
+        *) echo >&2 "unsupported architecture: ${dpkgArch}"; exit 1 ;; \
+    esac; \
+  cd /tmp \
+  && wget -q -O tini https://github.com/krallin/tini/releases/download/$TINI_VERSION/$tiniArch \
+  && chmod +x tini
+
+# Now comes the actual target image, which aims to be as small as possible.
+FROM busybox:1.31.1-glibc
+
+ARG ENV_TAG
+ENV ENV_TAG=$ENV_TAG
+
+# Get the cd-manager binary from the build container.
+ENV SRC_DIR /cd-manager
+COPY --from=0 $SRC_DIR/cmd/manager/cd-manager /usr/local/bin/manager/cd-manager
+COPY --from=0 $SRC_DIR/env/.env."$ENV_TAG" /usr/local/bin/manager/env/.env
+COPY --from=0 /tmp/tini /sbin/tini
+COPY --from=0 /etc/ssl/certs /etc/ssl/certs
+
+# This shared lib (part of glibc) doesn't seem to be included with busybox.
+COPY --from=0 /lib/*-linux-gnu*/libdl.so.2 /lib/
+
+# Copy over SSL libraries.
+COPY --from=0 /usr/lib/*-linux-gnu*/libssl.so* /usr/lib/
+COPY --from=0 /usr/lib/*-linux-gnu*/libcrypto.so* /usr/lib/
 
 
-FROM alpine:latest
+EXPOSE 8080
 
-ARG APP=/usr/src/app
+WORKDIR /usr/local/bin/manager
 
-EXPOSE 8000
-
-ENV TZ=Etc/UTC \
-    APP_USER=appuser
-
-RUN addgroup -S $APP_USER \
-    && adduser -S -g $APP_USER $APP_USER
-
-RUN apk update \
-    && apk add --no-cache ca-certificates tzdata \
-    && rm -rf /var/cache/apk/*
-
-COPY --from=builder /home/rust/src/ceramic-cd-manager/target/x86_64-unknown-linux-musl/release/ceramic-cd-manager ${APP}/ceramic-cd-manager
-COPY --from=builder /home/rust/src/ceramic-cd-manager/Rocket.toml ${APP}/
-
-RUN chown -R $APP_USER:$APP_USER ${APP}
-
-USER $APP_USER
-WORKDIR ${APP}
-
-CMD ["./ceramic-cd-manager"]
+CMD ["/sbin/tini", "-s", "./cd-manager"]
