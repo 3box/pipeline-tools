@@ -178,7 +178,7 @@ import (
 			}
 			script: contents: #"""
 				docker rm -f "$IMAGE_NAME"
-				docker run -d --name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
+				docker run -d --name "$IMAGE_NAME" -e AWS_ENDPOINT=http://localhost:4566/000000000000 -p "$PORTS" "$IMAGE_NAME"
 
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do

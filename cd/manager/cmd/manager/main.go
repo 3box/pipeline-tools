@@ -22,16 +22,10 @@ type CliOptions struct {
 }
 
 func main() {
-	envFile := "env/.env"
-	env := os.Getenv("ENV_TAG")
-	if len(env) > 0 {
-		envFile += "." + env
-	}
-	err := godotenv.Load(envFile)
-	if err != nil {
+	if err := godotenv.Load("env/.env"); err != nil {
 		log.Fatal("Error loading .env file")
 	}
-
+	log.Printf("Environment: %s", os.Getenv("ENV"))
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
 	var cli CliOptions

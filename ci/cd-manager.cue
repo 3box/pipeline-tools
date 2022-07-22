@@ -24,6 +24,7 @@ dagger.#Plan & {
 		// Runtime
 		DAGGER_LOG_FORMAT: string | *"plain"
 		DAGGER_LOG_LEVEL:  string | *"info"
+		ENV_TAG:           #EnvTag
 	}
 	client: commands: aws: {
 		name: "aws"
@@ -34,14 +35,16 @@ dagger.#Plan & {
 		path:     "."
 		contents: dagger.#FS
 		exclude: [
-			"target",
+			".github",
+			"cue.mod",
 		]
 	}
 	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
 		image: docker.#Dockerfile & {
-			source: client.filesystem.source.read.contents
+			buildArg: "ENV_TAG": client.env.ENV_TAG
+			source:   client.filesystem.source.read.contents
 		}
 
 		verify: utils.#TestLocalstack & {

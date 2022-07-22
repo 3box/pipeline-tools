@@ -33,10 +33,13 @@ RUN set -eux; \
 # Now comes the actual target image, which aims to be as small as possible.
 FROM busybox:1.31.1-glibc
 
+ARG ENV_TAG
+ENV ENV_TAG=$ENV_TAG
+
 # Get the cd-manager binary from the build container.
 ENV SRC_DIR /cd-manager
 COPY --from=0 $SRC_DIR/cmd/manager/cd-manager /usr/local/bin/manager/cd-manager
-COPY --from=0 $SRC_DIR/env/* /usr/local/bin/manager/env/
+COPY --from=0 $SRC_DIR/env/.env."$ENV_TAG" /usr/local/bin/manager/env/.env
 COPY --from=0 /tmp/tini /sbin/tini
 COPY --from=0 /etc/ssl/certs /etc/ssl/certs
 
@@ -47,7 +50,6 @@ COPY --from=0 /lib/*-linux-gnu*/libdl.so.2 /lib/
 COPY --from=0 /usr/lib/*-linux-gnu*/libssl.so* /usr/lib/
 COPY --from=0 /usr/lib/*-linux-gnu*/libcrypto.so* /usr/lib/
 
-ENV ENV_TAG=$ENV_TAG
 
 EXPOSE 8080
 
