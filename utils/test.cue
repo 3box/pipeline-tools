@@ -136,7 +136,7 @@ import (
 			}
 			script: contents: #"""
 				docker rm -f localstack
-				docker run -d --rm --name localstack -p 4566:4566 -p 8081:8080 localstack/localstack
+				docker run -d --rm --name localstack -p 4566:4566 -p 4510-4559:4510-4559 localstack/localstack
 
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do

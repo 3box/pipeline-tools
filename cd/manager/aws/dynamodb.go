@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"errors"
+	"log"
 	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -27,7 +28,33 @@ type DbState struct {
 
 func NewDynamoDb(cfg aws.Config) manager.Database {
 	tableName := os.Getenv("TABLE_NAME")
-	return &DynamoDb{dynamodb.NewFromConfig(cfg), &tableName}
+	db := &DynamoDb{dynamodb.NewFromConfig(cfg), &tableName}
+	// This block should only be needed when injecting a custom AWS endpoint (usually when testing locally).
+	awsEndpoint := os.Getenv("AWS_ENDPOINT")
+	if len(awsEndpoint) > 0 {
+		_, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(tableName)})
+		if err != nil {
+			in := dynamodb.CreateTableInput{
+				AttributeDefinitions: []types.AttributeDefinition{{
+					AttributeName: aws.String("name"),
+					AttributeType: "S",
+				}},
+				KeySchema: []types.KeySchemaElement{{
+					AttributeName: aws.String("name"),
+					KeyType:       "HASH",
+				}},
+				TableName: aws.String(tableName),
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(1),
+					WriteCapacityUnits: aws.Int64(1),
+				},
+			}
+			if _, err = db.client.CreateTable(context.Background(), &in); err != nil {
+				log.Printf("dynamodb: table creation failed: %v", err)
+			}
+		}
+	}
+	return db
 }
 
 func (db DynamoDb) GetState(ctx context.Context) (*manager.State, error) {

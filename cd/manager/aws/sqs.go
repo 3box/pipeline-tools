@@ -28,8 +28,7 @@ type Sqs struct {
 func NewSqs(cfg aws.Config) manager.Queue {
 	queueName := os.Getenv("QUEUE_NAME")
 	q := &Sqs{sqs.NewFromConfig(cfg), queueName}
-	// This block should only be needed when injecting a custom AWS endpoint (usually when testing locally). None of the
-	// other services need mocked resources because all processing is driven by the SQS queue.
+	// This block should only be needed when injecting a custom AWS endpoint (usually when testing locally).
 	awsEndpoint := os.Getenv("AWS_ENDPOINT")
 	if len(awsEndpoint) > 0 {
 		_, err := q.client.GetQueueUrl(context.Background(), &sqs.GetQueueUrlInput{QueueName: aws.String(queueName)})
