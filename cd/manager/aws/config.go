@@ -13,7 +13,7 @@ func Config() (aws.Config, error) {
 	awsEndpoint := os.Getenv("AWS_ENDPOINT")
 	endpointResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		if len(awsEndpoint) > 0 {
-			log.Printf("Using custom endpoint: %s", awsEndpoint)
+			log.Printf("Using custom aws endpoint: %s", awsEndpoint)
 			return aws.Endpoint{
 				PartitionID:   "aws",
 				URL:           awsEndpoint,
