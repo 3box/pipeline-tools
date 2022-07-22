@@ -16,9 +16,9 @@ import (
 
 var _ manager.Queue = Sqs{}
 
-const WaitTime = 1 * time.Second // 20 * time.Second
+const WaitTime = 20 * time.Second
 const MaxReceiveMsgs = 10
-const VisibilityTimeout = 1 * time.Second // 3600 * time.Second
+const VisibilityTimeout = 30 * time.Second
 
 type Sqs struct {
 	client *sqs.Client
@@ -27,7 +27,24 @@ type Sqs struct {
 
 func NewSqs(cfg aws.Config) manager.Queue {
 	queueName := os.Getenv("QUEUE_NAME")
-	return &Sqs{sqs.NewFromConfig(cfg), queueName}
+	q := &Sqs{sqs.NewFromConfig(cfg), queueName}
+	// This block should only be needed when testing locally. None of the other services need mocked resources because
+	// all processing is driven by the SQS queue.
+	_, err := q.client.GetQueueUrl(context.Background(), &sqs.GetQueueUrlInput{QueueName: aws.String(queueName)})
+	if err != nil {
+		in := sqs.CreateQueueInput{
+			QueueName: aws.String(queueName),
+			Attributes: map[string]string{
+				"DelaySeconds":                  "0",
+				"ReceiveMessageWaitTimeSeconds": "20",
+				"MessageRetentionPeriod":        "86400", // 1 day
+				"FifoQueue":                     "true",
+			},
+		}
+		_, err = q.client.CreateQueue(context.Background(), &in)
+		log.Printf("sqs: queue creation failed: %v", err)
+	}
+	return q
 }
 
 func (s Sqs) Send(ctx context.Context, job manager.Job) (string, error) {
