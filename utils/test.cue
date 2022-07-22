@@ -74,6 +74,8 @@ import (
 
 					timeout=$TIMEOUT
 					until [[ $timeout -le 0 ]]; do
+						sleep 1
+
 						echo -e "\n=============== Startup Logs ===============\n"
 						docker logs --details --timestamps --tail 100 "$IMAGE_NAME"
 						curl -X $CMD --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
@@ -85,7 +87,6 @@ import (
 							exit 0
 						fi
 
-						sleep 1
 						timeout=$(( timeout - 1 ))
 					done
 
@@ -182,6 +183,8 @@ import (
 
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do
+					sleep 1
+
 					echo -e "\n=============== Startup Logs ===============\n"
 					docker logs --details --timestamps --tail 100 "$IMAGE_NAME"
 					curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
@@ -194,7 +197,6 @@ import (
 						exit 0
 					fi
 
-					sleep 1
 					timeout=$(( timeout - 1 ))
 				done
 
