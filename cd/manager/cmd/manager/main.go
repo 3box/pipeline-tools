@@ -12,9 +12,9 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/joho/godotenv"
 
-	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud/aws"
-	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud/queue"
-	"github.com/3box/pipeline-tools/cd/manager/pkg/server"
+	"github.com/3box/pipeline-tools/cd/manager/aws"
+	"github.com/3box/pipeline-tools/cd/manager/queue"
+	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
 type CliOptions struct {
@@ -46,26 +46,26 @@ func main() {
 		serverAddress = "0.0.0.0"
 	}
 	serverPort := os.Getenv("SERVER_PORT")
-	if len(serverAddress) == 0 {
-		serverAddress = "8080"
+	if len(serverPort) == 0 {
+		serverPort = "8080"
 	}
 	serverContext := context.Background()
 	serverInstance := server.SetUp(serverAddress+":"+serverPort, serverContext)
 	go func() {
 		defer waitGroup.Done()
-		log.Printf("\nServer is listening at %s", serverAddress)
+		log.Printf("\nServer is listening at %s:%s", serverAddress, serverPort)
 		serverInstance.ListenAndServe()
 		log.Println("Server stopped listening")
 	}()
 
 	// TODO: We either need to skip the following code, or use a fake SQS queue when validating the Docker image
-	cfg, accountId, err := aws.Config()
+	cfg, err := aws.Config()
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
 	}
-	q := aws.NewSqs(cfg, accountId, env)
-	db := aws.NewDynamoDb(cfg, env)
-	d := aws.NewEcs(cfg, env)
+	q := aws.NewSqs(cfg)
+	db := aws.NewDynamoDb(cfg)
+	d := aws.NewEcs(cfg)
 	a := aws.NewApi(cfg)
 	jq, err := queue.NewJobQueue(q, db, d, a)
 	if err != nil {

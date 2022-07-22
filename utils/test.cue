@@ -40,41 +40,12 @@ import (
 	endpoint:      string
 	port:          int
 	cmd:           *"GET" | "POST" | "PUT"
-	testEnv: {
-		AWS_REGION?:            string
-		AWS_ACCESS_KEY_ID?:     dagger.#Secret
-		AWS_SECRET_ACCESS_KEY?: dagger.#Secret
-		ENV_TAG?:               "dev" | "qa" | "tnet" | "prod"
-	}
 
 	run: {
 		_loadImage: cli.#Load & {
 			image: testImage
 			host:  dockerHost
 			tag:   testImageName
-		}
-		startImage: cli.#Run & {
-			env: testEnv & {
-				IMAGE_NAME: testImageName
-				PORTS:      "\(port):\(port)"
-				DEP:        "\(_loadImage.success)"
-			}
-			host:   dockerHost
-			always: true
-			command: {
-				name: "sh"
-				flags: "-c": #"""
-						docker rm -f "$IMAGE_NAME"
-						docker run -d \
-							-e AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
-							-e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
-							-e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
-							-e AWS_REGION=$AWS_REGION \
-							-e ENV_TAG=$ENV_TAG \
-							--name "$IMAGE_NAME" \
-							-p "$PORTS" "$IMAGE_NAME"
-					"""#
-			}
 		}
 		_cli: alpine.#Build & {
 			packages: {
@@ -89,7 +60,7 @@ import (
 				TIMEOUT:    "60"
 				CMD:        "\(cmd)"
 				IMAGE_NAME: testImageName
-				DEP:        "\(startImage.success)"
+				DEP:        "\(_loadImage.success)"
 			}
 			input:  _cli.output
 			always: true
@@ -98,6 +69,9 @@ import (
 				dest:     "/var/run/docker.sock"
 			}
 			script: contents: #"""
+					docker rm -f "$IMAGE_NAME"
+					docker run -d --name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
+
 					timeout=$TIMEOUT
 					until [[ $timeout -le 0 ]]; do
 						echo -e "\n=============== Startup Logs ===============\n"
@@ -121,6 +95,115 @@ import (
 						docker rm -f "$IMAGE_NAME"
 						exit 1
 					fi
+				"""#
+		}
+	}
+}
+
+#TestLocalstack: {
+	testImage:     docker.#Image
+	testImageName: string | *"ci-test-image"
+	dockerHost:    dagger.#Socket
+	endpoint:      string
+	port:          int
+	cmd:           *"GET" | "POST" | "PUT"
+	timeout:       int | *60
+
+	run: {
+		_loadImage: cli.#Load & {
+			image: testImage
+			host:  dockerHost
+			tag:   testImageName
+		}
+		_cli: alpine.#Build & {
+			packages: {
+				bash: {}
+				curl: {}
+				"docker-cli": {}
+			}
+		}
+		_localstack: bash.#Run & {
+			env: {
+				TIMEOUT: "\(timeout)"
+				DEP:     "\(_loadImage.success)"
+			}
+			input:  _cli.output
+			always: true
+			mounts: docker: {
+				contents: dockerHost
+				dest:     "/var/run/docker.sock"
+			}
+			script: contents: #"""
+				docker rm -f localstack
+				docker run -d --rm --name localstack -p 4566:4566 -p 8081:8080 localstack/localstack
+
+				timeout=$TIMEOUT
+				until [[ $timeout -le 0 ]]; do
+					echo -e "\n=============== Localstack Logs ===============\n"
+					docker logs --details --timestamps --tail 100 localstack > logs.out
+					cat logs.out
+
+					if grep -q "Ready." logs.out
+					then
+						echo Localstack ready
+						exit 0
+					fi
+
+					sleep 1
+					timeout=$(( timeout - 1 ))
+				done
+
+				if [ $timeout -le 0 ]; then
+					echo Localstack startup failed
+					cat logs.out
+					docker rm -f localstack
+					exit 1
+				fi
+				"""#
+		}
+		healthcheck: bash.#Run & {
+			env: {
+				IMAGE_NAME: testImageName
+				PORTS:      "\(port):\(port)"
+				URL:        "http://0.0.0.0:\(port)/\(endpoint)"
+				CMD:        "\(cmd)"
+				TIMEOUT:    "\(timeout)"
+				DEP:        "\(_localstack.success)"
+			}
+			input:  _cli.output
+			always: true
+			mounts: docker: {
+				contents: dockerHost
+				dest:     "/var/run/docker.sock"
+			}
+			script: contents: #"""
+				docker rm -f "$IMAGE_NAME"
+				docker run -d --name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
+
+				timeout=$TIMEOUT
+				until [[ $timeout -le 0 ]]; do
+					echo -e "\n=============== Startup Logs ===============\n"
+					docker logs --details --timestamps --tail 100 "$IMAGE_NAME"
+					curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
+					cat curl.out
+
+					if grep -q "200 OK" curl.out
+					then
+						echo Healthcheck passed
+						docker rm -f "$IMAGE_NAME" localstack
+						exit 0
+					fi
+
+					sleep 1
+					timeout=$(( timeout - 1 ))
+				done
+
+				if [ $timeout -le 0 ]; then
+					echo Healthcheck failed
+					cat curl.out
+					docker rm -f "$IMAGE_NAME" localstack
+					exit 1
+				fi
 				"""#
 		}
 	}

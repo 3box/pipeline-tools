@@ -47,10 +47,7 @@ COPY --from=0 /lib/*-linux-gnu*/libdl.so.2 /lib/
 COPY --from=0 /usr/lib/*-linux-gnu*/libssl.so* /usr/lib/
 COPY --from=0 /usr/lib/*-linux-gnu*/libcrypto.so* /usr/lib/
 
-ENV AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID
-ENV AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-ENV AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-ENV AWS_REGION=$AWS_REGION
+ENV ENV_TAG=$ENV_TAG
 
 EXPOSE 8080
 

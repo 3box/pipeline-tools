@@ -7,14 +7,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
 
-	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud"
+	"github.com/3box/pipeline-tools/cd/manager"
 )
 
 type Api struct {
 	client *apigateway.Client
 }
 
-func NewApi(cfg aws.Config) cloud.ApiGw {
+func NewApi(cfg aws.Config) manager.ApiGw {
 	return &Api{apigateway.NewFromConfig(cfg)}
 }
 

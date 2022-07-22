@@ -3,15 +3,16 @@ package aws
 import (
 	"context"
 	"errors"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud"
+	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-var _ cloud.Database = &DynamoDb{}
+var _ manager.Database = &DynamoDb{}
 
 const StateEntryName = "cd"
 
@@ -24,12 +25,12 @@ type DbState struct {
 	State map[string]*types.AttributeValue `dynamodbav:"state" json:"state"`
 }
 
-func NewDynamoDb(cfg aws.Config, env string) cloud.Database {
-	table := "ceramic-" + env + "-ops"
-	return &DynamoDb{dynamodb.NewFromConfig(cfg), &table}
+func NewDynamoDb(cfg aws.Config) manager.Database {
+	tableName := os.Getenv("TABLE_NAME")
+	return &DynamoDb{dynamodb.NewFromConfig(cfg), &tableName}
 }
 
-func (db DynamoDb) GetState(ctx context.Context) (*cloud.State, error) {
+func (db DynamoDb) GetState(ctx context.Context) (*manager.State, error) {
 	result, err := db.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: db.table,
 		Key: map[string]types.AttributeValue{
@@ -51,10 +52,10 @@ func (db DynamoDb) GetState(ctx context.Context) (*cloud.State, error) {
 	//	return nil, err
 	//}
 	//log.Printf("state: %v", state)
-	return &cloud.State{}, nil
+	return &manager.State{}, nil
 }
 
-func (db DynamoDb) UpdateState(ctx context.Context, state *cloud.State) error {
+func (db DynamoDb) UpdateState(ctx context.Context, state *manager.State) error {
 	//s := DbState{}
 	input := &dynamodb.UpdateItemInput{
 		ExpressionAttributeValues: map[string]types.AttributeValue{

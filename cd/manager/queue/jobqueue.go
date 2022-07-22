@@ -7,18 +7,18 @@ import (
 	"log"
 	"os"
 
-	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud"
+	"github.com/3box/pipeline-tools/cd/manager"
 )
 
 type JobQueue struct {
 	Block      chan bool
-	deployment cloud.Deployment
-	queue      cloud.Queue
-	db         cloud.Database
-	apiGw      cloud.ApiGw
+	deployment manager.Deployment
+	queue      manager.Queue
+	db         manager.Database
+	apiGw      manager.ApiGw
 }
 
-func NewJobQueue(q cloud.Queue, db cloud.Database, d cloud.Deployment, a cloud.ApiGw) (*JobQueue, error) {
+func NewJobQueue(q manager.Queue, db manager.Database, d manager.Deployment, a manager.ApiGw) (*JobQueue, error) {
 	block := make(chan bool)
 	return &JobQueue{block, d, q, db, a}, nil
 }
@@ -32,8 +32,8 @@ func (jq *JobQueue) Stop() error {
 func (jq *JobQueue) ProcessQueue(
 	exit chan bool,
 ) {
-	messages := make(chan cloud.QueueMessage)
-	jobs := make(chan cloud.Job)
+	messages := make(chan manager.QueueMessage)
+	jobs := make(chan manager.Job)
 
 	receiveMessagesBlock := make(chan bool)
 	processMessagesBlock := make(chan bool)
@@ -52,7 +52,7 @@ func (jq *JobQueue) ProcessQueue(
 func (jq *JobQueue) receiveMessages(
 	exit chan bool,
 	block chan bool,
-	messages chan cloud.QueueMessage,
+	messages chan manager.QueueMessage,
 ) {
 	for {
 		select {
@@ -70,8 +70,8 @@ func (jq *JobQueue) receiveMessages(
 func (jq *JobQueue) processMessages(
 	exit chan bool,
 	block chan bool,
-	messages chan cloud.QueueMessage,
-	jobs chan cloud.Job,
+	messages chan manager.QueueMessage,
+	jobs chan manager.Job,
 ) {
 	for {
 		select {
@@ -82,24 +82,24 @@ func (jq *JobQueue) processMessages(
 			return
 		default:
 			for message := range messages {
-				job := cloud.Job{
+				job := manager.Job{
 					Id:   message.Id,
 					RxId: message.ReceiptId,
 				}
 				messageGroupId := message.Attributes["MessageGroupId"]
 				switch messageGroupId {
 				case "anchor":
-					job.Type = cloud.JobType_Anchor
+					job.Type = manager.JobType_Anchor
 				case "deploy":
-					job.Type = cloud.JobType_Deploy
+					job.Type = manager.JobType_Deploy
 					if err := json.Unmarshal([]byte(message.Body), &job.Params); err != nil {
 						// TODO: How to handle error?
 						log.Print("sqs: could not unmarshal job: %w", err)
 					}
 				case "test_e2e":
-					job.Type = cloud.JobType_TestE2E
+					job.Type = manager.JobType_TestE2E
 				case "test_smoke":
-					job.Type = cloud.JobType_TestSmoke
+					job.Type = manager.JobType_TestSmoke
 				default:
 					log.Printf("no job type for message with attribute (MessageGroupId=%v)", messageGroupId)
 				}
@@ -114,7 +114,7 @@ func (jq *JobQueue) processMessages(
 func (jq *JobQueue) processJobs(
 	exit chan bool,
 	block chan bool,
-	jobs chan cloud.Job,
+	jobs chan manager.Job,
 ) {
 	for {
 		select {
@@ -125,16 +125,16 @@ func (jq *JobQueue) processJobs(
 		default:
 			for job := range jobs {
 				switch job.Type {
-				case cloud.JobType_Anchor:
+				case manager.JobType_Anchor:
 					fmt.Printf("anchor: %v", job)
 					if err := jq.deployment.Launch("ceramic-dev-cas", "ceramic-dev-cas-anchor", "ceramic-dev-cas-anchor"); err != nil {
 						log.Printf("job: deploy error: %s", err)
 					}
-				case cloud.JobType_Deploy:
+				case manager.JobType_Deploy:
 					log.Printf("deploy: %v", job)
-				case cloud.JobType_TestE2E:
+				case manager.JobType_TestE2E:
 					log.Printf("e2e: %v", job)
-				case cloud.JobType_TestSmoke:
+				case manager.JobType_TestSmoke:
 					log.Printf("smoke: %v", job)
 					// TODO: Replace this API call with an ECS task launch.
 					resourceId := os.Getenv("SMOKE_TEST_RESOURCE_ID")

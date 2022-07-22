@@ -1,4 +1,2 @@
 cue.mod/
-cd/manager/target/
-cd/manager/cmd/manager/manager
 /cd/manager/env/.env

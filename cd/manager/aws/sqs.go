@@ -11,10 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud"
+	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-var _ cloud.Queue = Sqs{}
+var _ manager.Queue = Sqs{}
 
 const WaitTime = 1 * time.Second // 20 * time.Second
 const MaxReceiveMsgs = 10
@@ -25,13 +25,12 @@ type Sqs struct {
 	url    string
 }
 
-func NewSqs(cfg aws.Config, accountId, env string) cloud.Queue {
-	region := os.Getenv("AWS_REGION")
-	url := "https://sqs." + region + ".amazonaws.com/" + accountId + "/ceramic-" + env + "-ops.fifo"
-	return &Sqs{sqs.NewFromConfig(cfg), url}
+func NewSqs(cfg aws.Config) manager.Queue {
+	queueName := os.Getenv("QUEUE_NAME")
+	return &Sqs{sqs.NewFromConfig(cfg), queueName}
 }
 
-func (s Sqs) Send(ctx context.Context, job cloud.Job) (string, error) {
+func (s Sqs) Send(ctx context.Context, job manager.Job) (string, error) {
 	//ctx, cancel := context.WithTimeout(ctx)
 	//defer cancel()
 
@@ -55,9 +54,9 @@ func (s Sqs) Send(ctx context.Context, job cloud.Job) (string, error) {
 	return "", nil
 }
 
-func (s Sqs) Receive(messages chan cloud.QueueMessage, ctx context.Context) error {
+func (s Sqs) Receive(messages chan manager.QueueMessage, ctx context.Context) error {
 	// Must always be above `WaitTimeSeconds` otherwise `ReceiveMessage` will trigger a context timeout error.
-	ctx, cancel := context.WithTimeout(ctx, WaitTime+1*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, WaitTime+5*time.Second)
 	defer cancel()
 
 	res, err := s.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
@@ -79,7 +78,7 @@ func (s Sqs) Receive(messages chan cloud.QueueMessage, ctx context.Context) erro
 
 	for _, message := range res.Messages {
 		log.Println("in message go")
-		queueMessage := cloud.QueueMessage{
+		queueMessage := manager.QueueMessage{
 			Id:         *message.MessageId,
 			ReceiptId:  *message.ReceiptHandle,
 			Attributes: message.Attributes,

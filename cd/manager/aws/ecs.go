@@ -6,22 +6,22 @@ import (
 	"log"
 	"time"
 
-	"github.com/3box/pipeline-tools/cd/manager/pkg/cloud"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
+
+	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-var _ cloud.Deployment = &Ecs{}
+var _ manager.Deployment = &Ecs{}
 
 const EcsWaitTime = 30 * time.Second
 
 type Ecs struct {
 	client *ecs.Client
-	env    string
 }
 
-func NewEcs(cfg aws.Config, env string) cloud.Deployment {
-	return &Ecs{ecs.NewFromConfig(cfg), env}
+func NewEcs(cfg aws.Config) manager.Deployment {
+	return &Ecs{ecs.NewFromConfig(cfg)}
 }
 
 func (e Ecs) UpdateService(service, cluster string) error {
