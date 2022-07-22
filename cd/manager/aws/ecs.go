@@ -3,13 +3,12 @@ package aws
 import (
 	"context"
 	"fmt"
-	"log"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"time"
 
+	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
-
-	"github.com/3box/pipeline-tools/cd/manager"
 )
 
 var _ manager.Deployment = &Ecs{}
@@ -24,52 +23,70 @@ func NewEcs(cfg aws.Config) manager.Deployment {
 	return &Ecs{ecs.NewFromConfig(cfg)}
 }
 
-func (e Ecs) UpdateService(service, cluster string) error {
-	//ctx, cancel := context.WithTimeout(context.Background(), WaitTime)
-	//defer cancel()
-	//
-	//newTd := &types.TaskDefinition{
-	//
-	//}
-	//input := &ecs.UpdateServiceInput{
-	//	Service: aws.String(service),
-	//	Cluster: aws.String(cluster),
-	//}
-	//_, err := e.client.UpdateService(ctx, input)
-	//if err != nil {
-	//	return fmt.Errorf("ecs: update service error: %s, %s, %w", service, cluster, err)
-	//}
-	return nil
-}
-
-func (e Ecs) Launch(cluster, service, family string) error {
+func (e Ecs) LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
 	defer cancel()
 
-	in := &ecs.DescribeServicesInput{
+	descInput := &ecs.DescribeServicesInput{
 		Services: []string{service},
 		Cluster:  aws.String(cluster),
 	}
-	op, err := e.client.DescribeServices(ctx, in)
+	descOutput, err := e.client.DescribeServices(ctx, descInput)
 	if err != nil {
-		return fmt.Errorf("ecs: describe service error: %s, %s, %w", family, cluster, err)
+		return "", fmt.Errorf("ecs: describe service error: %s, %s, %w", family, cluster, err)
 	}
-	log.Printf("ecs: describe service: %v", op)
 	input := &ecs.RunTaskInput{
 		TaskDefinition:       aws.String(family),
 		Cluster:              aws.String(cluster),
 		Count:                aws.Int32(1),
+		EnableExecuteCommand: true,
 		LaunchType:           "FARGATE",
-		NetworkConfiguration: op.Services[0].NetworkConfiguration,
+		NetworkConfiguration: descOutput.Services[0].NetworkConfiguration,
 		StartedBy:            aws.String("cd-manager"),
 	}
-	_, err = e.client.RunTask(ctx, input)
-	if err != nil {
-		return fmt.Errorf("ecs: update service error: %s, %s, %w", family, cluster, err)
+	if (overrides != nil) && (len(overrides) > 0) {
+		overrideEnv := make([]types.KeyValuePair, 0, len(overrides))
+		for k, v := range overrides {
+			overrideEnv = append(overrideEnv, types.KeyValuePair{Name: aws.String(k), Value: aws.String(v)})
+		}
+		input.Overrides = &types.TaskOverride{
+			ContainerOverrides: []types.ContainerOverride{
+				{
+					Name:        aws.String(container),
+					Environment: overrideEnv,
+				},
+			},
+		}
 	}
-	return nil
+	output, err := e.client.RunTask(ctx, input)
+	if err != nil {
+		return "", fmt.Errorf("ecs: run task error: %s, %s, %v, %w", family, cluster, overrides, err)
+	}
+	return *output.Tasks[0].TaskArn, nil
+}
+
+func (e Ecs) CheckService(cluster string, taskArn ...string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	defer cancel()
+
+	descInput := &ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster),
+		Tasks:   taskArn,
+	}
+	descOutput, err := e.client.DescribeTasks(ctx, descInput)
+	if err != nil {
+		return false, fmt.Errorf("ecs: describe service error: %s, %s, %w", cluster, taskArn, err)
+	}
+	if (len(descOutput.Tasks) > 0) && (*descOutput.Tasks[0].LastStatus == string(types.DesiredStatusRunning)) {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (e Ecs) RestartService(string, string) error {
+	return nil
+}
+
+func (e Ecs) UpdateService(string, string) error {
 	return nil
 }

@@ -1,154 +1,114 @@
 package queue
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"sync"
+	"time"
+
+	"github.com/disgoorg/disgo/webhook"
+	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/3box/pipeline-tools/cd/manager"
+	"github.com/3box/pipeline-tools/cd/manager/jobs"
 )
 
 type JobQueue struct {
-	Block      chan bool
-	deployment manager.Deployment
-	queue      manager.Queue
 	db         manager.Database
+	deployment manager.Deployment
 	apiGw      manager.ApiGw
+	discord    webhook.Client
+	waitGroup  *sync.WaitGroup
+	shutdownCh chan bool
 }
 
-func NewJobQueue(q manager.Queue, db manager.Database, d manager.Deployment, a manager.ApiGw) (*JobQueue, error) {
-	block := make(chan bool)
-	return &JobQueue{block, d, q, db, a}, nil
+func NewJobQueue(db manager.Database, d manager.Deployment, a manager.ApiGw, shutdownCh chan bool) (JobQueue, error) {
+	discord := webhook.New(snowflake.GetEnv("DISCORD_WEBHOOK"), os.Getenv("DISCORD_TOKEN"))
+	return JobQueue{db, d, a, discord, new(sync.WaitGroup), shutdownCh}, nil
 }
 
-func (jq *JobQueue) Stop() error {
-	// TODO: Clean up client connections and safely stop processing
-	<-jq.Block
+func (jq JobQueue) NewJob(jobState *manager.JobState) error {
+	return jq.db.QueueJob(jobState)
+}
+
+func (jq JobQueue) ProcessJobs() {
+	// Create a ticker to poll the database for new jobs.
+	tick := time.NewTicker(manager.DefaultTick)
+	for {
+		log.Println("queue: start processing jobs...")
+		for {
+			select {
+			case <-jq.shutdownCh:
+				log.Println("queue: stop processing jobs...")
+				// TODO: Cleanup here
+				tick.Stop()
+				return
+			case <-tick.C:
+				if err := jq.processJobs(); err != nil {
+					log.Printf("queue: error processing jobs: %v", err)
+				}
+			}
+		}
+	}
+}
+
+func (jq JobQueue) processJobs() error {
+	// Find all jobs in progress and advance their state before looking for new jobs.
+	for _, jobState := range jq.db.JobsByStage(manager.JobStage_Processing) {
+		log.Printf("processJobs: advance jobs in progress...")
+		jq.processJob(jobState)
+	}
+	// Find a queued job and kick it off based on exclusion rules.
+	if jobState, err := jq.db.DequeueJob(); err != nil {
+		log.Printf("processJobs: job dequeue failed: %v", err)
+	} else if jobState != nil {
+		log.Printf("processJobs: found queued job...")
+		// Make sure that no deployment is in progress before starting to process *any* new job. All other jobs can run
+		// in parallel.
+		deployJobs := jq.db.JobsByStage(manager.JobStage_Processing, manager.JobType_Deploy)
+		if len(deployJobs) == 0 {
+			jq.processJob(jobState)
+		} else {
+			log.Printf("processJobs: deferring job due to deployment(s) in progress: %v, %v", jobState, deployJobs)
+		}
+	}
+	// Wait for all goroutines to finish so that we're sure that all job advancements have been completed before we
+	// iterate again. The ticker will automatically drop ticks then pick back up later if a round of processing takes
+	// longer than 1 tick.
+	jq.waitGroup.Wait()
 	return nil
 }
 
-func (jq *JobQueue) ProcessQueue(
-	exit chan bool,
-) {
-	messages := make(chan manager.QueueMessage)
-	jobs := make(chan manager.Job)
-
-	receiveMessagesBlock := make(chan bool)
-	processMessagesBlock := make(chan bool)
-	processJobsBlock := make(chan bool)
-
-	go jq.receiveMessages(exit, receiveMessagesBlock, messages)
-	go jq.processMessages(receiveMessagesBlock, processMessagesBlock, messages, jobs)
-	go jq.processJobs(processMessagesBlock, processJobsBlock, jobs)
-
-	<-receiveMessagesBlock
-	<-processMessagesBlock
-	<-processJobsBlock
-	close(jq.Block)
+func (jq JobQueue) processJob(jobState *manager.JobState) {
+	jq.waitGroup.Add(1)
+	go func() {
+		defer jq.waitGroup.Done()
+		if job, err := jq.generateJob(jobState); err != nil {
+			log.Printf("processJob: job generation failed: %v, %v", jobState, err)
+		} else if err = job.AdvanceJob(); err != nil {
+			log.Printf("processJob: job advancement failed: %v, %v", jobState, err)
+		}
+	}()
 }
 
-func (jq *JobQueue) receiveMessages(
-	exit chan bool,
-	block chan bool,
-	messages chan manager.QueueMessage,
-) {
-	for {
-		select {
-		case <-exit:
-			log.Println("Stop receiving messages...")
-			close(messages)
-			close(block)
-			return
-		default:
-			jq.queue.Receive(messages, context.Background())
+func (jq JobQueue) generateJob(jobState *manager.JobState) (manager.Job, error) {
+	var job manager.Job
+	switch jobState.Type {
+	case manager.JobType_Deploy:
+		return nil, fmt.Errorf("NewJob: unsupported job type: %v", jobState)
+	case manager.JobType_Anchor:
+		{
+			job = jobs.AnchorJob(jq.db, jq.deployment, jobState)
 		}
-	}
-}
-
-func (jq *JobQueue) processMessages(
-	exit chan bool,
-	block chan bool,
-	messages chan manager.QueueMessage,
-	jobs chan manager.Job,
-) {
-	for {
-		select {
-		case <-exit:
-			log.Println("Stop processing messages...")
-			close(jobs)
-			close(block)
-			return
-		default:
-			for message := range messages {
-				job := manager.Job{
-					Id:   message.Id,
-					RxId: message.ReceiptId,
-				}
-				messageGroupId := message.Attributes["MessageGroupId"]
-				switch messageGroupId {
-				case "anchor":
-					job.Type = manager.JobType_Anchor
-				case "deploy":
-					job.Type = manager.JobType_Deploy
-					if err := json.Unmarshal([]byte(message.Body), &job.Params); err != nil {
-						// TODO: How to handle error?
-						log.Print("sqs: could not unmarshal job: %w", err)
-					}
-				case "test_e2e":
-					job.Type = manager.JobType_TestE2E
-				case "test_smoke":
-					job.Type = manager.JobType_TestSmoke
-				default:
-					log.Printf("no job type for message with attribute (MessageGroupId=%v)", messageGroupId)
-				}
-				if job.Type > 0 {
-					jobs <- job
-				}
-			}
+	case manager.JobType_TestE2E:
+		return nil, fmt.Errorf("NewJob: unsupported job type: %v", jobState)
+	case manager.JobType_TestSmoke:
+		{
+			job = jobs.SmokeTestJob(jq.db, jq.apiGw, jobState)
 		}
+	default:
+		return nil, fmt.Errorf("NewJob: unknown job type: %v", jobState)
 	}
-}
-
-func (jq *JobQueue) processJobs(
-	exit chan bool,
-	block chan bool,
-	jobs chan manager.Job,
-) {
-	for {
-		select {
-		case <-exit:
-			log.Println("Stop processing jobs...")
-			close(block)
-			return
-		default:
-			for job := range jobs {
-				switch job.Type {
-				case manager.JobType_Anchor:
-					fmt.Printf("anchor: %v", job)
-					if err := jq.deployment.Launch("ceramic-dev-cas", "ceramic-dev-cas-anchor", "ceramic-dev-cas-anchor"); err != nil {
-						log.Printf("job: deploy error: %s", err)
-					}
-				case manager.JobType_Deploy:
-					log.Printf("deploy: %v", job)
-				case manager.JobType_TestE2E:
-					log.Printf("e2e: %v", job)
-				case manager.JobType_TestSmoke:
-					log.Printf("smoke: %v", job)
-					// TODO: Replace this API call with an ECS task launch.
-					resourceId := os.Getenv("SMOKE_TEST_RESOURCE_ID")
-					restApiId := os.Getenv("SMOKE_TEST_REST_API_ID")
-					if resp, err := jq.apiGw.Invoke("GET", resourceId, restApiId, ""); err != nil {
-						log.Printf("smoke: api call failed: %s", err)
-					} else {
-						log.Printf("result: %s", resp)
-					}
-				default:
-					// TODO: Handle error
-					fmt.Errorf("sqs: invalid job: %v", job)
-				}
-			}
-		}
-	}
+	return job, nil
 }
