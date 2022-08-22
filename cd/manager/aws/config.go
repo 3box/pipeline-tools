@@ -11,16 +11,17 @@ import (
 
 func Config() (aws.Config, error) {
 	awsEndpoint := os.Getenv("AWS_ENDPOINT")
+	awsRegion := os.Getenv("AWS_REGION")
 	if len(awsEndpoint) > 0 {
 		log.Printf("Using custom aws endpoint: %s", awsEndpoint)
 		endpointResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 			return aws.Endpoint{
 				PartitionID:   "aws",
 				URL:           awsEndpoint,
-				SigningRegion: os.Getenv("AWS_REGION"),
+				SigningRegion: awsRegion,
 			}, nil
 		})
 		return config.LoadDefaultConfig(context.TODO(), config.WithEndpointResolverWithOptions(endpointResolver))
 	}
-	return config.LoadDefaultConfig(context.TODO(), config.WithRegion(os.Getenv("AWS_REGION")))
+	return config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 }

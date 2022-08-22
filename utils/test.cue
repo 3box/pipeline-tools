@@ -136,7 +136,8 @@ import (
 			}
 			script: contents: #"""
 				docker rm -f localstack
-				docker run -d --rm --name localstack -p 4566:4566 -p 4510-4559:4510-4559 localstack/localstack
+				docker network create ci-test || true
+				docker run -d --rm --name localstack --network ci-test -p 4566:4566 -p 4510-4559:4510-4559 localstack/localstack
 
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do
@@ -158,6 +159,7 @@ import (
 					echo Localstack startup failed
 					cat logs.out
 					docker rm -f localstack
+					docker network rm ci-test
 					exit 1
 				fi
 				"""#
@@ -179,7 +181,7 @@ import (
 			}
 			script: contents: #"""
 				docker rm -f "$IMAGE_NAME"
-				docker run -d --name "$IMAGE_NAME" -e AWS_ENDPOINT=http://localhost:4566/000000000000 -p "$PORTS" "$IMAGE_NAME"
+				docker run -d --name "$IMAGE_NAME" --network ci-test -e AWS_ACCESS_KEY_ID=. -e AWS_SECRET_ACCESS_KEY=. -e AWS_ENDPOINT=http://localstack:4566 -e AWS_REGION=us-east-1 -p "$PORTS" "$IMAGE_NAME"
 
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do
@@ -194,6 +196,7 @@ import (
 					then
 						echo Healthcheck passed
 						docker rm -f "$IMAGE_NAME" localstack
+						docker network rm ci-test
 						exit 0
 					fi
 
@@ -204,6 +207,7 @@ import (
 					echo Healthcheck failed
 					cat curl.out
 					docker rm -f "$IMAGE_NAME" localstack
+					docker network rm ci-test
 					exit 1
 				fi
 				"""#
