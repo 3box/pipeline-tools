@@ -84,6 +84,7 @@ func (e Ecs) CheckService(cluster string, taskArn ...string) (bool, error) {
 	return false, nil
 }
 
+// TODO: Implement these methods
 func (e Ecs) RestartService(string, string) error {
 	return nil
 }

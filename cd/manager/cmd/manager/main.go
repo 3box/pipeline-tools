@@ -19,6 +19,9 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
+// TODO: Add more comments across the code
+
+// TODO: Do we need a CLI and options?
 type CliOptions struct {
 	Port string `short:"p" help:"Port for status server"`
 }
