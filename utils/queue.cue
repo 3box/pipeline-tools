@@ -14,16 +14,16 @@ import (
 		AWS_ACCOUNT_ID:        string
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY: dagger.#Secret
-		AWS_REGION: 		   aws.#Region
-		ENV_TAG:			   string
+		AWS_REGION:            aws.#Region
+		ENV_TAG:               string
 	}
 
 	params: {
-		event:    	"deploy"
-		component:  "ceramic" | "cas" | "ipfs"
-		sha:      	string
-		shaTag:   	string
-		version:	string | *""
+		event:     "deploy"
+		component: "ceramic" | "cas" | "ipfs"
+		sha:       string
+		shaTag:    string
+		version:   string | *""
 	}
 
 	send: cli.#Command & {
@@ -41,7 +41,7 @@ import (
 				"--message-body",
 				"\"\(json.Marshal(params))\"",
 				"--message-group-id",
-				"\(params.event)"
+				"\(params.event)",
 			]
 		}
 	}

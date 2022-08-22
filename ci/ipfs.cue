@@ -11,21 +11,21 @@ import (
 
 #Branch: "develop" | "release-candidate" | "main"
 #EnvTag: "dev" | "qa" | "tnet" | "prod"
-#Sha:	 =~"[0-9a-f]{40}"
+#Sha:    =~"[0-9a-f]{40}"
 #ShaTag: =~"[0-9a-f]{12}"
 
 dagger.#Plan & {
 	client: env: {
 		// Secrets
 		AWS_ACCOUNT_ID:        string
-		AWS_REGION:    		   string
+		AWS_REGION:            string
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY: dagger.#Secret
 		DOCKERHUB_USERNAME:    string
 		DOCKERHUB_TOKEN:       dagger.#Secret
 		// Runtime
-		DAGGER_LOG_FORMAT:     string | *"plain"
-		DAGGER_LOG_LEVEL:      string | *"info"
+		DAGGER_LOG_FORMAT: string | *"plain"
+		DAGGER_LOG_LEVEL:  string | *"info"
 	}
 	client: commands: aws: {
 		name: "aws"
@@ -34,7 +34,7 @@ dagger.#Plan & {
 	}
 	// Full source to use for building/testing code
 	client: filesystem: source: read: {
-		path: "."
+		path:     "."
 		contents: dagger.#FS
 		exclude: [
 			".github",
@@ -44,7 +44,7 @@ dagger.#Plan & {
 	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
-		_repo:	 "go-ipfs-daemon"
+		_repo:   "go-ipfs-daemon"
 		_source: client.filesystem.source.read.contents
 
 		test: utils.#TestNoop
@@ -55,15 +55,15 @@ dagger.#Plan & {
 
 		verify: utils.#TestImage & {
 			testImage:  _image.output
-			endpoint:	"api/v0/version"
-			port:		5001
-			cmd:		"POST"
+			endpoint:   "api/v0/version"
+			port:       5001
+			cmd:        "POST"
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
 		}
 
 		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
 			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
-			_tags:	   [...string]
+			_tags: [...string]
 			{
 				Branch == "main"
 				_tags: _baseTags + ["latest"]
@@ -77,9 +77,9 @@ dagger.#Plan & {
 						env: {
 							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 							AWS_ECR_SECRET: client.commands.aws.stdout
-							AWS_REGION: 	Region
-							REPO:			"go-ipfs-qa"
-							TAGS:			_baseTags + ["qa"]
+							AWS_REGION:     Region
+							REPO:           "go-ipfs-qa"
+							TAGS:           _baseTags + ["qa"]
 						}
 					}
 				}
@@ -88,9 +88,9 @@ dagger.#Plan & {
 					env: {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
-						AWS_REGION: 	Region
-						REPO:			"go-ipfs-\(EnvTag)"
-						TAGS:			_tags
+						AWS_REGION:     Region
+						REPO:           "go-ipfs-\(EnvTag)"
+						TAGS:           _tags
 					}
 				}
 			}
@@ -98,27 +98,27 @@ dagger.#Plan & {
 				img: _image.output
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
-					DOCKERHUB_TOKEN: 	client.env.DOCKERHUB_TOKEN
-					REPO:				_repo
-					TAGS:				_tags
+					DOCKERHUB_TOKEN:    client.env.DOCKERHUB_TOKEN
+					REPO:               _repo
+					TAGS:               _tags
 				}
 			}
 		}
 
 		queue: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: utils.#Queue & {
 			env: {
-				AWS_ACCOUNT_ID: 	   client.env.AWS_ACCOUNT_ID
-				AWS_ACCESS_KEY_ID: 	   client.env.AWS_ACCESS_KEY_ID
+				AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
+				AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
 				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
-				AWS_REGION: 		   Region
+				AWS_REGION:            Region
 			}
 			params: {
-				event:	  "deploy"
-				repo:     _repo
-				envTag:   EnvTag
-				branch:   Branch
-				sha:      Sha
-				shaTag:   ShaTag
+				event:  "deploy"
+				repo:   _repo
+				envTag: EnvTag
+				branch: Branch
+				sha:    Sha
+				shaTag: ShaTag
 			}
 		}
 	}

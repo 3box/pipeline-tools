@@ -2,7 +2,7 @@ name: Publish Docker image
 
 on:
   push:
-    branches: [ develop, release-candidate, main ]
+    branches: [ develop, tnet, main ]
     paths:
       - 'cd/manager/**'
   pull_request: # pull requests
@@ -13,12 +13,13 @@ env:
   DAGGER_PLAN: ci/cd-manager.cue
   DAGGER_VERSION: "0.2.21"
   DAGGER_LOG_FORMAT: "plain"
-  PIPELINE_TOOLS_VER: "0.1.3"
+  PIPELINE_TOOLS_VER: "0.1.5"
   # Secrets
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ secrets.AWS_REGION }}
+  ETH_RPC_URL: ${{ secrets.ETH_RPC_URL }}
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
   # GitHub
   RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -46,7 +47,7 @@ jobs:
           echo "ENV_TAG=prod" >> $GITHUB_ENV
       -
         name: Set rc branch tag
-        if: ${{ env.BRANCH == 'release-candidate' }}
+        if: ${{ env.BRANCH == 'tnet' }}
         run: |
           echo "ENV_TAG=tnet" >> $GITHUB_ENV
       -
@@ -78,19 +79,13 @@ jobs:
             dagger project init
             dagger project update
             dagger project update "github.com/3box/pipeline-tools@v${{ env.PIPELINE_TOOLS_VER }}"
-
-            AWS_SCRIPTS=cue.mod/pkg/universe.dagger.io/aws/_scripts
-            AWS_INSTALL="https://raw.githubusercontent.com/dagger/dagger/v${{ env.DAGGER_VERSION }}/pkg/universe.dagger.io/aws/_scripts/install.sh"
-            mkdir -p $AWS_SCRIPTS
-            curl -fsSL $AWS_INSTALL > $AWS_SCRIPTS/install.sh
-            chmod +x $AWS_SCRIPTS/install.sh
       -
         name: Verify Docker image
         run: dagger do verify -p ../../${{ env.DAGGER_PLAN }}
         working-directory: cd/manager
       -
         name: Push Docker image
-        if: ${{ env.BRANCH == 'main' || env.BRANCH == 'release-candidate' || env.BRANCH == 'develop' }}
+        if: ${{ env.BRANCH == 'main' || env.BRANCH == 'tnet' || env.BRANCH == 'develop' }}
         run: dagger do push -w "actions:push:\"${{ env.AWS_REGION }}\":\"${{ env.ENV_TAG }}\":\"${{ env.BRANCH }}\":\"${{ env.SHA }}\":\"${{ env.SHA_TAG }}\":_" -p ../../${{ env.DAGGER_PLAN }}
         working-directory: cd/manager
       -
