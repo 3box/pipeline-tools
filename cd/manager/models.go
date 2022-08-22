@@ -41,10 +41,6 @@ type Job interface {
 	AdvanceJob() error
 }
 
-type AdvanceJobFn func() error
-type TestJobFn func() (bool, error)
-type CancelJobFn func() error
-
 type ApiGw interface {
 	Invoke(string, string, string, string) (string, error)
 }
@@ -55,6 +51,12 @@ type Database interface {
 	DequeueJob() (*JobState, error)
 	UpdateJob(*JobState) error
 	DeleteJob(*JobState) error
+	JobById(string) *JobState
+	JobsByStage(JobStage, ...JobType) map[string]*JobState
+}
+
+// TODO: Add separate Cache
+type Cache interface {
 	JobById(string) *JobState
 	JobsByStage(JobStage, ...JobType) map[string]*JobState
 }

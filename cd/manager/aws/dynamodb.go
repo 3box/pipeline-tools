@@ -130,6 +130,7 @@ func (db DynamoDb) DequeueJob() (*manager.JobState, error) {
 }
 
 func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.JobState) *manager.JobState) (*manager.JobState, error) {
+	// TODO: Store TS cursor
 	oldestTs := time.Now().AddDate(0, 0, -manager.DefaultTtlDays).UnixMilli()
 	p := dynamodb.NewQueryPaginator(db.client, &dynamodb.QueryInput{
 		TableName:              aws.String(db.table),
@@ -198,22 +199,12 @@ func (db DynamoDb) writeJobToDb(jobState *manager.JobState) error {
 	return nil
 }
 
-func (db DynamoDb) writeJobToCache(jobState *manager.JobState) {
-	// Don't overwrite an advanced state with an earlier state.
-	if foundJobState := db.JobById(jobState.Id); foundJobState != nil {
-		if jobState.Stage == manager.JobStage_Queued {
-			if foundJobState.Stage == manager.JobStage_Processing || foundJobState.Stage == manager.JobStage_Failed || foundJobState.Stage == manager.JobStage_Completed {
-				return
-			}
-		} else if jobState.Stage == manager.JobStage_Processing {
-			if foundJobState.Stage == manager.JobStage_Failed || foundJobState.Stage == manager.JobStage_Completed {
-				return
-			}
-		}
-		// We've reached one of the two terminal states, so there's no need to overwrite this entry.
+func (db DynamoDb) writeJobToCache(dbJobState *manager.JobState) {
+	// Don't overwrite a newer state with an earlier one.
+	if cachedJobState := db.JobById(dbJobState.Id); (cachedJobState != nil) && cachedJobState.Ts.After(dbJobState.Ts) {
 		return
 	}
-	db.jobs.Store(jobState.Id, jobState)
+	db.jobs.Store(dbJobState.Id, dbJobState)
 }
 
 func (db DynamoDb) DeleteJob(jobState *manager.JobState) error {

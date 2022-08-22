@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
@@ -21,12 +20,7 @@ func AnchorJob(db manager.Database, d manager.Deployment, jobState *manager.JobS
 }
 
 func (a anchorJob) AdvanceJob() error {
-	if time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(a.state.Ts) {
-		log.Printf("anchorJob: aging out: %v", a.state)
-		if err := a.db.DeleteJob(a.state); err != nil {
-			log.Printf("anchorJob: error deleting job: %v", a.state)
-		}
-	} else if a.state.Stage == manager.JobStage_Queued {
+	if a.state.Stage == manager.JobStage_Queued {
 		// Launch anchor worker
 		if id, err := a.deployment.LaunchService(
 			"ceramic-dev-cas",

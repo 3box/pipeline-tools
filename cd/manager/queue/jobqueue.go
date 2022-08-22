@@ -14,6 +14,7 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/jobs"
 )
 
+// TODO: -> JobManager
 type JobQueue struct {
 	db         manager.Database
 	deployment manager.Deployment
@@ -45,7 +46,7 @@ func (jq JobQueue) ProcessJobs() {
 				tick.Stop()
 				return
 			case <-tick.C:
-				if err := jq.processJobs(); err != nil {
+				if err := jq.advanceJobs(); err != nil {
 					log.Printf("queue: error processing jobs: %v", err)
 				}
 			}
@@ -53,12 +54,25 @@ func (jq JobQueue) ProcessJobs() {
 	}
 }
 
-func (jq JobQueue) processJobs() error {
+func (jq JobQueue) advanceJobs() error {
+	// TODO: Add cache age-out
+
 	// Find all jobs in progress and advance their state before looking for new jobs.
 	for _, jobState := range jq.db.JobsByStage(manager.JobStage_Processing) {
 		log.Printf("processJobs: advance jobs in progress...")
-		jq.processJob(jobState)
+		jq.advanceJob(jobState)
 	}
+
+	// TODO: See if we can pick up multiple jobs:
+	// - any number of anchor workers
+	// - one smoke test at a time (but in parallel with anchor workers, E2E tests)
+	// - one E2E test at a time (but in parallel with anchor workers, smoke tests)
+
+	// TODO: Collapse similar jobs:
+	// - Collapse all smoke tests between deployments into a single run
+	// - Collapse all E2E tests between deployments into a single run
+	// - Collapse all similar deployments into a single run
+
 	// Find a queued job and kick it off based on exclusion rules.
 	if jobState, err := jq.db.DequeueJob(); err != nil {
 		log.Printf("processJobs: job dequeue failed: %v", err)
@@ -68,7 +82,7 @@ func (jq JobQueue) processJobs() error {
 		// in parallel.
 		deployJobs := jq.db.JobsByStage(manager.JobStage_Processing, manager.JobType_Deploy)
 		if len(deployJobs) == 0 {
-			jq.processJob(jobState)
+			jq.advanceJob(jobState)
 		} else {
 			log.Printf("processJobs: deferring job due to deployment(s) in progress: %v, %v", jobState, deployJobs)
 		}
@@ -80,14 +94,14 @@ func (jq JobQueue) processJobs() error {
 	return nil
 }
 
-func (jq JobQueue) processJob(jobState *manager.JobState) {
+func (jq JobQueue) advanceJob(jobState *manager.JobState) {
 	jq.waitGroup.Add(1)
 	go func() {
 		defer jq.waitGroup.Done()
 		if job, err := jq.generateJob(jobState); err != nil {
-			log.Printf("processJob: job generation failed: %v, %v", jobState, err)
+			log.Printf("advanceJob: job generation failed: %v, %v", jobState, err)
 		} else if err = job.AdvanceJob(); err != nil {
-			log.Printf("processJob: job advancement failed: %v, %v", jobState, err)
+			log.Printf("advanceJob: job advancement failed: %v, %v", jobState, err)
 		}
 	}()
 }

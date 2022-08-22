@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -22,12 +21,7 @@ func SmokeTestJob(db manager.Database, api manager.ApiGw, jobState *manager.JobS
 }
 
 func (s smokeTestJob) AdvanceJob() error {
-	if time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(s.state.Ts) {
-		log.Printf("smokeTestJob: aging out: %v", s.state)
-		if err := s.db.DeleteJob(s.state); err != nil {
-			log.Printf("smokeTestJob: error deleting job: %v", s.state)
-		}
-	} else if s.state.Stage == manager.JobStage_Queued {
+	if s.state.Stage == manager.JobStage_Queued {
 		resourceId := os.Getenv("SMOKE_TEST_RESOURCE_ID")
 		restApiId := os.Getenv("SMOKE_TEST_REST_API_ID")
 		if _, err := s.api.Invoke("GET", resourceId, restApiId, ""); err != nil {
