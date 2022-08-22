@@ -1,9 +1,6 @@
 package manager
 
-import (
-	_ "github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
-	"time"
-)
+import "time"
 
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1

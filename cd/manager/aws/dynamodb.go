@@ -119,10 +119,12 @@ func (db DynamoDb) QueueJob(jobState *manager.JobState) error {
 
 func (db DynamoDb) DequeueJob() (*manager.JobState, error) {
 	return db.iterateJobs(manager.JobStage_Queued, func(jobState *manager.JobState) *manager.JobState {
-		// If a job is not already in the cache, return it since it hasn't been dequeued yet.
+		// If a job is not already in the cache, return it since it hasn't been dequeued yet. This will also terminate
+		// iteration.
 		if db.JobById(jobState.Id) == nil {
 			return jobState
 		}
+		// Return nil so that we keep on iterating.
 		return nil
 	})
 }

@@ -3,12 +3,13 @@ package aws
 import (
 	"context"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"time"
 
-	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
+
+	"github.com/3box/pipeline-tools/cd/manager"
 )
 
 var _ manager.Deployment = &Ecs{}

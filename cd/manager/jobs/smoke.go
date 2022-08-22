@@ -39,6 +39,9 @@ func (s smokeTestJob) AdvanceJob() error {
 		if err := s.db.UpdateJob(s.state); err != nil {
 			return err
 		}
+	} else {
+		// There's nothing left to do so we shouldn't have reached here
+		return fmt.Errorf("smokeTestJob: unexpected state: %v", s.state)
 	}
 	return nil
 }

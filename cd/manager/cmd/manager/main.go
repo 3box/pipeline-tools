@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/3box/pipeline-tools/cd/manager"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/joho/godotenv"
 
+	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/aws"
 	"github.com/3box/pipeline-tools/cd/manager/queue"
 	"github.com/3box/pipeline-tools/cd/manager/server"
