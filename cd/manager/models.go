@@ -50,15 +50,13 @@ type Database interface {
 	QueueJob(*JobState) error
 	DequeueJob() (*JobState, error)
 	UpdateJob(*JobState) error
-	DeleteJob(*JobState) error
-	JobById(string) *JobState
-	JobsByStage(JobStage, ...JobType) map[string]*JobState
 }
 
-// TODO: Add separate Cache
 type Cache interface {
+	WriteJob(*JobState)
+	DeleteJob(string)
 	JobById(string) *JobState
-	JobsByStage(JobStage, ...JobType) map[string]*JobState
+	JobsByMatcher(func(*JobState) bool) map[string]*JobState
 }
 
 type Deployment interface {
@@ -72,7 +70,7 @@ type Server interface {
 	Setup(cluster, service, family, container string, overrides map[string]string) error
 }
 
-type Queue interface {
+type Manager interface {
 	NewJob(*JobState) error
 	ProcessJobs()
 }

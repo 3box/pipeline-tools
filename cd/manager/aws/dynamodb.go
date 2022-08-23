@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,17 +22,19 @@ const TableCreationWait = 3 * time.Second
 var _ manager.Database = &DynamoDb{}
 
 type DynamoDb struct {
-	client *dynamodb.Client
-	table  string
-	jobs   *sync.Map
+	client   *dynamodb.Client
+	table    string
+	cache    manager.Cache
+	tsCursor time.Time
 }
 
-func NewDynamoDb(cfg aws.Config) manager.Database {
+func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 	tableName := os.Getenv("TABLE_NAME")
 	db := &DynamoDb{
 		dynamodb.NewFromConfig(cfg),
 		tableName,
-		new(sync.Map),
+		cache,
+		time.UnixMilli(0),
 	}
 	if err := db.createTable(); err != nil {
 		log.Fatalf("dynamodb: table creation failed: %v", err)
@@ -102,8 +103,8 @@ func (db DynamoDb) InitializeJobs() error {
 func (db DynamoDb) loadJobs(stage manager.JobStage) error {
 	if _, err := db.iterateJobs(stage, func(jobState *manager.JobState) *manager.JobState {
 		// Only cache job if it wasn't already cached
-		if db.JobById(jobState.Id) == nil {
-			db.writeJobToCache(jobState)
+		if db.cache.JobById(jobState.Id) == nil {
+			db.cache.WriteJob(jobState)
 		}
 		// Return nil so that we keep on iterating.
 		return nil
@@ -114,14 +115,16 @@ func (db DynamoDb) loadJobs(stage manager.JobStage) error {
 }
 
 func (db DynamoDb) QueueJob(jobState *manager.JobState) error {
-	return db.writeJobToDb(jobState)
+	// Only write this job to the database since that's where our de/queueing is expected to happen from. The cache is
+	// just a hash-map from job IDs to job state.
+	return db.writeJob(jobState)
 }
 
 func (db DynamoDb) DequeueJob() (*manager.JobState, error) {
 	return db.iterateJobs(manager.JobStage_Queued, func(jobState *manager.JobState) *manager.JobState {
 		// If a job is not already in the cache, return it since it hasn't been dequeued yet. This will also terminate
 		// iteration.
-		if db.JobById(jobState.Id) == nil {
+		if db.cache.JobById(jobState.Id) == nil {
 			return jobState
 		}
 		// Return nil so that we keep on iterating.
@@ -130,14 +133,22 @@ func (db DynamoDb) DequeueJob() (*manager.JobState, error) {
 }
 
 func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.JobState) *manager.JobState) (*manager.JobState, error) {
-	// TODO: Store TS cursor
-	oldestTs := time.Now().AddDate(0, 0, -manager.DefaultTtlDays).UnixMilli()
+	// If available, use the timestamp of the latest job to enter processing as the start of the database search. We
+	// *know* that any subsequent jobs haven't yet been processed since we'll always process jobs in order, even if
+	// multiple are processed simultaneously. Otherwise, look for jobs queued at most 1 day in the past.
+	var rangeTs time.Time
+	ttlTs := time.Now().AddDate(0, 0, -manager.DefaultTtlDays)
+	if db.tsCursor.After(ttlTs) {
+		rangeTs = db.tsCursor
+	} else {
+		rangeTs = ttlTs
+	}
 	p := dynamodb.NewQueryPaginator(db.client, &dynamodb.QueryInput{
 		TableName:              aws.String(db.table),
 		KeyConditionExpression: aws.String("#stage = :stage and #ts > :ts"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":stage": &types.AttributeValueMemberS{Value: string(jobStage)},
-			":ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(oldestTs, 10)},
+			":ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(rangeTs.UnixMilli(), 10)},
 		},
 		ExpressionAttributeNames: map[string]string{
 			"#stage": "stage",
@@ -176,14 +187,25 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.Job
 }
 
 func (db DynamoDb) UpdateJob(jobState *manager.JobState) error {
-	if err := db.writeJobToDb(jobState); err != nil {
+	// We might decide dequeue multiple, compatible jobs from the queue during processing, and if we set the timestamp
+	// cursor to the timestamp of the last unprocessed job to be dequeued then decided not to process these jobs
+	// (e.g. if a deployment was in progress), then the cursor could potentially miss one or more earlier jobs out of
+	// the set of eligible jobs the next time we iterate.
+	//
+	// Instead we'll set the cursor to the timestamp of the last job to enter processing so that we *know* that any
+	// subsequent jobs haven't yet been processed since we'll always process jobs in order, even if multiple are
+	// processed simultaneously. Jobs that are entering processing will not be present in the cache before this point.
+	if currentJobState := db.cache.JobById(jobState.Id); currentJobState == nil {
+		db.tsCursor = jobState.Ts
+	}
+	if err := db.writeJob(jobState); err != nil {
 		return err
 	}
-	db.writeJobToCache(jobState)
+	db.cache.WriteJob(jobState)
 	return nil
 }
 
-func (db DynamoDb) writeJobToDb(jobState *manager.JobState) error {
+func (db DynamoDb) writeJob(jobState *manager.JobState) error {
 	if attributeValues, err := attributevalue.MarshalMapWithOptions(jobState, func(options *attributevalue.EncoderOptions) {
 		options.EncodeTime = func(time time.Time) (types.AttributeValue, error) {
 			return &types.AttributeValueMemberN{Value: strconv.FormatInt(time.UnixMilli(), 10)}, nil
@@ -197,62 +219,4 @@ func (db DynamoDb) writeJobToDb(jobState *manager.JobState) error {
 		return err
 	}
 	return nil
-}
-
-func (db DynamoDb) writeJobToCache(dbJobState *manager.JobState) {
-	// Don't overwrite a newer state with an earlier one.
-	if cachedJobState := db.JobById(dbJobState.Id); (cachedJobState != nil) && cachedJobState.Ts.After(dbJobState.Ts) {
-		return
-	}
-	db.jobs.Store(dbJobState.Id, dbJobState)
-}
-
-func (db DynamoDb) DeleteJob(jobState *manager.JobState) error {
-	// Never delete jobs from the database, but here's the code to do so.
-	//_, err := db.client.DeleteItem(context.Background(), &dynamodb.DeleteItemInput{
-	//	TableName: aws.String(db.table),
-	//	Key: map[string]types.AttributeValue{
-	//		"state": &types.AttributeValueMemberS{Value: string(jobState.Stage)},
-	//		"ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(jobState.Ts.UnixMilli(), 10)},
-	//	},
-	//})
-	//if err != nil {
-	//	return err
-	//}
-
-	// Delete job from cache
-	db.jobs.Delete(jobState.Id)
-	return nil
-}
-
-func (db DynamoDb) JobById(id string) *manager.JobState {
-	if job, found := db.jobs.Load(id); found {
-		return job.(*manager.JobState)
-	}
-	return nil
-}
-
-func (db DynamoDb) JobsByStage(jobStage manager.JobStage, jobTypes ...manager.JobType) map[string]*manager.JobState {
-	jobs := make(map[string]*manager.JobState)
-	db.jobs.Range(func(_, value interface{}) bool {
-		jobState := value.(*manager.JobState)
-		if jobState.Stage == jobStage {
-			matched := false
-			if len(jobTypes) > 0 {
-				for _, jobType := range jobTypes {
-					if jobState.Type == jobType {
-						matched = true
-						break
-					}
-				}
-			} else {
-				matched = true
-			}
-			if matched {
-				jobs[jobState.Id] = jobState
-			}
-		}
-		return true
-	})
-	return jobs
 }

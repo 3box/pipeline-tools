@@ -11,7 +11,7 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-func Setup(addr string, jq manager.Queue) http.Server {
+func Setup(addr string, jq manager.Manager) http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("/healthcheck", healthcheckHandler())
 	mux.Handle("/time", timeHandler(time.RFC1123))
@@ -32,7 +32,7 @@ func timeHandler(format string) http.HandlerFunc {
 	}
 }
 
-func jobHandler(jq manager.Queue) http.HandlerFunc {
+func jobHandler(jq manager.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		headerContentTtype := r.Header.Get("Content-Type")
 		if headerContentTtype != "application/json" {

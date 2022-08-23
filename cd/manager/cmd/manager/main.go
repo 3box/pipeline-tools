@@ -15,7 +15,7 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/aws"
-	"github.com/3box/pipeline-tools/cd/manager/queue"
+	"github.com/3box/pipeline-tools/cd/manager/jobmanager"
 	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
@@ -56,7 +56,7 @@ func main() {
 	waitGroup.Wait()
 }
 
-func startServer(waitGroup *sync.WaitGroup, jq manager.Queue) *http.Server {
+func startServer(waitGroup *sync.WaitGroup, jq manager.Manager) *http.Server {
 	serverAddress := os.Getenv("SERVER_ADDR")
 	if len(serverAddress) == 0 {
 		serverAddress = "0.0.0.0"
@@ -76,18 +76,19 @@ func startServer(waitGroup *sync.WaitGroup, jq manager.Queue) *http.Server {
 	return &serverInstance
 }
 
-func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Queue {
+func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Manager {
 	cfg, err := aws.Config()
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
 	}
-	db := aws.NewDynamoDb(cfg)
+	cache := jobmanager.NewJobCache()
+	db := aws.NewDynamoDb(cfg, cache)
 	if err = db.InitializeJobs(); err != nil {
 		log.Fatalf("Failed to populate jobs from database: %q", err)
 	}
 	deployment := aws.NewEcs(cfg)
 	api := aws.NewApi(cfg)
-	jq, err := queue.NewJobQueue(db, deployment, api, shutdownCh)
+	jq, err := jobmanager.NewJobManager(cache, db, deployment, api, shutdownCh)
 	if err != nil {
 		log.Fatalf("Failed to create job queue: %q", err)
 	}
