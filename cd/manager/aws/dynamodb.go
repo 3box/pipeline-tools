@@ -101,11 +101,8 @@ func (db DynamoDb) InitializeJobs() error {
 }
 
 func (db DynamoDb) loadJobs(stage manager.JobStage) error {
-	if err := db.iterateJobs(stage, func(jobState *manager.JobState) bool {
-		// Only cache job if it wasn't already cached
-		if db.cache.JobById(jobState.Id) == nil {
-			db.cache.WriteJob(jobState)
-		}
+	if err := db.iterateJobs(stage, func(jobState manager.JobState) bool {
+		db.cache.WriteJob(&jobState)
 		// Return true so that we keep on iterating.
 		return true
 	}); err != nil {
@@ -122,10 +119,10 @@ func (db DynamoDb) QueueJob(jobState *manager.JobState) error {
 
 func (db DynamoDb) DequeueJobs() []*manager.JobState {
 	jobs := make([]*manager.JobState, 0, 0)
-	if err := db.iterateJobs(manager.JobStage_Queued, func(jobState *manager.JobState) bool {
+	if err := db.iterateJobs(manager.JobStage_Queued, func(jobState manager.JobState) bool {
 		// If a job is not already in the cache, return it since it hasn't been dequeued yet.
 		if db.cache.JobById(jobState.Id) == nil {
-			jobs = append(jobs, jobState)
+			jobs = append(jobs, &jobState)
 		}
 		// Return true so that we keep on iterating.
 		return true
@@ -135,7 +132,7 @@ func (db DynamoDb) DequeueJobs() []*manager.JobState {
 	return jobs
 }
 
-func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.JobState) bool) error {
+func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobState) bool) error {
 	// If available, use the timestamp of the latest job to enter processing as the start of the database search. We
 	// *know* that any subsequent jobs haven't yet been processed since we'll always process jobs in order, even if
 	// multiple are processed simultaneously. Otherwise, look for jobs queued at most 1 day in the past.
@@ -181,7 +178,7 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.Job
 			return fmt.Errorf("initialize: unable to unmarshal jobState: %v", err)
 		}
 		for _, jobState := range jobsPage {
-			if !iter(&jobState) {
+			if !iter(jobState) {
 				return nil
 			}
 		}

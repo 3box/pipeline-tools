@@ -15,55 +15,63 @@ import (
 )
 
 type JobManager struct {
-	cache      manager.Cache
-	db         manager.Database
-	d          manager.Deployment
-	apiGw      manager.ApiGw
-	discord    webhook.Client
-	waitGroup  *sync.WaitGroup
-	shutdownCh chan bool
+	cache     manager.Cache
+	db        manager.Database
+	d         manager.Deployment
+	apiGw     manager.ApiGw
+	discord   webhook.Client
+	waitGroup *sync.WaitGroup
 }
 
-func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, a manager.ApiGw, shutdownCh chan bool) (JobManager, error) {
+func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, a manager.ApiGw) (JobManager, error) {
 	discord := webhook.New(snowflake.GetEnv("DISCORD_WEBHOOK"), os.Getenv("DISCORD_TOKEN"))
-	return JobManager{cache, db, d, a, discord, new(sync.WaitGroup), shutdownCh}, nil
+	return JobManager{cache, db, d, a, discord, new(sync.WaitGroup)}, nil
 }
 
 func (m JobManager) NewJob(jobState *manager.JobState) error {
 	return m.db.QueueJob(jobState)
 }
 
-func (m JobManager) ProcessJobs() {
+func (m JobManager) ProcessJobs(shutdownCh chan bool) {
 	// Create a ticker to poll the database for new jobs.
 	tick := time.NewTicker(manager.DefaultTick)
+	// Only allow one run token to exist, and start with it available for the processing loop to start running.
+	runToken := make(chan bool, 1)
+	runToken <- true
 	for {
 		log.Println("manager: start processing jobs...")
 		for {
 			select {
-			case <-m.shutdownCh:
+			case <-shutdownCh:
 				log.Println("manager: stop processing jobs...")
-				// TODO: Cleanup here
 				tick.Stop()
+				// Attempt to acquire the run token to ensure that no jobs are being processed while shutting down.
+				<-runToken
 				return
 			case <-tick.C:
-				if err := m.advanceJobs(); err != nil {
-					log.Printf("manager: error processing jobs: %v", err)
-				}
+				// Acquire the run token so that no loop iterations can run in parallel (shouldn't happen), and so that
+				// shutdown can't complete until a running iteration has finished.
+				<-runToken
+				m.advanceJobs()
+				// Release the run token
+				runToken <- true
 			}
 		}
 	}
 }
 
-func (m JobManager) advanceJobs() error {
+func (m JobManager) advanceJobs() {
 	// Age out completed/failed jobs older than 1 day.
 	oldJobs := m.cache.JobsByMatcher(func(js *manager.JobState) bool {
-		return (js.Stage == manager.JobStage_Completed) || (js.Stage == manager.JobStage_Failed)
+		return ((js.Stage == manager.JobStage_Completed) || (js.Stage == manager.JobStage_Failed)) &&
+			time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
 	})
 	if len(oldJobs) > 0 {
 		log.Printf("processJobs: aging out %d jobs...", len(oldJobs))
-		for _, jobState := range oldJobs {
+		for _, job := range oldJobs {
 			// Delete the job from the cache
-			m.cache.DeleteJob(jobState.Id)
+			log.Printf("processJobs: aging out job: %v", job)
+			m.cache.DeleteJob(job.Id)
 		}
 	}
 	// Find all jobs in progress and advance their state before looking for new jobs.
@@ -72,8 +80,8 @@ func (m JobManager) advanceJobs() error {
 	})
 	if len(activeJobs) > 0 {
 		log.Printf("processJobs: advancing %d jobs in progress...", len(activeJobs))
-		for _, jobState := range activeJobs {
-			m.advanceJob(jobState)
+		for _, job := range activeJobs {
+			m.advanceJob(job)
 		}
 	}
 	// Try to dequeue multiple jobs and collapse similar ones:
@@ -87,7 +95,7 @@ func (m JobManager) advanceJobs() error {
 	// complete.
 	dequeuedJobs := m.db.DequeueJobs()
 	if len(dequeuedJobs) > 0 {
-		log.Printf("processJobs: found queued jobs...")
+		log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
 		// Decide how to proceed based on the first job from the list.
 		if dequeuedJobs[0].Type == manager.JobType_Deploy {
 			m.processDeployJobs(dequeuedJobs)
@@ -95,15 +103,14 @@ func (m JobManager) advanceJobs() error {
 			m.processNonDeployJobs(dequeuedJobs)
 		}
 	}
-	// Wait for all goroutines to finish so that we're sure that all job advancements have been completed before we
-	// iterate again. The ticker will automatically drop ticks then pick back up later if a round of processing takes
-	// longer than 1 tick.
+	// Wait for all of this iteration's goroutines to finish so that we're sure that all job advancements have been
+	// completed before we iterate again. The ticker will automatically drop ticks then pick back up later if a round of
+	// processing takes longer than 1 tick.
 	m.waitGroup.Wait()
-	return nil
 }
 
 func (m JobManager) processDeployJobs(jobs []*manager.JobState) {
-	// Check if there are any incompatible jobs in progress
+	// Check if there are any incompatible jobs in progress.
 	firstJob := jobs[0]
 	incompatibleJobs := m.cache.JobsByMatcher(func(js *manager.JobState) bool {
 		// Match non-deploy jobs, or jobs for the same component (viz. Ceramic, IPFS, or CAS).
@@ -119,7 +126,7 @@ func (m JobManager) processDeployJobs(jobs []*manager.JobState) {
 			if jobs[i].Type != manager.JobType_Deploy {
 				break
 			}
-			// Replace an existing component's deploy job with a newer one, if present, or add a new one (hence a map).
+			// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
 			deployComponent := jobs[i].Params[manager.DeployParam_Component].(manager.EventParam)
 			deployJobs[deployComponent] = jobs[i]
 		}
@@ -154,7 +161,7 @@ func (m JobManager) processNonDeployJobs(jobs []*manager.JobState) {
 			if jobType == manager.JobType_Anchor {
 				anchorJobs = append(anchorJobs, jobs[i])
 			} else {
-				// Replace an existing test job with a newer one, if present, or add a new one (hence a map).
+				// Replace an existing test job with a newer one, or add a new job (hence a map).
 				testJobs[jobType] = jobs[i]
 			}
 		}
@@ -174,6 +181,7 @@ func (m JobManager) advanceJob(jobState *manager.JobState) {
 	m.waitGroup.Add(1)
 	go func() {
 		defer m.waitGroup.Done()
+		log.Printf("advanceJob: advancing job: %v", jobState)
 		if job, err := m.generateJob(jobState); err != nil {
 			log.Printf("advanceJob: job generation failed: %v, %v", jobState, err)
 		} else if err = job.AdvanceJob(); err != nil {

@@ -25,11 +25,11 @@ func (c JobCache) WriteJob(jobState *manager.JobState) {
 }
 
 func (c JobCache) DeleteJob(jobId string) {
-	c.DeleteJob(jobId)
+	c.jobs.Delete(jobId)
 }
 
-func (c JobCache) JobById(id string) *manager.JobState {
-	if job, found := c.jobs.Load(id); found {
+func (c JobCache) JobById(jobId string) *manager.JobState {
+	if job, found := c.jobs.Load(jobId); found {
 		return job.(*manager.JobState)
 	}
 	return nil

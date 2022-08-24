@@ -88,5 +88,5 @@ type Server interface {
 
 type Manager interface {
 	NewJob(*JobState) error
-	ProcessJobs()
+	ProcessJobs(shutdownCh chan bool)
 }
