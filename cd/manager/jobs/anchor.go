@@ -10,9 +10,9 @@ import (
 var _ manager.Job = &anchorJob{}
 
 type anchorJob struct {
-	state      *manager.JobState
-	db         manager.Database
-	deployment manager.Deployment
+	state *manager.JobState
+	db    manager.Database
+	d     manager.Deployment
 }
 
 func AnchorJob(db manager.Database, d manager.Deployment, jobState *manager.JobState) *anchorJob {
@@ -22,7 +22,7 @@ func AnchorJob(db manager.Database, d manager.Deployment, jobState *manager.JobS
 func (a anchorJob) AdvanceJob() error {
 	if a.state.Stage == manager.JobStage_Queued {
 		// Launch anchor worker
-		if id, err := a.deployment.LaunchService(
+		if id, err := a.d.LaunchService(
 			"ceramic-dev-cas",
 			"ceramic-dev-cas-anchor",
 			"ceramic-dev-cas-anchor",
@@ -35,7 +35,7 @@ func (a anchorJob) AdvanceJob() error {
 			a.state.Params["id"] = id
 		}
 	} else if a.state.Stage == manager.JobStage_Processing {
-		if done, err := a.deployment.CheckService("ceramic-dev-cas", a.state.Params["id"].(string)); err != nil {
+		if done, err := a.d.CheckService("ceramic-dev-cas", a.state.Params["id"].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 		} else if done {
 			a.state.Stage = manager.JobStage_Completed

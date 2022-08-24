@@ -101,13 +101,13 @@ func (db DynamoDb) InitializeJobs() error {
 }
 
 func (db DynamoDb) loadJobs(stage manager.JobStage) error {
-	if _, err := db.iterateJobs(stage, func(jobState *manager.JobState) *manager.JobState {
+	if err := db.iterateJobs(stage, func(jobState *manager.JobState) bool {
 		// Only cache job if it wasn't already cached
 		if db.cache.JobById(jobState.Id) == nil {
 			db.cache.WriteJob(jobState)
 		}
-		// Return nil so that we keep on iterating.
-		return nil
+		// Return true so that we keep on iterating.
+		return true
 	}); err != nil {
 		return err
 	}
@@ -120,19 +120,22 @@ func (db DynamoDb) QueueJob(jobState *manager.JobState) error {
 	return db.writeJob(jobState)
 }
 
-func (db DynamoDb) DequeueJob() (*manager.JobState, error) {
-	return db.iterateJobs(manager.JobStage_Queued, func(jobState *manager.JobState) *manager.JobState {
-		// If a job is not already in the cache, return it since it hasn't been dequeued yet. This will also terminate
-		// iteration.
+func (db DynamoDb) DequeueJobs() []*manager.JobState {
+	jobs := make([]*manager.JobState, 0, 0)
+	if err := db.iterateJobs(manager.JobStage_Queued, func(jobState *manager.JobState) bool {
+		// If a job is not already in the cache, return it since it hasn't been dequeued yet.
 		if db.cache.JobById(jobState.Id) == nil {
-			return jobState
+			jobs = append(jobs, jobState)
 		}
-		// Return nil so that we keep on iterating.
-		return nil
-	})
+		// Return true so that we keep on iterating.
+		return true
+	}); err != nil {
+		log.Printf("dequeueJobs: failed iteration through jobs: %v", err)
+	}
+	return jobs
 }
 
-func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.JobState) *manager.JobState) (*manager.JobState, error) {
+func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.JobState) bool) error {
 	// If available, use the timestamp of the latest job to enter processing as the start of the database search. We
 	// *know* that any subsequent jobs haven't yet been processed since we'll always process jobs in order, even if
 	// multiple are processed simultaneously. Otherwise, look for jobs queued at most 1 day in the past.
@@ -158,7 +161,7 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.Job
 	for p.HasMorePages() {
 		page, err := p.NextPage(context.TODO())
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var jobsPage []manager.JobState
 		tsDecode := func(ts string) (time.Time, error) {
@@ -175,15 +178,15 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(*manager.Job
 			}
 		})
 		if err != nil {
-			return nil, fmt.Errorf("initialize: unable to unmarshal jobState: %v", err)
+			return fmt.Errorf("initialize: unable to unmarshal jobState: %v", err)
 		}
 		for _, jobState := range jobsPage {
-			if js := iter(&jobState); js != nil {
-				return js, nil
+			if !iter(&jobState) {
+				return nil
 			}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func (db DynamoDb) UpdateJob(jobState *manager.JobState) error {
@@ -196,7 +199,11 @@ func (db DynamoDb) UpdateJob(jobState *manager.JobState) error {
 	// subsequent jobs haven't yet been processed since we'll always process jobs in order, even if multiple are
 	// processed simultaneously. Jobs that are entering processing will not be present in the cache before this point.
 	if currentJobState := db.cache.JobById(jobState.Id); currentJobState == nil {
-		db.tsCursor = jobState.Ts
+		// Since this function can be called from multiple goroutines simultaneously (for compatible jobs being
+		// processed in parallel), make sure that the cursor is only moved forward.
+		if jobState.Ts.After(db.tsCursor) {
+			db.tsCursor = jobState.Ts
+		}
 	}
 	if err := db.writeJob(jobState); err != nil {
 		return err

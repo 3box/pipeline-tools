@@ -24,17 +24,33 @@ const (
 	JobStage_Completed  JobStage = "completed"
 )
 
+type EventParam string
+
+const (
+	DeployParam_Event     EventParam = "event"
+	DeployParam_Component EventParam = "component"
+	DeployParam_Sha       EventParam = "sha"
+	DeployParam_ShaTag    EventParam = "shaTag"
+	DeployParam_Version   EventParam = "version"
+)
+
+const (
+	DeployComponent_Ceramic EventParam = "ceramic"
+	DeployComponent_Ipfs    EventParam = "ipfs"
+	DeployComponent_Cas     EventParam = "cas"
+)
+
 type JobEvent struct {
 	Type   JobType
 	Params map[string]interface{}
 }
 
 type JobState struct {
-	Stage  JobStage               `dynamodbav:"stage"`
-	Ts     time.Time              `dynamodbav:"ts"`
-	Id     string                 `dynamodbav:"id"`
-	Type   JobType                `dynamodbav:"type"`
-	Params map[string]interface{} `dynamodbav:"params"`
+	Stage  JobStage                   `dynamodbav:"stage"`
+	Ts     time.Time                  `dynamodbav:"ts"`
+	Id     string                     `dynamodbav:"id"`
+	Type   JobType                    `dynamodbav:"type"`
+	Params map[EventParam]interface{} `dynamodbav:"params"`
 }
 
 type Job interface {
@@ -48,7 +64,7 @@ type ApiGw interface {
 type Database interface {
 	InitializeJobs() error
 	QueueJob(*JobState) error
-	DequeueJob() (*JobState, error)
+	DequeueJobs() []*JobState
 	UpdateJob(*JobState) error
 }
 
