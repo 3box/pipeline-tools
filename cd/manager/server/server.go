@@ -58,7 +58,7 @@ func jobHandler(m manager.Manager) http.HandlerFunc {
 				message = "jobHandler: bad request: " + err.Error()
 			}
 			return
-		} else if err = m.NewJob(&jobState); err != nil {
+		} else if err = m.NewJob(jobState); err != nil {
 			status = http.StatusBadRequest
 			message = "jobHandler: could not queue job: " + err.Error()
 		}

@@ -10,12 +10,12 @@ import (
 var _ manager.Job = &anchorJob{}
 
 type anchorJob struct {
-	state *manager.JobState
+	state manager.JobState
 	db    manager.Database
 	d     manager.Deployment
 }
 
-func AnchorJob(db manager.Database, d manager.Deployment, jobState *manager.JobState) *anchorJob {
+func AnchorJob(db manager.Database, d manager.Deployment, jobState manager.JobState) *anchorJob {
 	return &anchorJob{jobState, db, d}
 }
 

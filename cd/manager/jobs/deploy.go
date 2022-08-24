@@ -7,12 +7,12 @@ import (
 var _ manager.Job = &deployJob{}
 
 type deployJob struct {
-	state *manager.JobState
+	state manager.JobState
 	db    manager.Database
 	d     manager.Deployment
 }
 
-func DeployJob(db manager.Database, d manager.Deployment, jobState *manager.JobState) *deployJob {
+func DeployJob(db manager.Database, d manager.Deployment, jobState manager.JobState) *deployJob {
 	return &deployJob{jobState, db, d}
 }
 

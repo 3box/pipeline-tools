@@ -89,12 +89,15 @@ func (db DynamoDb) createTable() error {
 }
 
 func (db DynamoDb) InitializeJobs() error {
-	// Load completed/failed and processing jobs, in that order, so that we know which jobs have already been dequeued.
+	// Load all jobs in an advanced stage of processing (completed, failed, processing, skipped), so that we know which
+	// jobs have already been dequeued.
 	if err := db.loadJobs(manager.JobStage_Completed); err != nil {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Failed); err != nil {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Processing); err != nil {
+		return err
+	} else if err = db.loadJobs(manager.JobStage_Skipped); err != nil {
 		return err
 	}
 	return nil
@@ -102,7 +105,7 @@ func (db DynamoDb) InitializeJobs() error {
 
 func (db DynamoDb) loadJobs(stage manager.JobStage) error {
 	if err := db.iterateJobs(stage, func(jobState manager.JobState) bool {
-		db.cache.WriteJob(&jobState)
+		db.cache.WriteJob(jobState)
 		// Return true so that we keep on iterating.
 		return true
 	}); err != nil {
@@ -111,18 +114,18 @@ func (db DynamoDb) loadJobs(stage manager.JobStage) error {
 	return nil
 }
 
-func (db DynamoDb) QueueJob(jobState *manager.JobState) error {
+func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 	// Only write this job to the database since that's where our de/queueing is expected to happen from. The cache is
 	// just a hash-map from job IDs to job state.
 	return db.writeJob(jobState)
 }
 
-func (db DynamoDb) DequeueJobs() []*manager.JobState {
-	jobs := make([]*manager.JobState, 0, 0)
+func (db DynamoDb) DequeueJobs() []manager.JobState {
+	jobs := make([]manager.JobState, 0, 0)
 	if err := db.iterateJobs(manager.JobStage_Queued, func(jobState manager.JobState) bool {
-		// If a job is not already in the cache, return it since it hasn't been dequeued yet.
-		if db.cache.JobById(jobState.Id) == nil {
-			jobs = append(jobs, &jobState)
+		// If a job is not already in the cache, append it since it hasn't been dequeued yet.
+		if _, found := db.cache.JobById(jobState.Id); !found {
+			jobs = append(jobs, jobState)
 		}
 		// Return true so that we keep on iterating.
 		return true
@@ -186,7 +189,7 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 	return nil
 }
 
-func (db DynamoDb) UpdateJob(jobState *manager.JobState) error {
+func (db DynamoDb) UpdateJob(jobState manager.JobState) error {
 	// We might decide dequeue multiple, compatible jobs from the queue during processing, and if we set the timestamp
 	// cursor to the timestamp of the last unprocessed job to be dequeued then decided not to process these jobs
 	// (e.g. if a deployment was in progress), then the cursor could potentially miss one or more earlier jobs out of
@@ -195,7 +198,7 @@ func (db DynamoDb) UpdateJob(jobState *manager.JobState) error {
 	// Instead we'll set the cursor to the timestamp of the last job to enter processing so that we *know* that any
 	// subsequent jobs haven't yet been processed since we'll always process jobs in order, even if multiple are
 	// processed simultaneously. Jobs that are entering processing will not be present in the cache before this point.
-	if currentJobState := db.cache.JobById(jobState.Id); currentJobState == nil {
+	if _, found := db.cache.JobById(jobState.Id); !found {
 		// Since this function can be called from multiple goroutines simultaneously (for compatible jobs being
 		// processed in parallel), make sure that the cursor is only moved forward.
 		if jobState.Ts.After(db.tsCursor) {
@@ -209,7 +212,7 @@ func (db DynamoDb) UpdateJob(jobState *manager.JobState) error {
 	return nil
 }
 
-func (db DynamoDb) writeJob(jobState *manager.JobState) error {
+func (db DynamoDb) writeJob(jobState manager.JobState) error {
 	if attributeValues, err := attributevalue.MarshalMapWithOptions(jobState, func(options *attributevalue.EncoderOptions) {
 		options.EncodeTime = func(time time.Time) (types.AttributeValue, error) {
 			return &types.AttributeValueMemberN{Value: strconv.FormatInt(time.UnixMilli(), 10)}, nil

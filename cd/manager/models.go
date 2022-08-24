@@ -20,6 +20,7 @@ type JobStage string
 const (
 	JobStage_Queued     JobStage = "queued"
 	JobStage_Processing JobStage = "processing"
+	JobStage_Skipped    JobStage = "skipped"
 	JobStage_Failed     JobStage = "failed"
 	JobStage_Completed  JobStage = "completed"
 )
@@ -63,16 +64,16 @@ type ApiGw interface {
 
 type Database interface {
 	InitializeJobs() error
-	QueueJob(*JobState) error
-	DequeueJobs() []*JobState
-	UpdateJob(*JobState) error
+	QueueJob(JobState) error
+	DequeueJobs() []JobState
+	UpdateJob(JobState) error
 }
 
 type Cache interface {
-	WriteJob(*JobState)
+	WriteJob(JobState)
 	DeleteJob(string)
-	JobById(string) *JobState
-	JobsByMatcher(func(*JobState) bool) map[string]*JobState
+	JobById(string) (JobState, bool)
+	JobsByMatcher(func(JobState) bool) map[string]JobState
 }
 
 type Deployment interface {
@@ -87,6 +88,6 @@ type Server interface {
 }
 
 type Manager interface {
-	NewJob(*JobState) error
+	NewJob(JobState) error
 	ProcessJobs(shutdownCh chan bool)
 }
