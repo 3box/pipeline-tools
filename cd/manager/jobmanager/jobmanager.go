@@ -37,17 +37,17 @@ func (m JobManager) ProcessJobs() {
 	// Create a ticker to poll the database for new jobs.
 	tick := time.NewTicker(manager.DefaultTick)
 	for {
-		log.Println("queue: start processing jobs...")
+		log.Println("manager: start processing jobs...")
 		for {
 			select {
 			case <-m.shutdownCh:
-				log.Println("queue: stop processing jobs...")
+				log.Println("manager: stop processing jobs...")
 				// TODO: Cleanup here
 				tick.Stop()
 				return
 			case <-tick.C:
 				if err := m.advanceJobs(); err != nil {
-					log.Printf("queue: error processing jobs: %v", err)
+					log.Printf("manager: error processing jobs: %v", err)
 				}
 			}
 		}
