@@ -20,8 +20,25 @@ type JobStage string
 const (
 	JobStage_Queued     JobStage = "queued"
 	JobStage_Processing JobStage = "processing"
+	JobStage_Skipped    JobStage = "skipped"
 	JobStage_Failed     JobStage = "failed"
 	JobStage_Completed  JobStage = "completed"
+)
+
+type EventParam string
+
+const (
+	DeployParam_Event     EventParam = "event"
+	DeployParam_Component EventParam = "component"
+	DeployParam_Sha       EventParam = "sha"
+	DeployParam_ShaTag    EventParam = "shaTag"
+	DeployParam_Version   EventParam = "version"
+)
+
+const (
+	DeployComponent_Ceramic EventParam = "ceramic"
+	DeployComponent_Ipfs    EventParam = "ipfs"
+	DeployComponent_Cas     EventParam = "cas"
 )
 
 type JobEvent struct {
@@ -30,11 +47,11 @@ type JobEvent struct {
 }
 
 type JobState struct {
-	Stage  JobStage               `dynamodbav:"stage"`
-	Ts     time.Time              `dynamodbav:"ts"`
-	Id     string                 `dynamodbav:"id"`
-	Type   JobType                `dynamodbav:"type"`
-	Params map[string]interface{} `dynamodbav:"params"`
+	Stage  JobStage                   `dynamodbav:"stage"`
+	Ts     time.Time                  `dynamodbav:"ts"`
+	Id     string                     `dynamodbav:"id"`
+	Type   JobType                    `dynamodbav:"type"`
+	Params map[EventParam]interface{} `dynamodbav:"params"`
 }
 
 type Job interface {
@@ -47,18 +64,16 @@ type ApiGw interface {
 
 type Database interface {
 	InitializeJobs() error
-	QueueJob(*JobState) error
-	DequeueJob() (*JobState, error)
-	UpdateJob(*JobState) error
-	DeleteJob(*JobState) error
-	JobById(string) *JobState
-	JobsByStage(JobStage, ...JobType) map[string]*JobState
+	QueueJob(JobState) error
+	DequeueJobs() []JobState
+	UpdateJob(JobState) error
 }
 
-// TODO: Add separate Cache
 type Cache interface {
-	JobById(string) *JobState
-	JobsByStage(JobStage, ...JobType) map[string]*JobState
+	WriteJob(JobState)
+	DeleteJob(string)
+	JobById(string) (JobState, bool)
+	JobsByMatcher(func(JobState) bool) map[string]JobState
 }
 
 type Deployment interface {
@@ -72,7 +87,7 @@ type Server interface {
 	Setup(cluster, service, family, container string, overrides map[string]string) error
 }
 
-type Queue interface {
-	NewJob(*JobState) error
-	ProcessJobs()
+type Manager interface {
+	NewJob(JobState) error
+	ProcessJobs(shutdownCh chan bool)
 }

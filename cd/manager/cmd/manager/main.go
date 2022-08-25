@@ -15,7 +15,7 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/aws"
-	"github.com/3box/pipeline-tools/cd/manager/queue"
+	"github.com/3box/pipeline-tools/cd/manager/jobmanager"
 	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
@@ -39,10 +39,10 @@ func main() {
 	shutdownChan := make(chan bool)
 
 	// Create and initialize the job queue before the API handling
-	jq := createJobQueue(waitGroup, shutdownChan)
+	m := createJobQueue(waitGroup, shutdownChan)
 
 	// Setup API handling
-	serverInstance := startServer(waitGroup, jq)
+	serverInstance := startServer(waitGroup, m)
 
 	// Shutdown processing
 	waitGroup.Add(1)
@@ -56,7 +56,7 @@ func main() {
 	waitGroup.Wait()
 }
 
-func startServer(waitGroup *sync.WaitGroup, jq manager.Queue) *http.Server {
+func startServer(waitGroup *sync.WaitGroup, m manager.Manager) *http.Server {
 	serverAddress := os.Getenv("SERVER_ADDR")
 	if len(serverAddress) == 0 {
 		serverAddress = "0.0.0.0"
@@ -65,7 +65,7 @@ func startServer(waitGroup *sync.WaitGroup, jq manager.Queue) *http.Server {
 	if len(serverPort) == 0 {
 		serverPort = "8080"
 	}
-	serverInstance := server.Setup(serverAddress+":"+serverPort, jq)
+	serverInstance := server.Setup(serverAddress+":"+serverPort, m)
 	waitGroup.Add(1)
 	go func() {
 		defer waitGroup.Done()
@@ -76,29 +76,30 @@ func startServer(waitGroup *sync.WaitGroup, jq manager.Queue) *http.Server {
 	return &serverInstance
 }
 
-func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Queue {
+func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Manager {
 	cfg, err := aws.Config()
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
 	}
-	db := aws.NewDynamoDb(cfg)
+	cache := jobmanager.NewJobCache()
+	db := aws.NewDynamoDb(cfg, cache)
 	if err = db.InitializeJobs(); err != nil {
-		log.Fatalf("Failed to populate jobs from database: %q", err)
+		log.Fatalf("failed to populate jobs from database: %q", err)
 	}
 	deployment := aws.NewEcs(cfg)
 	api := aws.NewApi(cfg)
-	jq, err := queue.NewJobQueue(db, deployment, api, shutdownCh)
+	m, err := jobmanager.NewJobManager(cache, db, deployment, api)
 	if err != nil {
-		log.Fatalf("Failed to create job queue: %q", err)
+		log.Fatalf("failed to create job queue: %q", err)
 	}
 	waitGroup.Add(1)
 	go func() {
 		defer waitGroup.Done()
-		log.Println("Started job queue processing")
-		jq.ProcessJobs()
-		log.Println("Stopped job queue processing")
+		log.Println("started job queue processing")
+		m.ProcessJobs(shutdownCh)
+		log.Println("stopped job queue processing")
 	}()
-	return jq
+	return m
 }
 
 func shutdown(waitGroup *sync.WaitGroup, cleanup func() bool) {

@@ -11,11 +11,11 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-func Setup(addr string, jq manager.Queue) http.Server {
+func Setup(addr string, m manager.Manager) http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("/healthcheck", healthcheckHandler())
 	mux.Handle("/time", timeHandler(time.RFC1123))
-	mux.Handle("/job", jobHandler(jq))
+	mux.Handle("/job", jobHandler(m))
 	return http.Server{Addr: addr, Handler: mux}
 }
 
@@ -32,7 +32,7 @@ func timeHandler(format string) http.HandlerFunc {
 	}
 }
 
-func jobHandler(jq manager.Queue) http.HandlerFunc {
+func jobHandler(m manager.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		headerContentTtype := r.Header.Get("Content-Type")
 		if headerContentTtype != "application/json" {
@@ -58,7 +58,7 @@ func jobHandler(jq manager.Queue) http.HandlerFunc {
 				message = "jobHandler: bad request: " + err.Error()
 			}
 			return
-		} else if err = jq.NewJob(&jobState); err != nil {
+		} else if err = m.NewJob(jobState); err != nil {
 			status = http.StatusBadRequest
 			message = "jobHandler: could not queue job: " + err.Error()
 		}

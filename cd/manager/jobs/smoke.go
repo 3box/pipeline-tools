@@ -11,12 +11,12 @@ import (
 var _ manager.Job = &smokeTestJob{}
 
 type smokeTestJob struct {
-	state *manager.JobState
+	state manager.JobState
 	db    manager.Database
 	api   manager.ApiGw
 }
 
-func SmokeTestJob(db manager.Database, api manager.ApiGw, jobState *manager.JobState) *smokeTestJob {
+func SmokeTestJob(db manager.Database, api manager.ApiGw, jobState manager.JobState) *smokeTestJob {
 	return &smokeTestJob{jobState, db, api}
 }
 
