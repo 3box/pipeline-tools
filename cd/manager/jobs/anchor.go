@@ -39,7 +39,7 @@ func (a anchorJob) AdvanceJob() error {
 	} else if time.Now().Add(-manager.DefaultFailureTime).After(a.state.Ts) {
 		a.state.Stage = manager.JobStage_Failed
 	} else if a.state.Stage == manager.JobStage_Started {
-		if running, err := a.d.CheckService(true, "ceramic-"+a.env+"-cas", a.state.Params["id"].(string)); err != nil {
+		if running, err := a.d.CheckTask(true, "ceramic-"+a.env+"-cas", a.state.Params["id"].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 		} else if running {
 			a.state.Stage = manager.JobStage_Waiting
@@ -48,7 +48,7 @@ func (a anchorJob) AdvanceJob() error {
 			return nil
 		}
 	} else if a.state.Stage == manager.JobStage_Waiting {
-		if stopped, err := a.d.CheckService(false, "ceramic-"+a.env+"-cas", a.state.Params["id"].(string)); err != nil {
+		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params["id"].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 		} else if stopped {
 			a.state.Stage = manager.JobStage_Completed
