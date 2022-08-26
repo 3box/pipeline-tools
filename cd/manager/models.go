@@ -1,6 +1,10 @@
 package manager
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
@@ -18,11 +22,12 @@ const (
 type JobStage string
 
 const (
-	JobStage_Queued     JobStage = "queued"
-	JobStage_Processing JobStage = "processing"
-	JobStage_Skipped    JobStage = "skipped"
-	JobStage_Failed     JobStage = "failed"
-	JobStage_Completed  JobStage = "completed"
+	JobStage_Queued    JobStage = "queued"
+	JobStage_Started   JobStage = "started"
+	JobStage_Waiting   JobStage = "waiting"
+	JobStage_Skipped   JobStage = "skipped"
+	JobStage_Failed    JobStage = "failed"
+	JobStage_Completed JobStage = "completed"
 )
 
 type EventParam string
@@ -39,6 +44,12 @@ const (
 	DeployComponent_Ceramic EventParam = "ceramic"
 	DeployComponent_Ipfs    EventParam = "ipfs"
 	DeployComponent_Cas     EventParam = "cas"
+)
+
+const (
+	E2eTest_PrivatePublic     EventParam = "private-public"
+	E2eTest_LocalClientPublic EventParam = "local_client-public"
+	E2eTest_LocalNodePrivate  EventParam = "local_node-private"
 )
 
 type JobEvent struct {
@@ -73,12 +84,12 @@ type Cache interface {
 	WriteJob(JobState)
 	DeleteJob(string)
 	JobById(string) (JobState, bool)
-	JobsByMatcher(func(JobState) bool) map[string]JobState
+	JobsByMatcher(func(JobState) bool) []JobState
 }
 
 type Deployment interface {
 	LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error)
-	CheckService(string, ...string) (bool, error)
+	CheckService(bool, string, ...string) (bool, error)
 	RestartService(string, string) error
 	UpdateService(string, string) error
 }
@@ -90,4 +101,16 @@ type Server interface {
 type Manager interface {
 	NewJob(JobState) error
 	ProcessJobs(shutdownCh chan bool)
+}
+
+func PrintJob(jobStates ...JobState) string {
+	prettyString := ""
+	for _, jobState := range jobStates {
+		prettyBytes, err := json.MarshalIndent(jobState, "", "  ")
+		if err != nil {
+			prettyString += fmt.Sprintf("\n%+v", jobState)
+		}
+		prettyString += "\n" + string(prettyBytes)
+	}
+	return prettyString
 }

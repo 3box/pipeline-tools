@@ -49,7 +49,7 @@ func main() {
 	go shutdown(waitGroup, func() bool {
 		close(shutdownChan)
 		if err := serverInstance.Shutdown(context.Background()); err != nil {
-			fmt.Printf("Server error on shutdown: %+v", err)
+			fmt.Printf("Server error on shutdown: %v", err)
 		}
 		return true
 	})

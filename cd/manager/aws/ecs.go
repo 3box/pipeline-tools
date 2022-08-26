@@ -61,12 +61,12 @@ func (e Ecs) LaunchService(cluster, service, family, container string, overrides
 	}
 	output, err := e.client.RunTask(ctx, input)
 	if err != nil {
-		return "", fmt.Errorf("ecs: run task error: %s, %s, %v, %w", family, cluster, overrides, err)
+		return "", fmt.Errorf("ecs: run task error: %s, %s, %+v, %w", family, cluster, overrides, err)
 	}
 	return *output.Tasks[0].TaskArn, nil
 }
 
-func (e Ecs) CheckService(cluster string, taskArn ...string) (bool, error) {
+func (e Ecs) CheckService(running bool, cluster string, taskArn ...string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
 	defer cancel()
 
@@ -78,7 +78,13 @@ func (e Ecs) CheckService(cluster string, taskArn ...string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("ecs: describe service error: %s, %s, %w", cluster, taskArn, err)
 	}
-	if (len(descOutput.Tasks) > 0) && (*descOutput.Tasks[0].LastStatus == string(types.DesiredStatusRunning)) {
+	var checkStatus types.DesiredStatus
+	if running {
+		checkStatus = types.DesiredStatusRunning
+	} else {
+		checkStatus = types.DesiredStatusStopped
+	}
+	if (len(descOutput.Tasks) > 0) && (*descOutput.Tasks[0].LastStatus == string(checkStatus)) {
 		return true, nil
 	}
 	return false, nil
