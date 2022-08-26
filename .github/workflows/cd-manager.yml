@@ -1,4 +1,4 @@
-name: Publish Docker image
+name: CD Manager
 
 on:
   push:
@@ -7,6 +7,11 @@ on:
       - 'cd/manager/**'
   pull_request: # pull requests
   workflow_dispatch: # manually triggered
+    inputs:
+      environment:
+        description: 'Environment name (one of: dev, qa, tnet, prod)'
+        required: true
+        default: 'qa'
 
 env:
   # Dagger
@@ -28,8 +33,7 @@ env:
   SHA: ${{ github.sha }}
 
 jobs:
-  image:
-    name: Verify and publish Docker image
+  handle_docker_image:
     runs-on: ubuntu-latest
     steps:
       -
@@ -55,6 +59,11 @@ jobs:
         if: ${{ env.BRANCH == 'develop' || env.ENV_TAG == '' }}
         run: |
           echo "ENV_TAG=dev" >> $GITHUB_ENV
+      -
+        name: Override env tag
+        if: ${{ github.event.inputs.environment != '' }}
+        run: |
+          echo "ENV_TAG=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
       -
         name: Set commit status "pending"
         run: |
