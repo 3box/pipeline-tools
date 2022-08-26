@@ -89,13 +89,15 @@ func (db DynamoDb) createTable() error {
 }
 
 func (db DynamoDb) InitializeJobs() error {
-	// Load all jobs in an advanced stage of processing (completed, failed, processing, skipped), so that we know which
+	// Load all jobs in an advanced stage of processing (completed, failed, started, waiting, skipped), so that we know which
 	// jobs have already been dequeued.
 	if err := db.loadJobs(manager.JobStage_Completed); err != nil {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Failed); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Processing); err != nil {
+	} else if err = db.loadJobs(manager.JobStage_Started); err != nil {
+		return err
+	} else if err = db.loadJobs(manager.JobStage_Waiting); err != nil {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Skipped); err != nil {
 		return err

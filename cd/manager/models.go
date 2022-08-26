@@ -18,11 +18,12 @@ const (
 type JobStage string
 
 const (
-	JobStage_Queued     JobStage = "queued"
-	JobStage_Processing JobStage = "processing"
-	JobStage_Skipped    JobStage = "skipped"
-	JobStage_Failed     JobStage = "failed"
-	JobStage_Completed  JobStage = "completed"
+	JobStage_Queued    JobStage = "queued"
+	JobStage_Started   JobStage = "started"
+	JobStage_Waiting   JobStage = "waiting"
+	JobStage_Skipped   JobStage = "skipped"
+	JobStage_Failed    JobStage = "failed"
+	JobStage_Completed JobStage = "completed"
 )
 
 type EventParam string
@@ -39,6 +40,12 @@ const (
 	DeployComponent_Ceramic EventParam = "ceramic"
 	DeployComponent_Ipfs    EventParam = "ipfs"
 	DeployComponent_Cas     EventParam = "cas"
+)
+
+const (
+	E2eTest_PrivatePublic     EventParam = "private-public"
+	E2eTest_LocalClientPublic EventParam = "local_client-public"
+	E2eTest_LocalNodePrivate  EventParam = "local_node-private"
 )
 
 type JobEvent struct {
@@ -78,7 +85,7 @@ type Cache interface {
 
 type Deployment interface {
 	LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error)
-	CheckService(string, ...string) (bool, error)
+	CheckService(bool, string, ...string) (bool, error)
 	RestartService(string, string) error
 	UpdateService(string, string) error
 }

@@ -63,8 +63,7 @@ func (m JobManager) ProcessJobs(shutdownCh chan bool) {
 func (m JobManager) advanceJobs() {
 	// Age out completed/failed/skipped jobs older than 1 day.
 	oldJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return ((js.Stage == manager.JobStage_Completed) || (js.Stage == manager.JobStage_Failed) || (js.Stage == manager.JobStage_Skipped)) &&
-			time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
+		return m.isFinishedJob(js) && time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
 	})
 	if len(oldJobs) > 0 {
 		log.Printf("processJobs: aging out %d jobs...", len(oldJobs))
@@ -75,9 +74,7 @@ func (m JobManager) advanceJobs() {
 		}
 	}
 	// Find all jobs in progress and advance their state before looking for new jobs.
-	activeJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return js.Stage == manager.JobStage_Processing
-	})
+	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
 	if len(activeJobs) > 0 {
 		log.Printf("processJobs: advancing %d jobs in progress...", len(activeJobs))
 		for _, job := range activeJobs {
@@ -114,7 +111,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 	firstJob := jobs[0]
 	incompatibleJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		// Match non-deploy jobs, or jobs for the same component (viz. Ceramic, IPFS, or CAS).
-		return (js.Stage == manager.JobStage_Processing) &&
+		return m.isActiveJob(js) &&
 			((js.Type != manager.JobType_Deploy) || (js.Params[manager.DeployParam_Component] == firstJob.Params[manager.DeployParam_Component]))
 	})
 	if len(incompatibleJobs) == 0 {
@@ -151,7 +148,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 	// Check if there are any deploy jobs in progress
 	deployJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return (js.Stage == manager.JobStage_Processing) && (js.Type == manager.JobType_Deploy)
+		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
 	if len(deployJobs) == 0 {
 		// - Launch an anchor worker per anchor job between deployments
@@ -227,6 +224,14 @@ func (m JobManager) generateJob(jobState manager.JobState) (manager.Job, error) 
 		return nil, fmt.Errorf("generateJob: unknown job type: %v", jobState)
 	}
 	return job, nil
+}
+
+func (m JobManager) isFinishedJob(jobState manager.JobState) bool {
+	return (jobState.Stage == manager.JobStage_Completed) || (jobState.Stage == manager.JobStage_Failed) || (jobState.Stage == manager.JobStage_Skipped)
+}
+
+func (m JobManager) isActiveJob(jobState manager.JobState) bool {
+	return (jobState.Stage == manager.JobStage_Started) || (jobState.Stage == manager.JobStage_Waiting)
 }
 
 func (m JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
