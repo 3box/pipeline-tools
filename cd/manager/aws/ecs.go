@@ -124,6 +124,7 @@ func (e Ecs) UpdateService(cluster, service, sha string) (string, error) {
 
 	// Register a new task definition with an updated image.
 	taskDef := descTaskOutput.TaskDefinition
+	// TODO: Use proper repository path
 	taskDef.ContainerDefinitions[0].Image = aws.String("ceramicnetwork/js-ceramic:" + sha)
 	regTaskInput := &ecs.RegisterTaskDefinitionInput{
 		ContainerDefinitions:    taskDef.ContainerDefinitions,
