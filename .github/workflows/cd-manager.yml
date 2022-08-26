@@ -1,4 +1,4 @@
-name: Publish Docker image
+name: CD Manager
 
 on:
   push:
@@ -33,8 +33,7 @@ env:
   SHA: ${{ github.sha }}
 
 jobs:
-  image:
-    name: Verify and publish Docker image
+  handle_docker_image:
     runs-on: ubuntu-latest
     steps:
       -
