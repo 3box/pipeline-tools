@@ -58,7 +58,7 @@ func (a anchorJob) AdvanceJob() error {
 		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
-		return fmt.Errorf("anchorJob: unexpected state: %v", a.state)
+		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
 	a.state.Ts = time.Now()
 	if err := a.db.UpdateJob(a.state); err != nil {

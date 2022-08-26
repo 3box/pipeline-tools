@@ -69,14 +69,14 @@ func (m JobManager) advanceJobs() {
 		log.Printf("processJobs: aging out %d jobs...", len(oldJobs))
 		for _, job := range oldJobs {
 			// Delete the job from the cache
-			log.Printf("processJobs: aging out job: %v", job)
+			log.Printf("processJobs: aging out job: %s", manager.PrintJob(job))
 			m.cache.DeleteJob(job.Id)
 		}
 	}
 	// Find all jobs in progress and advance their state before looking for new jobs.
 	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
 	if len(activeJobs) > 0 {
-		log.Printf("processJobs: advancing %d jobs in progress...", len(activeJobs))
+		log.Printf("processJobs: checking %d jobs in progress...", len(activeJobs))
 		for _, job := range activeJobs {
 			m.advanceJob(job)
 		}
@@ -92,7 +92,7 @@ func (m JobManager) advanceJobs() {
 	// complete.
 	dequeuedJobs := m.db.DequeueJobs()
 	if len(dequeuedJobs) > 0 {
-		log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
+		log.Printf("processJobs: dequeued %d new jobs...", len(dequeuedJobs))
 		// Decide how to proceed based on the first job from the list.
 		if dequeuedJobs[0].Type == manager.JobType_Deploy {
 			m.processDeployJobs(dequeuedJobs)
@@ -128,7 +128,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 			// Update the cache and database for every skipped job.
 			if skippedJob, found := deployJobs[deployComponent]; found {
 				if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-					log.Printf("processDeployJobs: could not update skipped job: %v, %v", skippedJob, err)
+					log.Printf("processDeployJobs: could not update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
 					// Return from here so that no state is changed and the loop can restart cleanly. Any jobs already
 					// skipped won't be picked up again, which is ok.
 					return
@@ -141,7 +141,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 			m.advanceJob(deployJob)
 		}
 	} else {
-		log.Printf("processDeployJobs: deferring deployment because one or more jobs are in progress: %v, %v", firstJob, incompatibleJobs)
+		log.Printf("processDeployJobs: deferring deployment because one or more jobs are in progress: %s, %s", manager.PrintJob(firstJob), manager.PrintJob(incompatibleJobs...))
 	}
 }
 
@@ -170,7 +170,7 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 				// Update the cache and database for every skipped job.
 				if skippedJob, found := testJobs[jobType]; found {
 					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-						log.Printf("processNonDeployJobs: could not update skipped job: %v, %v", skippedJob, err)
+						log.Printf("processNonDeployJobs: could not update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
 						// already skipped won't be picked up again, which is ok.
 						return
@@ -188,7 +188,7 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 			m.advanceJob(testJob)
 		}
 	} else {
-		log.Printf("processNonDeployJobs: deferring job because one or more deployments are in progress: %v, %v", jobs[0], deployJobs)
+		log.Printf("processNonDeployJobs: deferring job because one or more deployments are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(deployJobs...))
 	}
 }
 
@@ -196,15 +196,15 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 	m.waitGroup.Add(1)
 	go func() {
 		defer m.waitGroup.Done()
-		log.Printf("advanceJob: advancing job: %v", jobState)
+		log.Printf("advanceJob: checking job: %s", manager.PrintJob(jobState))
 		if job, err := m.generateJob(jobState); err != nil {
-			log.Printf("advanceJob: job generation failed: %v, %v", jobState, err)
+			log.Printf("advanceJob: job generation failed: %v, %s", err, manager.PrintJob(jobState))
 			if err = m.updateJobStage(jobState, manager.JobStage_Failed); err != nil {
-				log.Printf("advanceJob: job update failed: %v, %v", jobState, err)
+				log.Printf("advanceJob: job update failed: %v, %s", err, manager.PrintJob(jobState))
 			}
 		} else if err = job.AdvanceJob(); err != nil {
 			// Advancing should automatically update the cache and database in case of failures.
-			log.Printf("advanceJob: job advancement failed: %v, %v", jobState, err)
+			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
 		}
 	}()
 }
@@ -221,7 +221,7 @@ func (m JobManager) generateJob(jobState manager.JobState) (manager.Job, error) 
 	case manager.JobType_TestSmoke:
 		job = jobs.SmokeTestJob(m.db, m.apiGw, jobState)
 	default:
-		return nil, fmt.Errorf("generateJob: unknown job type: %v", jobState)
+		return nil, fmt.Errorf("generateJob: unknown job type: %s", manager.PrintJob(jobState))
 	}
 	return job, nil
 }

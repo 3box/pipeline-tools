@@ -61,7 +61,7 @@ func (e Ecs) LaunchService(cluster, service, family, container string, overrides
 	}
 	output, err := e.client.RunTask(ctx, input)
 	if err != nil {
-		return "", fmt.Errorf("ecs: run task error: %s, %s, %v, %w", family, cluster, overrides, err)
+		return "", fmt.Errorf("ecs: run task error: %s, %s, %+v, %w", family, cluster, overrides, err)
 	}
 	return *output.Tasks[0].TaskArn, nil
 }

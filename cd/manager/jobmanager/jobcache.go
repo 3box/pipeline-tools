@@ -36,12 +36,12 @@ func (c JobCache) JobById(jobId string) (manager.JobState, bool) {
 	return manager.JobState{}, false
 }
 
-func (c JobCache) JobsByMatcher(matcher func(jobStage manager.JobState) bool) map[string]manager.JobState {
-	jobs := make(map[string]manager.JobState)
+func (c JobCache) JobsByMatcher(matcher func(jobStage manager.JobState) bool) []manager.JobState {
+	jobs := make([]manager.JobState, 0, 0)
 	c.jobs.Range(func(_, value interface{}) bool {
 		jobState := value.(manager.JobState)
 		if matcher(jobState) {
-			jobs[jobState.Id] = jobState
+			jobs = append(jobs, jobState)
 		}
 		return true
 	})

@@ -35,7 +35,7 @@ func (s smokeTestJob) AdvanceJob() error {
 		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
-		return fmt.Errorf("smokeTestJob: unexpected state: %v", s.state)
+		return fmt.Errorf("smokeTestJob: unexpected state: %s", manager.PrintJob(s.state))
 	}
 	return nil
 }

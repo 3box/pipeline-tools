@@ -8,6 +8,9 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
+// Allow up to 2 hours for E2E tests to run
+const FailureTime = 120 * time.Minute
+
 var _ manager.Job = &e2eTestJob{}
 
 type e2eTestJob struct {
@@ -27,7 +30,7 @@ func (e e2eTestJob) AdvanceJob() error {
 		} else {
 			e.state.Stage = manager.JobStage_Started
 		}
-	} else if time.Now().Add(-manager.DefaultFailureTime).After(e.state.Ts) {
+	} else if time.Now().Add(-FailureTime).After(e.state.Ts) {
 		e.state.Stage = manager.JobStage_Failed
 	} else if e.state.Stage == manager.JobStage_Started {
 		// Check if all suites started successfully
@@ -51,7 +54,7 @@ func (e e2eTestJob) AdvanceJob() error {
 		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
-		return fmt.Errorf("anchorJob: unexpected state: %v", e.state)
+		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
 	e.state.Ts = time.Now()
 	if err := e.db.UpdateJob(e.state); err != nil {

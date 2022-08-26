@@ -1,6 +1,10 @@
 package manager
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
@@ -80,7 +84,7 @@ type Cache interface {
 	WriteJob(JobState)
 	DeleteJob(string)
 	JobById(string) (JobState, bool)
-	JobsByMatcher(func(JobState) bool) map[string]JobState
+	JobsByMatcher(func(JobState) bool) []JobState
 }
 
 type Deployment interface {
@@ -97,4 +101,16 @@ type Server interface {
 type Manager interface {
 	NewJob(JobState) error
 	ProcessJobs(shutdownCh chan bool)
+}
+
+func PrintJob(jobStates ...JobState) string {
+	prettyString := ""
+	for _, jobState := range jobStates {
+		prettyBytes, err := json.MarshalIndent(jobState, "", "  ")
+		if err != nil {
+			prettyString += fmt.Sprintf("\n%+v", jobState)
+		}
+		prettyString += "\n" + string(prettyBytes)
+	}
+	return prettyString
 }
