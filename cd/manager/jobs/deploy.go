@@ -43,7 +43,7 @@ func (d deployJob) AdvanceJob() error {
 		} else {
 			d.state.Stage = manager.JobStage_Started
 		}
-	} else if time.Now().Add(-FailureTime).After(d.state.Ts) {
+	} else if time.Now().Add(-manager.DefaultFailureTime).After(d.state.Ts) {
 		d.state.Stage = manager.JobStage_Failed
 	} else if d.state.Stage == manager.JobStage_Started {
 		// Check if all service updates completed
@@ -60,10 +60,7 @@ func (d deployJob) AdvanceJob() error {
 		return fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
 	}
 	d.state.Ts = time.Now()
-	if err := d.db.UpdateJob(d.state); err != nil {
-		return err
-	}
-	return nil
+	return d.db.UpdateJob(d.state)
 }
 
 func (d deployJob) updateServices() error {

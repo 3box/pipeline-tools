@@ -5,13 +5,11 @@ go 1.18
 replace github.com/3box/pipeline-tools/cd/manager => ../
 
 require (
-	github.com/alecthomas/kong v0.6.1
 	github.com/aws/aws-sdk-go-v2 v1.16.11
 	github.com/aws/aws-sdk-go-v2/config v1.15.13
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.9.10
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.15.10
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.15.12
-	github.com/aws/aws-sdk-go-v2/service/ecr v1.17.12
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.18.11
 	github.com/disgoorg/disgo v0.13.16
 	github.com/disgoorg/snowflake/v2 v2.0.0
@@ -32,7 +30,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.11.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.16.9 // indirect
 	github.com/aws/smithy-go v1.12.1 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/disgoorg/log v1.2.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/sasha-s/go-csync v0.0.0-20210812194225-61421b77c44b // indirect
+	github.com/stretchr/testify v1.7.2 // indirect
 )

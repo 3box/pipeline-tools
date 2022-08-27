@@ -8,6 +8,9 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
+// Allow up to 6 hours for anchor workers to run
+const AnchorFailureTime = 6 * time.Hour
+
 var _ manager.Job = &anchorJob{}
 
 type anchorJob struct {
@@ -36,7 +39,7 @@ func (a anchorJob) AdvanceJob() error {
 			a.state.Stage = manager.JobStage_Started
 			a.state.Params["id"] = id
 		}
-	} else if time.Now().Add(-manager.DefaultFailureTime).After(a.state.Ts) {
+	} else if time.Now().Add(-AnchorFailureTime).After(a.state.Ts) {
 		a.state.Stage = manager.JobStage_Failed
 	} else if a.state.Stage == manager.JobStage_Started {
 		if running, err := a.d.CheckTask(true, "ceramic-"+a.env+"-cas", a.state.Params["id"].(string)); err != nil {
@@ -61,8 +64,5 @@ func (a anchorJob) AdvanceJob() error {
 		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
 	a.state.Ts = time.Now()
-	if err := a.db.UpdateJob(a.state); err != nil {
-		return err
-	}
-	return nil
+	return a.db.UpdateJob(a.state)
 }

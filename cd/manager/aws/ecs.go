@@ -13,9 +13,9 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-var _ manager.Deployment = &Ecs{}
-
 const EcsWaitTime = 30 * time.Second
+
+var _ manager.Deployment = &Ecs{}
 
 type Ecs struct {
 	client *ecs.Client

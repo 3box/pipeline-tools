@@ -9,7 +9,7 @@ import (
 )
 
 // Allow up to 2 hours for E2E tests to run
-const FailureTime = 120 * time.Minute
+const FailureTime = 2 * time.Hour
 
 var _ manager.Job = &e2eTestJob{}
 
@@ -57,10 +57,7 @@ func (e e2eTestJob) AdvanceJob() error {
 		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
 	e.state.Ts = time.Now()
-	if err := e.db.UpdateJob(e.state); err != nil {
-		return err
-	}
-	return nil
+	return e.db.UpdateJob(e.state)
 }
 
 func (e e2eTestJob) startE2eTests() error {
@@ -68,10 +65,9 @@ func (e e2eTestJob) startE2eTests() error {
 		return err
 	} else if err = e.startE2eTest(manager.E2eTest_LocalClientPublic); err != nil {
 		return err
-	} else if err = e.startE2eTest(manager.E2eTest_LocalNodePrivate); err != nil {
-		return err
+	} else {
+		return e.startE2eTest(manager.E2eTest_LocalNodePrivate)
 	}
-	return nil
 }
 
 func (e e2eTestJob) startE2eTest(config string) error {

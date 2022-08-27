@@ -10,7 +10,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/alecthomas/kong"
 	"github.com/joho/godotenv"
 
 	"github.com/3box/pipeline-tools/cd/manager"
@@ -21,19 +20,11 @@ import (
 
 // TODO: Add more comments across the code
 
-// TODO: Do we need a CLI and options?
-type CliOptions struct {
-	Port string `short:"p" help:"Port for status server"`
-}
-
 func main() {
 	if err := godotenv.Load("env/.env"); err != nil {
 		log.Fatal("Error loading .env file")
 	}
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-
-	var cli CliOptions
-	kong.Parse(&cli)
 
 	waitGroup := new(sync.WaitGroup)
 	shutdownChan := make(chan bool)
