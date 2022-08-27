@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -98,7 +99,7 @@ func (e Ecs) CheckTask(running bool, cluster string, taskArn ...string) (bool, e
 	return false, nil
 }
 
-func (e Ecs) UpdateService(cluster, service, sha string) (string, error) {
+func (e Ecs) UpdateService(cluster, service, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
 	defer cancel()
 
@@ -109,7 +110,7 @@ func (e Ecs) UpdateService(cluster, service, sha string) (string, error) {
 	}
 	descOutput, err := e.client.DescribeServices(ctx, descSvcInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: describe service error: %s, %s, %s, %w", cluster, service, sha, err)
+		return "", fmt.Errorf("updateService: describe service error: %s, %s, %s, %w", cluster, service, image, err)
 	}
 
 	// Describe task to get full task definition.
@@ -119,13 +120,12 @@ func (e Ecs) UpdateService(cluster, service, sha string) (string, error) {
 	}
 	descTaskOutput, err := e.client.DescribeTaskDefinition(ctx, descTaskInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: describe service error: %s, %s, %s, %w", cluster, service, sha, err)
+		return "", fmt.Errorf("updateService: describe task definition error: %s, %s, %s, %w", cluster, service, image, err)
 	}
 
 	// Register a new task definition with an updated image.
 	taskDef := descTaskOutput.TaskDefinition
-	// TODO: Use proper repository path
-	taskDef.ContainerDefinitions[0].Image = aws.String("ceramicnetwork/js-ceramic:" + sha)
+	taskDef.ContainerDefinitions[0].Image = aws.String(image)
 	regTaskInput := &ecs.RegisterTaskDefinitionInput{
 		ContainerDefinitions:    taskDef.ContainerDefinitions,
 		Family:                  taskDef.Family,
@@ -146,7 +146,7 @@ func (e Ecs) UpdateService(cluster, service, sha string) (string, error) {
 	}
 	regTaskOutput, err := e.client.RegisterTaskDefinition(ctx, regTaskInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: describe service error: %s, %s, %s, %w", cluster, service, sha, err)
+		return "", fmt.Errorf("updateService: register task definition error: %s, %s, %s, %w", cluster, service, image, err)
 	}
 
 	// Update the service to use the new task definition.
@@ -161,7 +161,7 @@ func (e Ecs) UpdateService(cluster, service, sha string) (string, error) {
 	}
 	_, err = e.client.UpdateService(ctx, updateSvcInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: update service error: %s, %s, %s, %w", cluster, service, sha, err)
+		return "", fmt.Errorf("updateService: update service error: %s, %s, %s, %w", cluster, service, image, err)
 	}
 	return *newTaskDef.TaskDefinitionArn, nil
 }
@@ -187,4 +187,83 @@ func (e Ecs) CheckService(cluster, service, taskDefArn string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (e Ecs) PopulateLayout(component string) (map[string]map[string]interface{}, error) {
+	const (
+		ServiceSuffix_CeramicNode      string = "node"
+		ServiceSuffix_CeramicGateway   string = "gateway"
+		ServiceSuffix_Elp11CeramicNode string = "elp-1-1-node"
+		ServiceSuffix_Elp12CeramicNode string = "elp-1-2-node"
+		ServiceSuffix_IpfsNode         string = "ipfs-nd"
+		ServiceSuffix_IpfsGateway      string = "ipfs-gw"
+		ServiceSuffix_Elp11IpfsNode    string = "elp-1-1-ipfs-nd"
+		ServiceSuffix_Elp12IpfsNode    string = "elp-1-2-ipfs-nd"
+		ServiceSuffix_CasApi           string = "api"
+		ServiceSuffix_CasAnchor        string = "anchor"
+	)
+
+	env := os.Getenv("ENV")
+	globalPrefix := "ceramic"
+	privateCluster := globalPrefix + "-" + env
+	publicCluster := globalPrefix + "-" + env + "-ex"
+	casCluster := globalPrefix + "-" + env + "-cas"
+
+	clusterLayout := make(map[string]map[string]interface{}, 1)
+	switch component {
+	case manager.DeployComponent_Ceramic:
+		clusterLayout[privateCluster] = map[string]interface{}{
+			privateCluster + "-" + ServiceSuffix_CeramicNode: nil,
+		}
+		clusterLayout[publicCluster] = map[string]interface{}{
+			publicCluster + "-" + ServiceSuffix_CeramicNode:    nil,
+			publicCluster + "-" + ServiceSuffix_CeramicGateway: nil,
+		}
+		if env == manager.EnvType_Prod {
+			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp11CeramicNode] = nil
+			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp12CeramicNode] = nil
+		}
+		clusterLayout[casCluster] = map[string]interface{}{
+			casCluster + "-" + ServiceSuffix_CeramicNode: nil,
+		}
+	case manager.DeployComponent_Ipfs:
+		clusterLayout[privateCluster] = map[string]interface{}{
+			privateCluster + ServiceSuffix_IpfsNode: nil,
+		}
+		clusterLayout[publicCluster] = map[string]interface{}{
+			publicCluster + "-" + ServiceSuffix_IpfsNode:    nil,
+			publicCluster + "-" + ServiceSuffix_IpfsGateway: nil,
+		}
+		if env == manager.EnvType_Prod {
+			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp11IpfsNode] = nil
+			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp12IpfsNode] = nil
+		}
+		clusterLayout[casCluster] = map[string]interface{}{
+			casCluster + "-" + ServiceSuffix_IpfsNode: nil,
+		}
+	case manager.DeployComponent_Cas:
+		clusterLayout[casCluster] = map[string]interface{}{
+			casCluster + "-" + ServiceSuffix_CasApi:    nil,
+			casCluster + "-" + ServiceSuffix_CasAnchor: nil,
+		}
+	default:
+		return nil, fmt.Errorf("deployJob: unexpected component: %s", component)
+	}
+	return clusterLayout, nil
+}
+
+func (e Ecs) GetRegistryUri(component string) (string, error) {
+	env := os.Getenv("ENV")
+	var repo string
+	switch component {
+	case manager.DeployComponent_Ceramic:
+		repo = "ceramic-" + env
+	case manager.DeployComponent_Ipfs:
+		repo = "go-ipfs-" + env
+	case manager.DeployComponent_Cas:
+		repo = "ceramic-" + env + "-cas"
+	default:
+		return "", fmt.Errorf("getImagePath: invalid component: %s", component)
+	}
+	return os.Getenv("AWS_ACCOUNT_ID") + ".dkr.ecr." + os.Getenv("AWS_REGION") + ".amazonaws.com/" + repo, nil
 }

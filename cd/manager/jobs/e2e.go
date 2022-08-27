@@ -64,7 +64,6 @@ func (e e2eTestJob) AdvanceJob() error {
 }
 
 func (e e2eTestJob) startE2eTests() error {
-	// TODO: Should we attempt to parallelize these calls?
 	if err := e.startE2eTest(manager.E2eTest_PrivatePublic); err != nil {
 		return err
 	} else if err = e.startE2eTest(manager.E2eTest_LocalClientPublic); err != nil {

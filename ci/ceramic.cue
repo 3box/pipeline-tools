@@ -136,10 +136,13 @@ dagger.#Plan & {
 		}
 
 		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: [Version=string]: {
-			_tags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)", "\(Version)"]
+			_tags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
 			_extraTags: [...string] | *[]
 			if EnvTag == "prod" {
-				_extraTags: ["latest"]
+				_extraTags: ["latest", "\(Version)"]
+			}
+			if EnvTag == "tnet" {
+				_extraTags: ["\(Version)"]
 			}
 			if EnvTag == "dev" {
 				_extraTags: ["qa"]

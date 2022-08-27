@@ -29,7 +29,7 @@ type DynamoDb struct {
 }
 
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
-	tableName := os.Getenv("TABLE_NAME")
+	tableName := "ceramic-" + os.Getenv("ENV") + "-ops"
 	db := &DynamoDb{
 		dynamodb.NewFromConfig(cfg),
 		tableName,

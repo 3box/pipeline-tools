@@ -37,14 +37,6 @@ const (
 	EnvType_Prod string = "prod"
 )
 
-type Cluster uint8
-
-const (
-	Cluster_Private Cluster = iota
-	Cluster_Public
-	Cluster_Cas
-)
-
 const (
 	DeployParam_Component string = "component"
 	DeployParam_Sha       string = "sha"
@@ -54,24 +46,6 @@ const (
 	DeployComponent_Ceramic string = "ceramic"
 	DeployComponent_Ipfs    string = "ipfs"
 	DeployComponent_Cas     string = "cas"
-)
-
-const (
-	ClusterSuffix_Public string = "ex"
-	ClusterSuffix_Cas    string = "cas"
-)
-
-const (
-	ServiceSuffix_CeramicNode      string = "node"
-	ServiceSuffix_CeramicGateway   string = "gateway"
-	ServiceSuffix_Elp11CeramicNode string = "elp-1-1-node"
-	ServiceSuffix_Elp12CeramicNode string = "elp-1-2-node"
-	ServiceSuffix_IpfsNode         string = "ipfs-nd"
-	ServiceSuffix_IpfsGateway      string = "ipfs-gw"
-	ServiceSuffix_Elp11IpfsNode    string = "elp-1-1-ipfs-nd"
-	ServiceSuffix_Elp12IpfsNode    string = "elp-1-2-ipfs-nd"
-	ServiceSuffix_CasApi           string = "api"
-	ServiceSuffix_CasAnchor        string = "anchor"
 )
 
 const (
@@ -120,6 +94,8 @@ type Deployment interface {
 	CheckTask(bool, string, ...string) (bool, error)
 	UpdateService(string, string, string) (string, error)
 	CheckService(string, string, string) (bool, error)
+	PopulateLayout(string) (map[string]map[string]interface{}, error)
+	GetRegistryUri(string) (string, error)
 }
 
 type Server interface {
@@ -141,17 +117,4 @@ func PrintJob(jobStates ...JobState) string {
 		prettyString += "\n" + string(prettyBytes)
 	}
 	return prettyString
-}
-
-func GetClusterName(cluster Cluster, env string) string {
-	globalPrefix := "ceramic"
-	switch cluster {
-	case Cluster_Private:
-		return globalPrefix + "-" + string(env)
-	case Cluster_Public:
-		return globalPrefix + "-" + string(env) + "-" + ClusterSuffix_Public
-	case Cluster_Cas:
-		return globalPrefix + "-" + string(env) + "-" + ClusterSuffix_Cas
-	}
-	return ""
 }
