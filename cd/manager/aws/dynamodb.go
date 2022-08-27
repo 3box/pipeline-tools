@@ -29,7 +29,7 @@ type DynamoDb struct {
 }
 
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
-	tableName := os.Getenv("TABLE_NAME")
+	tableName := "ceramic-" + os.Getenv("ENV") + "-ops"
 	db := &DynamoDb{
 		dynamodb.NewFromConfig(cfg),
 		tableName,
@@ -99,21 +99,17 @@ func (db DynamoDb) InitializeJobs() error {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Waiting); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Skipped); err != nil {
-		return err
+	} else {
+		return db.loadJobs(manager.JobStage_Skipped)
 	}
-	return nil
 }
 
 func (db DynamoDb) loadJobs(stage manager.JobStage) error {
-	if err := db.iterateJobs(stage, func(jobState manager.JobState) bool {
+	return db.iterateJobs(stage, func(jobState manager.JobState) bool {
 		db.cache.WriteJob(jobState)
 		// Return true so that we keep on iterating.
 		return true
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 func (db DynamoDb) QueueJob(jobState manager.JobState) error {
@@ -221,11 +217,11 @@ func (db DynamoDb) writeJob(jobState manager.JobState) error {
 		}
 	}); err != nil {
 		return err
-	} else if _, err = db.client.PutItem(context.Background(), &dynamodb.PutItemInput{
-		TableName: aws.String(db.table),
-		Item:      attributeValues,
-	}); err != nil {
+	} else {
+		_, err = db.client.PutItem(context.Background(), &dynamodb.PutItemInput{
+			TableName: aws.String(db.table),
+			Item:      attributeValues,
+		})
 		return err
 	}
-	return nil
 }

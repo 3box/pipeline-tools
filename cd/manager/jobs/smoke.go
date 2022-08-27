@@ -8,6 +8,9 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
+// Allow up to 5 minutes for smoke tests to run
+const SmokeTestsWaitTime = 5 * time.Minute
+
 var _ manager.Job = &smokeTestJob{}
 
 type smokeTestJob struct {
@@ -25,17 +28,16 @@ func (s smokeTestJob) AdvanceJob() error {
 		resourceId := os.Getenv("SMOKE_TEST_RESOURCE_ID")
 		restApiId := os.Getenv("SMOKE_TEST_REST_API_ID")
 		if _, err := s.api.Invoke("GET", resourceId, restApiId, ""); err != nil {
-			return fmt.Errorf("smoke: api gateway call failed: %v", err)
+			return fmt.Errorf("smokeTestJob: api gateway call failed: %v", err)
 		}
-		// Update the job stage and timestamp
+		s.state.Stage = manager.JobStage_Started
+	} else if time.Now().Add(-SmokeTestsWaitTime).After(s.state.Ts) {
+		// Since we're not monitoring for smoke test completion, give the tests some time to complete.
 		s.state.Stage = manager.JobStage_Completed
-		s.state.Ts = time.Now()
-		if err := s.db.UpdateJob(s.state); err != nil {
-			return err
-		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
 		return fmt.Errorf("smokeTestJob: unexpected state: %s", manager.PrintJob(s.state))
 	}
-	return nil
+	s.state.Ts = time.Now()
+	return s.db.UpdateJob(s.state)
 }

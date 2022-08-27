@@ -116,7 +116,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 	})
 	if len(incompatibleJobs) == 0 {
 		// Collapse similar, back-to-back deployments into a single run and kick it off.
-		deployJobs := make(map[manager.EventParam]manager.JobState, 0)
+		deployJobs := make(map[string]manager.JobState, 0)
 		for i := 0; i < len(jobs); i++ {
 			// Break out of the loop as soon as we find a non-deploy job. We don't want to collapse deploys across other
 			// types of jobs.
@@ -124,7 +124,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 				break
 			}
 			// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
-			deployComponent := jobs[i].Params[manager.DeployParam_Component].(manager.EventParam)
+			deployComponent := jobs[i].Params[manager.DeployParam_Component].(string)
 			// Update the cache and database for every skipped job.
 			if skippedJob, found := deployJobs[deployComponent]; found {
 				if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
@@ -142,6 +142,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 		}
 	} else {
 		log.Printf("processDeployJobs: deferring deployment because one or more jobs are in progress: %s, %s", manager.PrintJob(firstJob), manager.PrintJob(incompatibleJobs...))
+		// TODO: Send Discord notification
 	}
 }
 
@@ -189,6 +190,7 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 		}
 	} else {
 		log.Printf("processNonDeployJobs: deferring job because one or more deployments are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(deployJobs...))
+		// TODO: Send Discord notification
 	}
 }
 
@@ -211,9 +213,10 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 
 func (m JobManager) generateJob(jobState manager.JobState) (manager.Job, error) {
 	var job manager.Job
+	var err error = nil
 	switch jobState.Type {
 	case manager.JobType_Deploy:
-		job = jobs.DeployJob(m.db, m.d, jobState)
+		job, err = jobs.DeployJob(m.db, m.d, jobState)
 	case manager.JobType_Anchor:
 		job = jobs.AnchorJob(m.db, m.d, jobState)
 	case manager.JobType_TestE2E:
@@ -223,7 +226,7 @@ func (m JobManager) generateJob(jobState manager.JobState) (manager.Job, error) 
 	default:
 		return nil, fmt.Errorf("generateJob: unknown job type: %s", manager.PrintJob(jobState))
 	}
-	return job, nil
+	return job, err
 }
 
 func (m JobManager) isFinishedJob(jobState manager.JobState) bool {

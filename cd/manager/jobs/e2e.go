@@ -9,7 +9,7 @@ import (
 )
 
 // Allow up to 2 hours for E2E tests to run
-const FailureTime = 120 * time.Minute
+const FailureTime = 2 * time.Hour
 
 var _ manager.Job = &e2eTestJob{}
 
@@ -25,7 +25,7 @@ func E2eTestJob(db manager.Database, d manager.Deployment, jobState manager.JobS
 
 func (e e2eTestJob) AdvanceJob() error {
 	if e.state.Stage == manager.JobStage_Queued {
-		if err := e.startAllE2eTests(); err != nil {
+		if err := e.startE2eTests(); err != nil {
 			e.state.Stage = manager.JobStage_Failed
 		} else {
 			e.state.Stage = manager.JobStage_Started
@@ -57,24 +57,20 @@ func (e e2eTestJob) AdvanceJob() error {
 		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
 	e.state.Ts = time.Now()
-	if err := e.db.UpdateJob(e.state); err != nil {
-		return err
-	}
-	return nil
+	return e.db.UpdateJob(e.state)
 }
 
-func (e e2eTestJob) startAllE2eTests() error {
-	if err := e.startOneE2eTest(manager.E2eTest_PrivatePublic); err != nil {
+func (e e2eTestJob) startE2eTests() error {
+	if err := e.startE2eTest(manager.E2eTest_PrivatePublic); err != nil {
 		return err
-	} else if err = e.startOneE2eTest(manager.E2eTest_LocalClientPublic); err != nil {
+	} else if err = e.startE2eTest(manager.E2eTest_LocalClientPublic); err != nil {
 		return err
-	} else if err = e.startOneE2eTest(manager.E2eTest_LocalNodePrivate); err != nil {
-		return err
+	} else {
+		return e.startE2eTest(manager.E2eTest_LocalNodePrivate)
 	}
-	return nil
 }
 
-func (e e2eTestJob) startOneE2eTest(config manager.EventParam) error {
+func (e e2eTestJob) startE2eTest(config string) error {
 	if id, err := e.d.LaunchService(
 		"ceramic-qa-tests",
 		"ceramic-qa-tests-e2e_tests",
@@ -95,11 +91,11 @@ func (e e2eTestJob) startOneE2eTest(config manager.EventParam) error {
 }
 
 func (e e2eTestJob) checkE2eTests(isRunning bool) (bool, error) {
-	if privatePublic, err := e.d.CheckService(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_PrivatePublic].(string)); err != nil {
+	if privatePublic, err := e.d.CheckTask(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_PrivatePublic].(string)); err != nil {
 		return false, err
-	} else if localClientPublic, err := e.d.CheckService(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_LocalClientPublic].(string)); err != nil {
+	} else if localClientPublic, err := e.d.CheckTask(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_LocalClientPublic].(string)); err != nil {
 		return false, err
-	} else if localNodePrivate, err := e.d.CheckService(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_LocalNodePrivate].(string)); err != nil {
+	} else if localNodePrivate, err := e.d.CheckTask(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_LocalNodePrivate].(string)); err != nil {
 		return false, err
 	} else if privatePublic && localClientPublic && localNodePrivate {
 		return true, nil

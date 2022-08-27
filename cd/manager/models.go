@@ -30,26 +30,28 @@ const (
 	JobStage_Completed JobStage = "completed"
 )
 
-type EventParam string
-
 const (
-	DeployParam_Event     EventParam = "event"
-	DeployParam_Component EventParam = "component"
-	DeployParam_Sha       EventParam = "sha"
-	DeployParam_ShaTag    EventParam = "shaTag"
-	DeployParam_Version   EventParam = "version"
+	EnvType_Dev  string = "dev"
+	EnvType_Qa   string = "qa"
+	EnvType_Tnet string = "tnet"
+	EnvType_Prod string = "prod"
 )
 
 const (
-	DeployComponent_Ceramic EventParam = "ceramic"
-	DeployComponent_Ipfs    EventParam = "ipfs"
-	DeployComponent_Cas     EventParam = "cas"
+	DeployParam_Component string = "component"
+	DeployParam_Sha       string = "sha"
 )
 
 const (
-	E2eTest_PrivatePublic     EventParam = "private-public"
-	E2eTest_LocalClientPublic EventParam = "local_client-public"
-	E2eTest_LocalNodePrivate  EventParam = "local_node-private"
+	DeployComponent_Ceramic string = "ceramic"
+	DeployComponent_Ipfs    string = "ipfs"
+	DeployComponent_Cas     string = "cas"
+)
+
+const (
+	E2eTest_PrivatePublic     string = "private-public"
+	E2eTest_LocalClientPublic string = "local_client-public"
+	E2eTest_LocalNodePrivate  string = "local_node-private"
 )
 
 type JobEvent struct {
@@ -58,11 +60,11 @@ type JobEvent struct {
 }
 
 type JobState struct {
-	Stage  JobStage                   `dynamodbav:"stage"`
-	Ts     time.Time                  `dynamodbav:"ts"`
-	Id     string                     `dynamodbav:"id"`
-	Type   JobType                    `dynamodbav:"type"`
-	Params map[EventParam]interface{} `dynamodbav:"params"`
+	Stage  JobStage               `dynamodbav:"stage"`
+	Ts     time.Time              `dynamodbav:"ts"`
+	Id     string                 `dynamodbav:"id"`
+	Type   JobType                `dynamodbav:"type"`
+	Params map[string]interface{} `dynamodbav:"params"`
 }
 
 type Job interface {
@@ -89,9 +91,11 @@ type Cache interface {
 
 type Deployment interface {
 	LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error)
-	CheckService(bool, string, ...string) (bool, error)
-	RestartService(string, string) error
-	UpdateService(string, string) error
+	CheckTask(bool, string, ...string) (bool, error)
+	UpdateService(string, string, string) (string, error)
+	CheckService(string, string, string) (bool, error)
+	PopulateLayout(string) (map[string]map[string]interface{}, error)
+	GetRegistryUri(string) (string, error)
 }
 
 type Server interface {
