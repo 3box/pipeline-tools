@@ -8,8 +8,9 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-// Allow up to 6 hours for anchor workers to run
-const AnchorFailureTime = 6 * time.Hour
+// Allow up to 3 hours for anchor workers to run
+const AnchorFailureTime = 3 * time.Hour
+const TaskIdParam = "id"
 
 var _ manager.Job = &anchorJob{}
 
@@ -17,11 +18,12 @@ type anchorJob struct {
 	state manager.JobState
 	db    manager.Database
 	d     manager.Deployment
+	n     manager.Notifs
 	env   string
 }
 
-func AnchorJob(db manager.Database, d manager.Deployment, jobState manager.JobState) *anchorJob {
-	return &anchorJob{jobState, db, d, os.Getenv("ENV")}
+func AnchorJob(db manager.Database, d manager.Deployment, n manager.Notifs, jobState manager.JobState) *anchorJob {
+	return &anchorJob{jobState, db, d, n, os.Getenv("ENV")}
 }
 
 func (a anchorJob) AdvanceJob() error {
@@ -37,12 +39,12 @@ func (a anchorJob) AdvanceJob() error {
 		} else {
 			// Update the job stage and spawned task identifier
 			a.state.Stage = manager.JobStage_Started
-			a.state.Params["id"] = id
+			a.state.Params[TaskIdParam] = id
 		}
 	} else if time.Now().Add(-AnchorFailureTime).After(a.state.Ts) {
 		a.state.Stage = manager.JobStage_Failed
 	} else if a.state.Stage == manager.JobStage_Started {
-		if running, err := a.d.CheckTask(true, "ceramic-"+a.env+"-cas", a.state.Params["id"].(string)); err != nil {
+		if running, err := a.d.CheckTask(true, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 		} else if running {
 			a.state.Stage = manager.JobStage_Waiting
@@ -51,7 +53,19 @@ func (a anchorJob) AdvanceJob() error {
 			return nil
 		}
 	} else if a.state.Stage == manager.JobStage_Waiting {
-		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params["id"].(string)); err != nil {
+		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
+			a.state.Stage = manager.JobStage_Failed
+		} else if stopped {
+			a.state.Stage = manager.JobStage_Completed
+		} else if time.Now().Add(-AnchorFailureTime / 2).After(a.state.Ts) {
+			// If the job has been running for 1.5 hours, mark it "delayed".
+			a.state.Stage = manager.JobStage_Delayed
+		} else {
+			// Return so we come back again to check
+			return nil
+		}
+	} else if a.state.Stage == manager.JobStage_Delayed {
+		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 		} else if stopped {
 			a.state.Stage = manager.JobStage_Completed
@@ -63,6 +77,5 @@ func (a anchorJob) AdvanceJob() error {
 		// There's nothing left to do so we shouldn't have reached here
 		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
-	a.state.Ts = time.Now()
 	return a.db.UpdateJob(a.state)
 }

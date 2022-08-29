@@ -46,7 +46,7 @@ func (db DynamoDb) createTable() error {
 	// Create the table if it doesn't already exist
 	_, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.table)})
 	if err != nil {
-		in := dynamodb.CreateTableInput{
+		createTableInput := dynamodb.CreateTableInput{
 			AttributeDefinitions: []types.AttributeDefinition{
 				{
 					AttributeName: aws.String("stage"),
@@ -73,8 +73,8 @@ func (db DynamoDb) createTable() error {
 				WriteCapacityUnits: aws.Int64(1),
 			},
 		}
-		if _, err = db.client.CreateTable(context.Background(), &in); err != nil {
-			log.Fatalf("dynamodb: table creation failed: %v", err)
+		if _, err = db.client.CreateTable(context.Background(), &createTableInput); err != nil {
+			return err
 		}
 		for i := 0; i < TableCreationRetries; i++ {
 			describe, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.table)})
@@ -83,21 +83,22 @@ func (db DynamoDb) createTable() error {
 			}
 			time.Sleep(TableCreationWait)
 		}
-		log.Fatalf("dynamodb: table creation failed: %v", err)
 	}
-	return nil
+	return err
 }
 
 func (db DynamoDb) InitializeJobs() error {
-	// Load all jobs in an advanced stage of processing (completed, failed, started, waiting, skipped), so that we know which
-	// jobs have already been dequeued.
+	// Load all jobs in an advanced stage of processing (completed, failed, delayed, waiting, started, skipped), so that
+	// we know which jobs have already been dequeued.
 	if err := db.loadJobs(manager.JobStage_Completed); err != nil {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Failed); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Started); err != nil {
+	} else if err = db.loadJobs(manager.JobStage_Delayed); err != nil {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Waiting); err != nil {
+		return err
+	} else if err = db.loadJobs(manager.JobStage_Started); err != nil {
 		return err
 	} else {
 		return db.loadJobs(manager.JobStage_Skipped)
@@ -203,6 +204,8 @@ func (db DynamoDb) UpdateJob(jobState manager.JobState) error {
 			db.tsCursor = jobState.Ts
 		}
 	}
+	// Update the timestamp
+	jobState.Ts = time.Now()
 	if err := db.writeJob(jobState); err != nil {
 		return err
 	}

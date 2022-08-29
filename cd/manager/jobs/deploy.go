@@ -12,16 +12,17 @@ const LayoutParam = "layout"
 var _ manager.Job = &deployJob{}
 
 type deployJob struct {
-	state manager.JobState
-	db    manager.Database
-	d     manager.Deployment
-	image string
+	state  manager.JobState
+	db     manager.Database
+	d      manager.Deployment
+	notifs manager.Notifs
+	image  string
 }
 
-func DeployJob(db manager.Database, d manager.Deployment, jobState manager.JobState) (*deployJob, error) {
-	if component, found := jobState.Params[manager.DeployParam_Component]; !found {
+func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) (*deployJob, error) {
+	if component, found := jobState.Params[manager.EventParam_Component]; !found {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
-	} else if sha, found := jobState.Params[manager.DeployParam_Sha]; !found {
+	} else if sha, found := jobState.Params[manager.EventParam_Sha]; !found {
 		return nil, fmt.Errorf("deployJob: missing sha")
 	} else if clusterLayout, err := d.PopulateLayout(component.(string)); err != nil {
 		return nil, err
@@ -32,7 +33,7 @@ func DeployJob(db manager.Database, d manager.Deployment, jobState manager.JobSt
 		if _, found = jobState.Params[LayoutParam]; !found {
 			jobState.Params[LayoutParam] = clusterLayout
 		}
-		return &deployJob{jobState, db, d, registryUri + ":" + sha.(string)}, nil
+		return &deployJob{jobState, db, d, notifs, registryUri + ":" + sha.(string)}, nil
 	}
 }
 
@@ -59,7 +60,7 @@ func (d deployJob) AdvanceJob() error {
 		// There's nothing left to do so we shouldn't have reached here
 		return fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
 	}
-	d.state.Ts = time.Now()
+	d.notifs.NotifyJob(d.state)
 	return d.db.UpdateJob(d.state)
 }
 
@@ -78,8 +79,8 @@ func (d deployJob) updateServices() error {
 
 func (d deployJob) checkServices() (bool, error) {
 	// Check the status of cluster services, only return success if all services were successfully started.
-	for cluster, clusterLayout := range d.state.Params[LayoutParam].(map[string]map[string]interface{}) {
-		for service, id := range clusterLayout {
+	for cluster, clusterLayout := range d.state.Params[LayoutParam].(map[string]interface{}) {
+		for service, id := range clusterLayout.(map[string]interface{}) {
 			if deployed, err := d.d.CheckService(cluster, service, id.(string)); err != nil {
 				return false, err
 			} else if !deployed {

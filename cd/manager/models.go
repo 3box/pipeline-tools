@@ -23,11 +23,21 @@ type JobStage string
 
 const (
 	JobStage_Queued    JobStage = "queued"
+	JobStage_Skipped   JobStage = "skipped"
 	JobStage_Started   JobStage = "started"
 	JobStage_Waiting   JobStage = "waiting"
-	JobStage_Skipped   JobStage = "skipped"
+	JobStage_Delayed   JobStage = "delayed"
 	JobStage_Failed    JobStage = "failed"
 	JobStage_Completed JobStage = "completed"
+)
+
+type NotifTitle string
+
+const (
+	NotifTitle_Deploy    = "Deployment"
+	NotifTitle_Anchor    = "Anchor Worker"
+	NotifTitle_TestE2E   = "E2E Tests"
+	NotifTitle_TestSmoke = "Smoke Tests"
 )
 
 const (
@@ -38,14 +48,15 @@ const (
 )
 
 const (
-	DeployParam_Component string = "component"
-	DeployParam_Sha       string = "sha"
+	EventParam_Component string = "component"
+	EventParam_Sha       string = "sha"
+	EventParam_ShaTag    string = "shaTag"
 )
 
 const (
-	DeployComponent_Ceramic string = "ceramic"
-	DeployComponent_Ipfs    string = "ipfs"
-	DeployComponent_Cas     string = "cas"
+	DeployComponent_Ceramic string = "js-ceramic"
+	DeployComponent_Ipfs    string = "go-ipfs-daemon"
+	DeployComponent_Cas     string = "ceramic-anchor-service"
 )
 
 const (
@@ -96,6 +107,10 @@ type Deployment interface {
 	CheckService(string, string, string) (bool, error)
 	PopulateLayout(string) (map[string]map[string]interface{}, error)
 	GetRegistryUri(string) (string, error)
+}
+
+type Notifs interface {
+	NotifyJob(...JobState)
 }
 
 type Server interface {
