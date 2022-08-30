@@ -31,15 +31,6 @@ const (
 	JobStage_Completed JobStage = "completed"
 )
 
-type NotifTitle string
-
-const (
-	NotifTitle_Deploy    = "Deployment"
-	NotifTitle_Anchor    = "Anchor Worker"
-	NotifTitle_TestE2E   = "E2E Tests"
-	NotifTitle_TestSmoke = "Smoke Tests"
-)
-
 type EnvType string
 
 const (
@@ -47,6 +38,15 @@ const (
 	EnvType_Qa   EnvType = "qa"
 	EnvType_Tnet EnvType = "tnet"
 	EnvType_Prod EnvType = "prod"
+)
+
+type NotifTitle string
+
+const (
+	NotifTitle_Deploy    = "Deployment"
+	NotifTitle_Anchor    = "Anchor Worker"
+	NotifTitle_TestE2E   = "E2E Tests"
+	NotifTitle_TestSmoke = "Smoke Tests"
 )
 
 const (

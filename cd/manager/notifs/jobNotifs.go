@@ -112,8 +112,11 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 	webhooks := make([]webhook.Client, 0, 1)
 	if jobState.Type == manager.JobType_Deploy {
 		webhooks = append(webhooks, n.deploymentsWebhook)
-		// Don't send Dev/QA notifications to the community channel.
-		if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) {
+		// Don't send Dev/QA notifications to the community channel, and only send started/completed/failed events.
+		if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) &&
+			((jobState.Stage == manager.JobStage_Started) ||
+				(jobState.Stage == manager.JobStage_Failed) ||
+				(jobState.Stage == manager.JobStage_Completed)) {
 			webhooks = append(webhooks, n.communityWebhook)
 		}
 	} else {
