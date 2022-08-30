@@ -19,6 +19,13 @@ const (
 	JobType_TestSmoke JobType = "test_smoke"
 )
 
+const (
+	JobName_Deploy    = "Deployment"
+	JobName_Anchor    = "Anchor Worker"
+	JobName_TestE2E   = "E2E Tests"
+	JobName_TestSmoke = "Smoke Tests"
+)
+
 type JobStage string
 
 const (
@@ -40,13 +47,11 @@ const (
 	EnvType_Prod EnvType = "prod"
 )
 
-type NotifTitle string
-
 const (
-	NotifTitle_Deploy    = "Deployment"
-	NotifTitle_Anchor    = "Anchor Worker"
-	NotifTitle_TestE2E   = "E2E Tests"
-	NotifTitle_TestSmoke = "Smoke Tests"
+	EnvName_Dev  string = "dev"
+	EnvName_Qa   string = "dev-qa"
+	EnvName_Tnet string = "testnet-clay"
+	EnvName_Prod string = "mainnet"
 )
 
 const (
@@ -107,7 +112,7 @@ type Deployment interface {
 	CheckTask(bool, string, ...string) (bool, error)
 	UpdateService(string, string, string) (string, error)
 	CheckService(string, string, string) (bool, error)
-	PopulateLayout(string) (map[string]map[string]interface{}, error)
+	PopulateLayout(string) (map[string]interface{}, error)
 	GetRegistryUri(string) (string, error)
 }
 
@@ -134,4 +139,34 @@ func PrintJob(jobStates ...JobState) string {
 		prettyString += "\n" + string(prettyBytes)
 	}
 	return prettyString
+}
+
+func EnvName(env EnvType) string {
+	switch env {
+	case EnvType_Dev:
+		return EnvName_Dev
+	case EnvType_Qa:
+		return EnvName_Qa
+	case EnvType_Tnet:
+		return EnvName_Tnet
+	case EnvType_Prod:
+		return EnvName_Prod
+	default:
+		return ""
+	}
+}
+
+func JobName(job JobType) string {
+	switch job {
+	case JobType_Deploy:
+		return JobName_Deploy
+	case JobType_Anchor:
+		return JobName_Anchor
+	case JobType_TestE2E:
+		return JobName_TestE2E
+	case JobType_TestSmoke:
+		return JobName_TestSmoke
+	default:
+		return ""
+	}
 }

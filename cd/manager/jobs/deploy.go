@@ -65,12 +65,12 @@ func (d deployJob) AdvanceJob() error {
 }
 
 func (d deployJob) updateServices() error {
-	for cluster, clusterLayout := range d.state.Params[LayoutParam].(map[string]map[string]interface{}) {
-		for service, _ := range clusterLayout {
+	for cluster, clusterLayout := range d.state.Params[LayoutParam].(map[string]interface{}) {
+		for service, _ := range clusterLayout.(map[string]interface{}) {
 			if id, err := d.d.UpdateService(cluster, service, d.image); err != nil {
 				return err
 			} else {
-				clusterLayout[service] = id
+				clusterLayout.(map[string]interface{})[service] = id
 			}
 		}
 	}

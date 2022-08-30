@@ -27,7 +27,7 @@ const (
 	DiscordColor_Alert   = 16711712
 )
 
-const DiscordUnknown = "UNKNOWN"
+const DiscordUnknownJob = "UNKNOWN JOB"
 const DiscordPacing = 2 * time.Second
 const GitHubOrg = "https://github.com/ceramicnetwork"
 
@@ -144,22 +144,12 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 }
 
 func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
-	var jobName string
-	switch jobState.Type {
-	case manager.JobType_Deploy:
+	var jobTitlePfx string
+	if jobState.Type == manager.JobType_Deploy {
 		component := jobState.Params[manager.EventParam_Component]
-		jobName = fmt.Sprintf("3Box Labs `%s` %s %s", os.Getenv("ENV"), strings.ToUpper(component.(string)), manager.NotifTitle_Deploy)
-	case manager.JobType_Anchor:
-		jobName = manager.NotifTitle_Anchor
-	case manager.JobType_TestE2E:
-		jobName = manager.NotifTitle_TestE2E
-	case manager.JobType_TestSmoke:
-		jobName = manager.NotifTitle_TestSmoke
-	default:
-		log.Printf("sendNotif: unknown job type: %s", manager.PrintJob(jobState))
-		return DiscordUnknown
+		jobTitlePfx = fmt.Sprintf("3Box Labs `%s` `%s` ", manager.EnvName(n.env), component.(string))
 	}
-	return jobName + " " + strings.ToUpper(string(jobState.Stage))
+	return fmt.Sprintf("%s%s %s", jobTitlePfx, manager.JobName(jobState.Type), strings.ToUpper(string(jobState.Stage)))
 }
 
 func (n JobNotifs) getNotifDesc(jobState manager.JobState) string {
@@ -174,7 +164,7 @@ func (n JobNotifs) getNotifDesc(jobState manager.JobState) string {
 		return n.getCommitHashes()
 	default:
 		log.Printf("sendNotif: unknown job type: %s", manager.PrintJob(jobState))
-		return DiscordUnknown
+		return DiscordUnknownJob
 	}
 }
 
