@@ -72,11 +72,6 @@ const (
 	E2eTest_LocalNodePrivate  string = "local_node-private"
 )
 
-type JobEvent struct {
-	Type   JobType
-	Params map[string]interface{}
-}
-
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
 	Ts     time.Time              `dynamodbav:"ts"`

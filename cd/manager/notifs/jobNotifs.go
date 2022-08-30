@@ -35,27 +35,18 @@ var _ manager.Notifs = &JobNotifs{}
 
 type JobNotifs struct {
 	state              *sync.Map
-	alertWebhook       webhook.Client
-	warningWebhook     webhook.Client
-	infoWebhook        webhook.Client
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
 	env                manager.EnvType
 }
 
 func NewJobNotifs() (manager.Notifs, error) {
-	if a, err := parseDiscordWebhookUrl("DISCORD_ALERT_WEBHOOK"); err != nil {
-		return nil, err
-	} else if w, err := parseDiscordWebhookUrl("DISCORD_WARNING_WEBHOOK"); err != nil {
-		return nil, err
-	} else if i, err := parseDiscordWebhookUrl("DISCORD_INFO_WEBHOOK"); err != nil {
-		return nil, err
-	} else if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
+	if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &JobNotifs{new(sync.Map), a, w, i, d, c, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &JobNotifs{new(sync.Map), d, c, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
@@ -85,6 +76,7 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 					n.getNotifTitle(jobState),
 					n.getNotifDesc(jobState),
 					n.getNotifColor(jobState),
+					jobState.Ts,
 					channel,
 				)
 			}
@@ -92,12 +84,13 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 	}
 }
 
-func (n JobNotifs) sendNotif(title, desc string, color DiscordColor, channel webhook.Client) {
+func (n JobNotifs) sendNotif(title, desc string, color DiscordColor, ts time.Time, channel webhook.Client) {
 	messageEmbed := discord.Embed{
 		Title:       title,
 		Type:        discord.EmbedTypeRich,
 		Description: desc,
 		Color:       int(color),
+		Timestamp:   &ts,
 	}
 	if _, err := channel.CreateMessage(discord.NewWebhookMessageCreateBuilder().
 		SetEmbeds(messageEmbed).
@@ -119,27 +112,8 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 				(jobState.Stage == manager.JobStage_Completed)) {
 			webhooks = append(webhooks, n.communityWebhook)
 		}
-	} else {
-		switch jobState.Stage {
-		case manager.JobStage_Queued:
-			webhooks = append(webhooks, n.infoWebhook)
-		case manager.JobStage_Skipped:
-			webhooks = append(webhooks, n.warningWebhook)
-		case manager.JobStage_Started:
-			webhooks = append(webhooks, n.infoWebhook)
-		case manager.JobStage_Waiting:
-			webhooks = append(webhooks, n.infoWebhook)
-		case manager.JobStage_Delayed:
-			webhooks = append(webhooks, n.warningWebhook)
-		case manager.JobStage_Failed:
-			webhooks = append(webhooks, n.alertWebhook)
-		case manager.JobStage_Completed:
-			webhooks = append(webhooks, n.infoWebhook)
-		default:
-			log.Printf("sendNotif: unknown job stage: %s", manager.PrintJob(jobState))
-			webhooks = append(webhooks, n.warningWebhook)
-		}
 	}
+	// TODO: Revisit notifications for other job types.
 	return webhooks
 }
 

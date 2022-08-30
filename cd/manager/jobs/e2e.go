@@ -79,7 +79,7 @@ func (e e2eTestJob) startE2eTest(config string) error {
 		"e2e_tests",
 		map[string]string{
 			"NODE_ENV":              config,
-			"ETH_RPC_URL":           os.Getenv("ETH_RPC_URL"),
+			"ETH_RPC_URL":           os.Getenv("BLOCKCHAIN_RPC_URL"),
 			"AWS_ACCESS_KEY_ID":     os.Getenv("AWS_ACCESS_KEY_ID"),
 			"AWS_SECRET_ACCESS_KEY": os.Getenv("AWS_SECRET_ACCESS_KEY"),
 			"AWS_REGION":            os.Getenv("AWS_REGION"),
