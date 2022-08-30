@@ -19,10 +19,11 @@ var _ manager.Deployment = &Ecs{}
 
 type Ecs struct {
 	client *ecs.Client
+	env    manager.EnvType
 }
 
 func NewEcs(cfg aws.Config) manager.Deployment {
-	return &Ecs{ecs.NewFromConfig(cfg)}
+	return &Ecs{ecs.NewFromConfig(cfg), manager.EnvType(os.Getenv("ENV"))}
 }
 
 func (e Ecs) LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error) {
@@ -219,7 +220,7 @@ func (e Ecs) PopulateLayout(component string) (map[string]map[string]interface{}
 			publicCluster + "-" + ServiceSuffix_CeramicNode:    nil,
 			publicCluster + "-" + ServiceSuffix_CeramicGateway: nil,
 		}
-		if env == manager.EnvType_Prod {
+		if e.env == manager.EnvType_Prod {
 			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp11CeramicNode] = nil
 			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp12CeramicNode] = nil
 		}
@@ -234,7 +235,7 @@ func (e Ecs) PopulateLayout(component string) (map[string]map[string]interface{}
 			publicCluster + "-" + ServiceSuffix_IpfsNode:    nil,
 			publicCluster + "-" + ServiceSuffix_IpfsGateway: nil,
 		}
-		if env == manager.EnvType_Prod {
+		if e.env == manager.EnvType_Prod {
 			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp11IpfsNode] = nil
 			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp12IpfsNode] = nil
 		}

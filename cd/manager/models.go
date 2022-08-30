@@ -40,11 +40,13 @@ const (
 	NotifTitle_TestSmoke = "Smoke Tests"
 )
 
+type EnvType string
+
 const (
-	EnvType_Dev  string = "dev"
-	EnvType_Qa   string = "qa"
-	EnvType_Tnet string = "tnet"
-	EnvType_Prod string = "prod"
+	EnvType_Dev  EnvType = "dev"
+	EnvType_Qa   EnvType = "qa"
+	EnvType_Tnet EnvType = "tnet"
+	EnvType_Prod EnvType = "prod"
 )
 
 const (

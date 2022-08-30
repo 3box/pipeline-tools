@@ -40,6 +40,7 @@ type JobNotifs struct {
 	infoWebhook        webhook.Client
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
+	env                manager.EnvType
 }
 
 func NewJobNotifs() (manager.Notifs, error) {
@@ -54,43 +55,51 @@ func NewJobNotifs() (manager.Notifs, error) {
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &JobNotifs{new(sync.Map), a, w, i, d, c}, nil
+		return &JobNotifs{new(sync.Map), a, w, i, d, c, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
 func parseDiscordWebhookUrl(urlEnv string) (webhook.Client, error) {
 	webhookUrl := os.Getenv(urlEnv)
-	if parsedUrl, err := url.Parse(webhookUrl); err != nil {
-		return nil, err
-	} else {
-		urlParts := strings.Split(parsedUrl.Path, "/")
-		if id, err := snowflake.Parse(urlParts[len(urlParts)-2]); err != nil {
+	if len(webhookUrl) > 0 {
+		if parsedUrl, err := url.Parse(webhookUrl); err != nil {
 			return nil, err
 		} else {
-			return webhook.New(id, urlParts[len(urlParts)-1]), nil
+			urlParts := strings.Split(parsedUrl.Path, "/")
+			if id, err := snowflake.Parse(urlParts[len(urlParts)-2]); err != nil {
+				return nil, err
+			} else {
+				return webhook.New(id, urlParts[len(urlParts)-1]), nil
+			}
 		}
 	}
+	return nil, nil
 }
 
 func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 	for _, jobState := range jobs {
 		n.cacheJobState(jobState)
-		n.sendNotif(
-			n.getJobTitle(jobState),
-			n.getJobDesc(jobState),
-			n.getNotifColor(jobState),
-		)
+		for _, channel := range n.getNotifChannels(jobState) {
+			if channel != nil {
+				n.sendNotif(
+					n.getNotifTitle(jobState),
+					n.getNotifDesc(jobState),
+					n.getNotifColor(jobState),
+					channel,
+				)
+			}
+		}
 	}
 }
 
-func (n JobNotifs) sendNotif(title, desc string, color DiscordColor) {
+func (n JobNotifs) sendNotif(title, desc string, color DiscordColor, channel webhook.Client) {
 	messageEmbed := discord.Embed{
 		Title:       title,
 		Type:        discord.EmbedTypeRich,
 		Description: desc,
 		Color:       int(color),
 	}
-	if _, err := n.alertWebhook.CreateMessage(discord.NewWebhookMessageCreateBuilder().
+	if _, err := channel.CreateMessage(discord.NewWebhookMessageCreateBuilder().
 		SetEmbeds(messageEmbed).
 		Build(),
 		rest.WithDelay(DiscordPacing),
@@ -99,7 +108,39 @@ func (n JobNotifs) sendNotif(title, desc string, color DiscordColor) {
 	}
 }
 
-func (n JobNotifs) getJobTitle(jobState manager.JobState) string {
+func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client {
+	webhooks := make([]webhook.Client, 0, 1)
+	if jobState.Type == manager.JobType_Deploy {
+		webhooks = append(webhooks, n.deploymentsWebhook)
+		// Don't send Dev/QA notifications to the community channel.
+		if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) {
+			webhooks = append(webhooks, n.communityWebhook)
+		}
+	} else {
+		switch jobState.Stage {
+		case manager.JobStage_Queued:
+			webhooks = append(webhooks, n.infoWebhook)
+		case manager.JobStage_Skipped:
+			webhooks = append(webhooks, n.warningWebhook)
+		case manager.JobStage_Started:
+			webhooks = append(webhooks, n.infoWebhook)
+		case manager.JobStage_Waiting:
+			webhooks = append(webhooks, n.infoWebhook)
+		case manager.JobStage_Delayed:
+			webhooks = append(webhooks, n.warningWebhook)
+		case manager.JobStage_Failed:
+			webhooks = append(webhooks, n.alertWebhook)
+		case manager.JobStage_Completed:
+			webhooks = append(webhooks, n.infoWebhook)
+		default:
+			log.Printf("sendNotif: unknown job stage: %s", manager.PrintJob(jobState))
+			webhooks = append(webhooks, n.warningWebhook)
+		}
+	}
+	return webhooks
+}
+
+func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 	var jobName string
 	switch jobState.Type {
 	case manager.JobType_Deploy:
@@ -118,7 +159,7 @@ func (n JobNotifs) getJobTitle(jobState manager.JobState) string {
 	return jobName + " " + strings.ToUpper(string(jobState.Stage))
 }
 
-func (n JobNotifs) getJobDesc(jobState manager.JobState) string {
+func (n JobNotifs) getNotifDesc(jobState manager.JobState) string {
 	switch jobState.Type {
 	case manager.JobType_Deploy:
 		return n.getCommitHashes()
@@ -169,7 +210,7 @@ func (n JobNotifs) getComponentMsg(component string) string {
 		shaTag := jobState.(manager.JobState).Params[manager.EventParam_ShaTag].(string)
 		return fmt.Sprintf("[%s (%s)](%s/%s/commit/%s)", component, shaTag, GitHubOrg, component, sha)
 	}
-	return component + " (n/a)"
+	return ""
 }
 
 func (n JobNotifs) cacheJobState(jobState manager.JobState) {
