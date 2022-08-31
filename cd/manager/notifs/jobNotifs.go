@@ -74,7 +74,6 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 					n.getNotifTitle(jobState),
 					n.getNotifDesc(jobState),
 					n.getNotifColor(jobState),
-					jobState.Ts,
 					channel,
 				)
 			}
@@ -82,13 +81,12 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 	}
 }
 
-func (n JobNotifs) sendNotif(title, desc string, color DiscordColor, ts time.Time, channel webhook.Client) {
+func (n JobNotifs) sendNotif(title, desc string, color DiscordColor, channel webhook.Client) {
 	messageEmbed := discord.Embed{
 		Title:       title,
 		Type:        discord.EmbedTypeRich,
 		Description: desc,
 		Color:       int(color),
-		Timestamp:   &ts,
 	}
 	if _, err := channel.CreateMessage(discord.NewWebhookMessageCreateBuilder().
 		SetEmbeds(messageEmbed).
