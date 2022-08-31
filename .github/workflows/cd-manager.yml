@@ -104,6 +104,9 @@ jobs:
           cd .github/workflows/scripts
           chmod +x stopTasks.sh
           ./stopTasks.sh "ceramic-${{ env.ENV_TAG }}-ops" "ceramic-${{ env.ENV_TAG }}-ops-cd-manager"
+          if [[ ${{ env.ENV_TAG == 'dev' }} ]]; then
+            ./stopTasks.sh "ceramic-qa-ops" "ceramic-qa-ops-cd-manager"
+          fi
       -
         name: Set commit status "success"
         run: |
