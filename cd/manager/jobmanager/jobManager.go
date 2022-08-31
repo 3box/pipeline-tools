@@ -209,7 +209,7 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 			// Advancing should automatically update the cache and database in case of failures.
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
 		} else {
-			log.Printf("advanceJob: new job state: %s", manager.PrintJob(jobState))
+			log.Printf("advanceJob: next job state: %s", manager.PrintJob(newJobState))
 			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment to
 			// stabilize.
 			if (newJobState.Type == manager.JobType_Deploy) && (newJobState.Stage == manager.JobStage_Completed) {
