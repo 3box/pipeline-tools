@@ -19,10 +19,11 @@ var _ manager.Deployment = &Ecs{}
 
 type Ecs struct {
 	client *ecs.Client
+	env    manager.EnvType
 }
 
 func NewEcs(cfg aws.Config) manager.Deployment {
-	return &Ecs{ecs.NewFromConfig(cfg)}
+	return &Ecs{ecs.NewFromConfig(cfg), manager.EnvType(os.Getenv("ENV"))}
 }
 
 func (e Ecs) LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error) {
@@ -189,7 +190,7 @@ func (e Ecs) CheckService(cluster, service, taskDefArn string) (bool, error) {
 	return false, nil
 }
 
-func (e Ecs) PopulateLayout(component string) (map[string]map[string]interface{}, error) {
+func (e Ecs) PopulateLayout(component manager.DeployComponent) (map[string]interface{}, error) {
 	const (
 		ServiceSuffix_CeramicNode      string = "node"
 		ServiceSuffix_CeramicGateway   string = "gateway"
@@ -209,50 +210,56 @@ func (e Ecs) PopulateLayout(component string) (map[string]map[string]interface{}
 	publicCluster := globalPrefix + "-" + env + "-ex"
 	casCluster := globalPrefix + "-" + env + "-cas"
 
-	clusterLayout := make(map[string]map[string]interface{}, 1)
+	var privateLayout map[string]interface{}
+	var publicLayout map[string]interface{}
+	var casLayout map[string]interface{}
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		clusterLayout[privateCluster] = map[string]interface{}{
+		privateLayout = map[string]interface{}{
 			privateCluster + "-" + ServiceSuffix_CeramicNode: nil,
 		}
-		clusterLayout[publicCluster] = map[string]interface{}{
+		publicLayout = map[string]interface{}{
 			publicCluster + "-" + ServiceSuffix_CeramicNode:    nil,
 			publicCluster + "-" + ServiceSuffix_CeramicGateway: nil,
 		}
-		if env == manager.EnvType_Prod {
-			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp11CeramicNode] = nil
-			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp12CeramicNode] = nil
+		if e.env == manager.EnvType_Prod {
+			publicLayout[globalPrefix+"-"+ServiceSuffix_Elp11CeramicNode] = nil
+			publicLayout[globalPrefix+"-"+ServiceSuffix_Elp12CeramicNode] = nil
 		}
-		clusterLayout[casCluster] = map[string]interface{}{
+		casLayout = map[string]interface{}{
 			casCluster + "-" + ServiceSuffix_CeramicNode: nil,
 		}
 	case manager.DeployComponent_Ipfs:
-		clusterLayout[privateCluster] = map[string]interface{}{
+		privateLayout = map[string]interface{}{
 			privateCluster + ServiceSuffix_IpfsNode: nil,
 		}
-		clusterLayout[publicCluster] = map[string]interface{}{
+		publicLayout = map[string]interface{}{
 			publicCluster + "-" + ServiceSuffix_IpfsNode:    nil,
 			publicCluster + "-" + ServiceSuffix_IpfsGateway: nil,
 		}
-		if env == manager.EnvType_Prod {
-			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp11IpfsNode] = nil
-			clusterLayout[publicCluster][globalPrefix+"-"+ServiceSuffix_Elp12IpfsNode] = nil
+		if e.env == manager.EnvType_Prod {
+			publicLayout[globalPrefix+"-"+ServiceSuffix_Elp11IpfsNode] = nil
+			publicLayout[globalPrefix+"-"+ServiceSuffix_Elp12IpfsNode] = nil
 		}
-		clusterLayout[casCluster] = map[string]interface{}{
+		casLayout = map[string]interface{}{
 			casCluster + "-" + ServiceSuffix_IpfsNode: nil,
 		}
 	case manager.DeployComponent_Cas:
-		clusterLayout[casCluster] = map[string]interface{}{
+		casLayout = map[string]interface{}{
 			casCluster + "-" + ServiceSuffix_CasApi:    nil,
 			casCluster + "-" + ServiceSuffix_CasAnchor: nil,
 		}
 	default:
 		return nil, fmt.Errorf("deployJob: unexpected component: %s", component)
 	}
-	return clusterLayout, nil
+	return map[string]interface{}{
+		privateCluster: privateLayout,
+		publicCluster:  publicLayout,
+		casCluster:     casLayout,
+	}, nil
 }
 
-func (e Ecs) GetRegistryUri(component string) (string, error) {
+func (e Ecs) GetRegistryUri(component manager.DeployComponent) (string, error) {
 	env := os.Getenv("ENV")
 	var repo string
 	switch component {

@@ -15,6 +15,7 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/aws"
 	"github.com/3box/pipeline-tools/cd/manager/jobmanager"
+	"github.com/3box/pipeline-tools/cd/manager/notifs"
 	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
@@ -79,7 +80,11 @@ func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Man
 	}
 	deployment := aws.NewEcs(cfg)
 	api := aws.NewApi(cfg)
-	m, err := jobmanager.NewJobManager(cache, db, deployment, api)
+	n, err := notifs.NewJobNotifs(db)
+	if err != nil {
+		log.Fatalf("failed to initialize notifications: %q", err)
+	}
+	m, err := jobmanager.NewJobManager(cache, db, deployment, api, n)
 	if err != nil {
 		log.Fatalf("failed to create job queue: %q", err)
 	}

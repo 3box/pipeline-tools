@@ -19,33 +19,59 @@ const (
 	JobType_TestSmoke JobType = "test_smoke"
 )
 
+const (
+	JobName_Deploy    = "Deployment"
+	JobName_Anchor    = "Anchor Worker"
+	JobName_TestE2E   = "E2E Tests"
+	JobName_TestSmoke = "Smoke Tests"
+)
+
 type JobStage string
 
 const (
 	JobStage_Queued    JobStage = "queued"
+	JobStage_Skipped   JobStage = "skipped"
 	JobStage_Started   JobStage = "started"
 	JobStage_Waiting   JobStage = "waiting"
-	JobStage_Skipped   JobStage = "skipped"
+	JobStage_Delayed   JobStage = "delayed"
 	JobStage_Failed    JobStage = "failed"
 	JobStage_Completed JobStage = "completed"
 )
 
+type EnvType string
+
 const (
-	EnvType_Dev  string = "dev"
-	EnvType_Qa   string = "qa"
-	EnvType_Tnet string = "tnet"
-	EnvType_Prod string = "prod"
+	EnvType_Dev  EnvType = "dev"
+	EnvType_Qa   EnvType = "qa"
+	EnvType_Tnet EnvType = "tnet"
+	EnvType_Prod EnvType = "prod"
 )
 
 const (
-	DeployParam_Component string = "component"
-	DeployParam_Sha       string = "sha"
+	EnvName_Dev  string = "dev"
+	EnvName_Qa   string = "dev-qa"
+	EnvName_Tnet string = "testnet-clay"
+	EnvName_Prod string = "mainnet"
 )
 
 const (
-	DeployComponent_Ceramic string = "ceramic"
-	DeployComponent_Ipfs    string = "ipfs"
-	DeployComponent_Cas     string = "cas"
+	EventParam_Component string = "component"
+	EventParam_Sha       string = "sha"
+	EventParam_ShaTag    string = "shaTag"
+)
+
+type DeployComponent string
+
+const (
+	DeployComponent_Ceramic DeployComponent = "ceramic"
+	DeployComponent_Cas     DeployComponent = "cas"
+	DeployComponent_Ipfs    DeployComponent = "ipfs"
+)
+
+const (
+	DeployRepo_Ceramic string = "js-ceramic"
+	DeployRepo_Cas     string = "ceramic-anchor-service"
+	DeployRepo_Ipfs    string = "go-ipfs-daemon"
 )
 
 const (
@@ -54,17 +80,18 @@ const (
 	E2eTest_LocalNodePrivate  string = "local_node-private"
 )
 
-type JobEvent struct {
-	Type   JobType
-	Params map[string]interface{}
-}
-
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
 	Ts     time.Time              `dynamodbav:"ts"`
 	Id     string                 `dynamodbav:"id"`
 	Type   JobType                `dynamodbav:"type"`
 	Params map[string]interface{} `dynamodbav:"params"`
+}
+
+type BuildState struct {
+	Key       DeployComponent        `dynamodbav:"key"`
+	DeployTag string                 `dynamodbav:"deployTag"`
+	BuildInfo map[string]interface{} `dynamodbav:"buildInfo"`
 }
 
 type Job interface {
@@ -80,6 +107,9 @@ type Database interface {
 	QueueJob(JobState) error
 	DequeueJobs() []JobState
 	UpdateJob(JobState) error
+	UpdateBuildHash(DeployComponent, string) error
+	UpdateDeployHash(DeployComponent, string) error
+	GetDeployHashes() (map[DeployComponent]string, error)
 }
 
 type Cache interface {
@@ -94,8 +124,12 @@ type Deployment interface {
 	CheckTask(bool, string, ...string) (bool, error)
 	UpdateService(string, string, string) (string, error)
 	CheckService(string, string, string) (bool, error)
-	PopulateLayout(string) (map[string]map[string]interface{}, error)
-	GetRegistryUri(string) (string, error)
+	PopulateLayout(DeployComponent) (map[string]interface{}, error)
+	GetRegistryUri(DeployComponent) (string, error)
+}
+
+type Notifs interface {
+	NotifyJob(...JobState)
 }
 
 type Server interface {
@@ -117,4 +151,34 @@ func PrintJob(jobStates ...JobState) string {
 		prettyString += "\n" + string(prettyBytes)
 	}
 	return prettyString
+}
+
+func EnvName(env EnvType) string {
+	switch env {
+	case EnvType_Dev:
+		return EnvName_Dev
+	case EnvType_Qa:
+		return EnvName_Qa
+	case EnvType_Tnet:
+		return EnvName_Tnet
+	case EnvType_Prod:
+		return EnvName_Prod
+	default:
+		return ""
+	}
+}
+
+func JobName(job JobType) string {
+	switch job {
+	case JobType_Deploy:
+		return JobName_Deploy
+	case JobType_Anchor:
+		return JobName_Anchor
+	case JobType_TestE2E:
+		return JobName_TestE2E
+	case JobType_TestSmoke:
+		return JobName_TestSmoke
+	default:
+		return ""
+	}
 }

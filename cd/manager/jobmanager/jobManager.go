@@ -3,12 +3,8 @@ package jobmanager
 import (
 	"fmt"
 	"log"
-	"os"
 	"sync"
 	"time"
-
-	"github.com/disgoorg/disgo/webhook"
-	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/jobs"
@@ -19,13 +15,12 @@ type JobManager struct {
 	db        manager.Database
 	d         manager.Deployment
 	apiGw     manager.ApiGw
-	discord   webhook.Client
+	notifs    manager.Notifs
 	waitGroup *sync.WaitGroup
 }
 
-func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, a manager.ApiGw) (JobManager, error) {
-	discord := webhook.New(snowflake.GetEnv("DISCORD_WEBHOOK"), os.Getenv("DISCORD_TOKEN"))
-	return JobManager{cache, db, d, a, discord, new(sync.WaitGroup)}, nil
+func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, a manager.ApiGw, n manager.Notifs) (JobManager, error) {
+	return JobManager{cache, db, d, a, n, new(sync.WaitGroup)}, nil
 }
 
 func (m JobManager) NewJob(jobState manager.JobState) error {
@@ -112,7 +107,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 	incompatibleJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		// Match non-deploy jobs, or jobs for the same component (viz. Ceramic, IPFS, or CAS).
 		return m.isActiveJob(js) &&
-			((js.Type != manager.JobType_Deploy) || (js.Params[manager.DeployParam_Component] == firstJob.Params[manager.DeployParam_Component]))
+			((js.Type != manager.JobType_Deploy) || (js.Params[manager.EventParam_Component] == firstJob.Params[manager.EventParam_Component]))
 	})
 	if len(incompatibleJobs) == 0 {
 		// Collapse similar, back-to-back deployments into a single run and kick it off.
@@ -124,7 +119,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 				break
 			}
 			// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
-			deployComponent := jobs[i].Params[manager.DeployParam_Component].(string)
+			deployComponent := jobs[i].Params[manager.EventParam_Component].(string)
 			// Update the cache and database for every skipped job.
 			if skippedJob, found := deployJobs[deployComponent]; found {
 				if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
@@ -142,7 +137,6 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 		}
 	} else {
 		log.Printf("processDeployJobs: deferring deployment because one or more jobs are in progress: %s, %s", manager.PrintJob(firstJob), manager.PrintJob(incompatibleJobs...))
-		// TODO: Send Discord notification
 	}
 }
 
@@ -190,7 +184,6 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 		}
 	} else {
 		log.Printf("processNonDeployJobs: deferring job because one or more deployments are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(deployJobs...))
-		// TODO: Send Discord notification
 	}
 }
 
@@ -207,6 +200,8 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 		} else if err = job.AdvanceJob(); err != nil {
 			// Advancing should automatically update the cache and database in case of failures.
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
+		} else {
+			log.Printf("advanceJob: new job state: %s", manager.PrintJob(jobState))
 		}
 	}()
 }
@@ -216,13 +211,13 @@ func (m JobManager) generateJob(jobState manager.JobState) (manager.Job, error) 
 	var err error = nil
 	switch jobState.Type {
 	case manager.JobType_Deploy:
-		job, err = jobs.DeployJob(m.db, m.d, jobState)
+		job, err = jobs.DeployJob(m.db, m.d, m.notifs, jobState)
 	case manager.JobType_Anchor:
-		job = jobs.AnchorJob(m.db, m.d, jobState)
+		job = jobs.AnchorJob(m.db, m.d, m.notifs, jobState)
 	case manager.JobType_TestE2E:
-		job = jobs.E2eTestJob(m.db, m.d, jobState)
+		job = jobs.E2eTestJob(m.db, m.d, m.notifs, jobState)
 	case manager.JobType_TestSmoke:
-		job = jobs.SmokeTestJob(m.db, m.apiGw, jobState)
+		job = jobs.SmokeTestJob(m.db, m.apiGw, m.notifs, jobState)
 	default:
 		return nil, fmt.Errorf("generateJob: unknown job type: %s", manager.PrintJob(jobState))
 	}
@@ -234,11 +229,11 @@ func (m JobManager) isFinishedJob(jobState manager.JobState) bool {
 }
 
 func (m JobManager) isActiveJob(jobState manager.JobState) bool {
-	return (jobState.Stage == manager.JobStage_Started) || (jobState.Stage == manager.JobStage_Waiting)
+	return (jobState.Stage == manager.JobStage_Started) || (jobState.Stage == manager.JobStage_Waiting) || (jobState.Stage == manager.JobStage_Delayed)
 }
 
 func (m JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
 	jobState.Stage = jobStage
-	jobState.Ts = time.Now()
+	m.notifs.NotifyJob(jobState)
 	return m.db.UpdateJob(jobState)
 }

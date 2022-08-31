@@ -14,13 +14,14 @@ const FailureTime = 2 * time.Hour
 var _ manager.Job = &e2eTestJob{}
 
 type e2eTestJob struct {
-	state manager.JobState
-	db    manager.Database
-	d     manager.Deployment
+	state  manager.JobState
+	db     manager.Database
+	d      manager.Deployment
+	notifs manager.Notifs
 }
 
-func E2eTestJob(db manager.Database, d manager.Deployment, jobState manager.JobState) *e2eTestJob {
-	return &e2eTestJob{jobState, db, d}
+func E2eTestJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) *e2eTestJob {
+	return &e2eTestJob{jobState, db, d, notifs}
 }
 
 func (e e2eTestJob) AdvanceJob() error {
@@ -56,7 +57,7 @@ func (e e2eTestJob) AdvanceJob() error {
 		// There's nothing left to do so we shouldn't have reached here
 		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
-	e.state.Ts = time.Now()
+	e.notifs.NotifyJob(e.state)
 	return e.db.UpdateJob(e.state)
 }
 
@@ -77,8 +78,8 @@ func (e e2eTestJob) startE2eTest(config string) error {
 		"ceramic-qa-tests-e2e_tests",
 		"e2e_tests",
 		map[string]string{
-			"NODE_ENV":              string(config),
-			"ETH_RPC_URL":           os.Getenv("ETH_RPC_URL"),
+			"NODE_ENV":              config,
+			"ETH_RPC_URL":           os.Getenv("BLOCKCHAIN_RPC_URL"),
 			"AWS_ACCESS_KEY_ID":     os.Getenv("AWS_ACCESS_KEY_ID"),
 			"AWS_SECRET_ACCESS_KEY": os.Getenv("AWS_SECRET_ACCESS_KEY"),
 			"AWS_REGION":            os.Getenv("AWS_REGION"),
