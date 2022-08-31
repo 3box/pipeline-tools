@@ -26,7 +26,7 @@ func AnchorJob(db manager.Database, d manager.Deployment, n manager.Notifs, jobS
 	return &anchorJob{jobState, db, d, n, os.Getenv("ENV")}
 }
 
-func (a anchorJob) AdvanceJob() error {
+func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 	if a.state.Stage == manager.JobStage_Queued {
 		// Launch anchor worker
 		if id, err := a.d.LaunchService(
@@ -50,7 +50,7 @@ func (a anchorJob) AdvanceJob() error {
 			a.state.Stage = manager.JobStage_Waiting
 		} else {
 			// Return so we come back again to check
-			return nil
+			return a.state, nil
 		}
 	} else if a.state.Stage == manager.JobStage_Waiting {
 		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
@@ -62,7 +62,7 @@ func (a anchorJob) AdvanceJob() error {
 			a.state.Stage = manager.JobStage_Delayed
 		} else {
 			// Return so we come back again to check
-			return nil
+			return a.state, nil
 		}
 	} else if a.state.Stage == manager.JobStage_Delayed {
 		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
@@ -71,11 +71,11 @@ func (a anchorJob) AdvanceJob() error {
 			a.state.Stage = manager.JobStage_Completed
 		} else {
 			// Return so we come back again to check
-			return nil
+			return a.state, nil
 		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
-		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
+		return a.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
-	return a.db.UpdateJob(a.state)
+	return a.state, a.db.UpdateJob(a.state)
 }

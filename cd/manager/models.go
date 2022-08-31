@@ -57,7 +57,6 @@ const (
 const (
 	EventParam_Component string = "component"
 	EventParam_Sha       string = "sha"
-	EventParam_ShaTag    string = "shaTag"
 )
 
 type DeployComponent string
@@ -95,7 +94,7 @@ type BuildState struct {
 }
 
 type Job interface {
-	AdvanceJob() error
+	AdvanceJob() (JobState, error)
 }
 
 type ApiGw interface {

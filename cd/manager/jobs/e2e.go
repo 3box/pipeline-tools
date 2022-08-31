@@ -24,7 +24,7 @@ func E2eTestJob(db manager.Database, d manager.Deployment, notifs manager.Notifs
 	return &e2eTestJob{jobState, db, d, notifs}
 }
 
-func (e e2eTestJob) AdvanceJob() error {
+func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 	if e.state.Stage == manager.JobStage_Queued {
 		if err := e.startE2eTests(); err != nil {
 			e.state.Stage = manager.JobStage_Failed
@@ -41,7 +41,7 @@ func (e e2eTestJob) AdvanceJob() error {
 			e.state.Stage = manager.JobStage_Waiting
 		} else {
 			// Return so we come back again to check
-			return nil
+			return e.state, nil
 		}
 	} else if e.state.Stage == manager.JobStage_Waiting {
 		// Check if all suites completed
@@ -51,14 +51,14 @@ func (e e2eTestJob) AdvanceJob() error {
 			e.state.Stage = manager.JobStage_Completed
 		} else {
 			// Return so we come back again to check
-			return nil
+			return e.state, nil
 		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
-		return fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(e.state))
+		return e.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
 	e.notifs.NotifyJob(e.state)
-	return e.db.UpdateJob(e.state)
+	return e.state, e.db.UpdateJob(e.state)
 }
 
 func (e e2eTestJob) startE2eTests() error {

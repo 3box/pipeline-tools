@@ -112,8 +112,8 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 	var jobTitlePfx string
 	if jobState.Type == manager.JobType_Deploy {
-		component := jobState.Params[manager.EventParam_Component]
-		jobTitlePfx = fmt.Sprintf("3Box Labs `%s` `%s` ", manager.EnvName(n.env), component.(string))
+		component := jobState.Params[manager.EventParam_Component].(string)
+		jobTitlePfx = fmt.Sprintf("3Box Labs `%s` %s ", manager.EnvName(n.env), strings.ToUpper(component))
 	}
 	return fmt.Sprintf("%s%s %s", jobTitlePfx, manager.JobName(jobState.Type), strings.ToUpper(string(jobState.Stage)))
 }
