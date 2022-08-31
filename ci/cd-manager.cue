@@ -65,7 +65,7 @@ dagger.#Plan & {
 				_tags: _baseTags
 			}
 			ecr: {
-				if Branch == "develop" {
+				if "\(EnvTag)" == "dev" {
 					qaImage: docker.#Dockerfile & {
 						buildArg: "ENV_TAG": "qa"
 						source:   client.filesystem.source.read.contents
