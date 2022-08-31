@@ -66,8 +66,12 @@ dagger.#Plan & {
 			}
 			ecr: {
 				if Branch == "develop" {
+					qaImage: docker.#Dockerfile & {
+						buildArg: "ENV_TAG": "qa"
+						source:   client.filesystem.source.read.contents
+					}
 					qa: utils.#ECR & {
-						img: image.output
+						img: qaImage.output
 						env: {
 							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 							AWS_ECR_SECRET: client.commands.aws.stdout
