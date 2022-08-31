@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
@@ -39,11 +37,7 @@ func jobHandler(m manager.Manager) http.HandlerFunc {
 			errorResponse(w, "Content Type is not application/json", http.StatusUnsupportedMediaType)
 			return
 		}
-		jobState := manager.JobState{
-			Stage: manager.JobStage_Queued,
-			Ts:    time.Now(),
-			Id:    uuid.New().String(),
-		}
+		jobState := manager.JobState{}
 		var unmarshalErr *json.UnmarshalTypeError
 		status := http.StatusOK
 		message := "Success"

@@ -43,7 +43,7 @@ func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs,
 	}
 }
 
-func (d deployJob) AdvanceJob() error {
+func (d deployJob) AdvanceJob() (manager.JobState, error) {
 	if d.state.Stage == manager.JobStage_Queued {
 		if err := d.updateServices(); err != nil {
 			d.state.Stage = manager.JobStage_Failed
@@ -70,17 +70,17 @@ func (d deployJob) AdvanceJob() error {
 			}
 		} else {
 			// Return so we come back again to check
-			return nil
+			return d.state, nil
 		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
-		return fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
+		return d.state, fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
 	}
 	// Only send started/completed/failed notifications.
 	if (d.state.Stage == manager.JobStage_Started) || (d.state.Stage == manager.JobStage_Failed) || (d.state.Stage == manager.JobStage_Completed) {
 		d.notifs.NotifyJob(d.state)
 	}
-	return d.db.UpdateJob(d.state)
+	return d.state, d.db.UpdateJob(d.state)
 }
 
 func (d deployJob) updateServices() error {

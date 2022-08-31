@@ -24,7 +24,7 @@ func SmokeTestJob(db manager.Database, api manager.ApiGw, notifs manager.Notifs,
 	return &smokeTestJob{jobState, db, api, notifs}
 }
 
-func (s smokeTestJob) AdvanceJob() error {
+func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 	if s.state.Stage == manager.JobStage_Queued {
 		resourceId := os.Getenv("SMOKE_TEST_RESOURCE_ID")
 		restApiId := os.Getenv("SMOKE_TEST_REST_API_ID")
@@ -39,12 +39,12 @@ func (s smokeTestJob) AdvanceJob() error {
 			s.state.Stage = manager.JobStage_Completed
 		} else {
 			// Return so we come back again to check
-			return nil
+			return s.state, nil
 		}
 	} else {
 		// There's nothing left to do so we shouldn't have reached here
-		return fmt.Errorf("smokeTestJob: unexpected state: %s", manager.PrintJob(s.state))
+		return s.state, fmt.Errorf("smokeTestJob: unexpected state: %s", manager.PrintJob(s.state))
 	}
 	s.notifs.NotifyJob(s.state)
-	return s.db.UpdateJob(s.state)
+	return s.state, s.db.UpdateJob(s.state)
 }

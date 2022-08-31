@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/jobs"
 )
@@ -24,6 +26,12 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 }
 
 func (m JobManager) NewJob(jobState manager.JobState) error {
+	jobState.Stage = manager.JobStage_Queued
+	jobState.Id = uuid.New().String()
+	// Only set the time if it hadn't already been set by the caller.
+	if jobState.Ts.IsZero() {
+		jobState.Ts = time.Now()
+	}
 	return m.db.QueueJob(jobState)
 }
 
@@ -197,11 +205,21 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 			if err = m.updateJobStage(jobState, manager.JobStage_Failed); err != nil {
 				log.Printf("advanceJob: job update failed: %v, %s", err, manager.PrintJob(jobState))
 			}
-		} else if err = job.AdvanceJob(); err != nil {
+		} else if newJobState, err := job.AdvanceJob(); err != nil {
 			// Advancing should automatically update the cache and database in case of failures.
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
 		} else {
-			log.Printf("advanceJob: new job state: %s", manager.PrintJob(jobState))
+			log.Printf("advanceJob: next job state: %s", manager.PrintJob(newJobState))
+			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment to
+			// stabilize.
+			if (newJobState.Type == manager.JobType_Deploy) && (newJobState.Stage == manager.JobStage_Completed) {
+				if err = m.NewJob(manager.JobState{
+					Ts:   time.Now().Add(5 * time.Minute),
+					Type: manager.JobType_TestSmoke,
+				}); err != nil {
+					log.Printf("advanceJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(newJobState))
+				}
+			}
 		}
 	}()
 }

@@ -149,12 +149,15 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 	} else {
 		rangeTs = ttlTs
 	}
+	// Only look for jobs up till the current time. This allows us to schedule jobs in the future (e.g. smoke tests to
+	// start a few minutes after a deployment is complete).
 	p := dynamodb.NewQueryPaginator(db.client, &dynamodb.QueryInput{
 		TableName:              aws.String(db.jobTable),
-		KeyConditionExpression: aws.String("#stage = :stage and #ts > :ts"),
+		KeyConditionExpression: aws.String("#stage = :stage and #ts between :ts and :now"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":stage": &types.AttributeValueMemberS{Value: string(jobStage)},
 			":ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(rangeTs.UnixMilli(), 10)},
+			":now":   &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().UnixMilli(), 10)},
 		},
 		ExpressionAttributeNames: map[string]string{
 			"#stage": "stage",
