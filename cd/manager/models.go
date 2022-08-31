@@ -60,10 +60,18 @@ const (
 	EventParam_ShaTag    string = "shaTag"
 )
 
+type DeployComponent string
+
 const (
-	DeployComponent_Ceramic string = "js-ceramic"
-	DeployComponent_Ipfs    string = "go-ipfs-daemon"
-	DeployComponent_Cas     string = "ceramic-anchor-service"
+	DeployComponent_Ceramic DeployComponent = "ceramic"
+	DeployComponent_Cas     DeployComponent = "cas"
+	DeployComponent_Ipfs    DeployComponent = "ipfs"
+)
+
+const (
+	DeployRepo_Ceramic string = "js-ceramic"
+	DeployRepo_Cas     string = "ceramic-anchor-service"
+	DeployRepo_Ipfs    string = "go-ipfs-daemon"
 )
 
 const (
@@ -80,6 +88,12 @@ type JobState struct {
 	Params map[string]interface{} `dynamodbav:"params"`
 }
 
+type BuildState struct {
+	Key       DeployComponent        `dynamodbav:"key"`
+	DeployTag string                 `dynamodbav:"deployTag"`
+	BuildInfo map[string]interface{} `dynamodbav:"buildInfo"`
+}
+
 type Job interface {
 	AdvanceJob() error
 }
@@ -93,6 +107,9 @@ type Database interface {
 	QueueJob(JobState) error
 	DequeueJobs() []JobState
 	UpdateJob(JobState) error
+	UpdateBuildHash(DeployComponent, string) error
+	UpdateDeployHash(DeployComponent, string) error
+	GetDeployHashes() (map[DeployComponent]string, error)
 }
 
 type Cache interface {
@@ -107,8 +124,8 @@ type Deployment interface {
 	CheckTask(bool, string, ...string) (bool, error)
 	UpdateService(string, string, string) (string, error)
 	CheckService(string, string, string) (bool, error)
-	PopulateLayout(string) (map[string]interface{}, error)
-	GetRegistryUri(string) (string, error)
+	PopulateLayout(DeployComponent) (map[string]interface{}, error)
+	GetRegistryUri(DeployComponent) (string, error)
 }
 
 type Notifs interface {

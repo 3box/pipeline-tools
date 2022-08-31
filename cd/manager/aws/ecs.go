@@ -190,7 +190,7 @@ func (e Ecs) CheckService(cluster, service, taskDefArn string) (bool, error) {
 	return false, nil
 }
 
-func (e Ecs) PopulateLayout(component string) (map[string]interface{}, error) {
+func (e Ecs) PopulateLayout(component manager.DeployComponent) (map[string]interface{}, error) {
 	const (
 		ServiceSuffix_CeramicNode      string = "node"
 		ServiceSuffix_CeramicGateway   string = "gateway"
@@ -259,7 +259,7 @@ func (e Ecs) PopulateLayout(component string) (map[string]interface{}, error) {
 	}, nil
 }
 
-func (e Ecs) GetRegistryUri(component string) (string, error) {
+func (e Ecs) GetRegistryUri(component manager.DeployComponent) (string, error) {
 	env := os.Getenv("ENV")
 	var repo string
 	switch component {

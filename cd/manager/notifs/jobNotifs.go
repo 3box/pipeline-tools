@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -34,19 +33,19 @@ const GitHubOrg = "https://github.com/ceramicnetwork"
 var _ manager.Notifs = &JobNotifs{}
 
 type JobNotifs struct {
-	state              *sync.Map
+	db                 manager.Database
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
 	env                manager.EnvType
 }
 
-func NewJobNotifs() (manager.Notifs, error) {
+func NewJobNotifs(db manager.Database) (manager.Notifs, error) {
 	if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &JobNotifs{new(sync.Map), d, c, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &JobNotifs{db, d, c, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
@@ -69,7 +68,6 @@ func parseDiscordWebhookUrl(urlEnv string) (webhook.Client, error) {
 
 func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 	for _, jobState := range jobs {
-		n.cacheJobState(jobState)
 		for _, channel := range n.getNotifChannels(jobState) {
 			if channel != nil {
 				n.sendNotif(
@@ -105,15 +103,11 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 	webhooks := make([]webhook.Client, 0, 1)
 	if jobState.Type == manager.JobType_Deploy {
 		webhooks = append(webhooks, n.deploymentsWebhook)
-		// Don't send Dev/QA notifications to the community channel, and only send started/completed/failed events.
-		if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) &&
-			((jobState.Stage == manager.JobStage_Started) ||
-				(jobState.Stage == manager.JobStage_Failed) ||
-				(jobState.Stage == manager.JobStage_Completed)) {
+		// Don't send Dev/QA notifications to the community channel.
+		if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) {
 			webhooks = append(webhooks, n.communityWebhook)
 		}
 	}
-	// TODO: Revisit notifications for other job types.
 	return webhooks
 }
 
@@ -127,19 +121,10 @@ func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 }
 
 func (n JobNotifs) getNotifDesc(jobState manager.JobState) string {
-	switch jobState.Type {
-	case manager.JobType_Deploy:
-		return n.getCommitHashes()
-	case manager.JobType_Anchor:
-		return n.getCommitHashes()
-	case manager.JobType_TestE2E:
-		return n.getCommitHashes()
-	case manager.JobType_TestSmoke:
-		return n.getCommitHashes()
-	default:
-		log.Printf("sendNotif: unknown job type: %s", manager.PrintJob(jobState))
-		return DiscordUnknownJob
+	if jobState.Type == manager.JobType_Deploy {
+		return n.getDeployHashes()
 	}
+	return ""
 }
 
 func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
@@ -164,38 +149,26 @@ func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 	}
 }
 
-func (n JobNotifs) getCommitHashes() string {
-	ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic)
-	casMsg := n.getComponentMsg(manager.DeployComponent_Cas)
-	ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs)
-	return fmt.Sprintf("%s\n%s\n%s", ceramicMsg, casMsg, ipfsMsg)
-}
-
-func (n JobNotifs) getComponentMsg(component string) string {
-	if jobState, found := n.state.Load(n.getStateKey(manager.JobType_Deploy, component)); found {
-		sha := jobState.(manager.JobState).Params[manager.EventParam_Sha].(string)
-		shaTag := jobState.(manager.JobState).Params[manager.EventParam_ShaTag].(string)
-		return fmt.Sprintf("[%s (%s)](%s/%s/commit/%s)", component, shaTag, GitHubOrg, component, sha)
-	}
-	return ""
-}
-
-func (n JobNotifs) cacheJobState(jobState manager.JobState) {
-	// If this notification is for a newer, completed deployment, cache the commit hash for later use.
-	if (jobState.Type == manager.JobType_Deploy) && (jobState.Stage == manager.JobStage_Completed) {
-		component := jobState.Params[manager.EventParam_Component].(string)
-		stateKey := n.getStateKey(manager.JobType_Deploy, component)
-		if cachedState, found := n.state.Load(stateKey); !found || jobState.Ts.After(cachedState.(manager.JobState).Ts) {
-			n.state.Store(stateKey, jobState)
-		}
+func (n JobNotifs) getDeployHashes() string {
+	if commitHashes, err := n.db.GetDeployHashes(); err != nil {
+		return ""
+	} else {
+		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes[manager.DeployComponent_Ceramic])
+		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes[manager.DeployComponent_Cas])
+		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, commitHashes[manager.DeployComponent_Ipfs])
+		return fmt.Sprintf("%s\n%s\n%s", ceramicMsg, casMsg, ipfsMsg)
 	}
 }
 
-func (n JobNotifs) getStateKey(parts ...interface{}) string {
-	// The first part will always be the job type.
-	key := string(parts[0].(manager.JobType))
-	for i := 1; i < len(parts); i++ {
-		key += "_" + parts[i].(string)
+func (n JobNotifs) getComponentMsg(component manager.DeployComponent, sha string) string {
+	var repo string
+	switch component {
+	case manager.DeployComponent_Ceramic:
+		repo = manager.DeployRepo_Ceramic
+	case manager.DeployComponent_Cas:
+		repo = manager.DeployRepo_Cas
+	case manager.DeployComponent_Ipfs:
+		repo = manager.DeployRepo_Ipfs
 	}
-	return key
+	return fmt.Sprintf("[%s (%s)](%s/%s/commit/%s)", repo, sha[:12], GitHubOrg, repo, sha)
 }

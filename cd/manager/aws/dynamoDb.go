@@ -22,17 +22,21 @@ const TableCreationWait = 3 * time.Second
 var _ manager.Database = &DynamoDb{}
 
 type DynamoDb struct {
-	client   *dynamodb.Client
-	table    string
-	cache    manager.Cache
-	tsCursor time.Time
+	client     *dynamodb.Client
+	jobTable   string
+	buildTable string
+	cache      manager.Cache
+	tsCursor   time.Time
 }
 
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
-	tableName := "ceramic-" + os.Getenv("ENV") + "-ops"
+	env := os.Getenv("ENV")
+	jobTable := "ceramic-" + env + "-ops"
+	buildTable := "ceramic-utils-" + env
 	db := &DynamoDb{
 		dynamodb.NewFromConfig(cfg),
-		tableName,
+		jobTable,
+		buildTable,
 		cache,
 		time.UnixMilli(0),
 	}
@@ -44,7 +48,7 @@ func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 
 func (db DynamoDb) createTable() error {
 	// Create the table if it doesn't already exist
-	_, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.table)})
+	_, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.jobTable)})
 	if err != nil {
 		createTableInput := dynamodb.CreateTableInput{
 			AttributeDefinitions: []types.AttributeDefinition{
@@ -67,7 +71,7 @@ func (db DynamoDb) createTable() error {
 					KeyType:       "RANGE",
 				},
 			},
-			TableName: aws.String(db.table),
+			TableName: aws.String(db.jobTable),
 			ProvisionedThroughput: &types.ProvisionedThroughput{
 				ReadCapacityUnits:  aws.Int64(1),
 				WriteCapacityUnits: aws.Int64(1),
@@ -77,7 +81,7 @@ func (db DynamoDb) createTable() error {
 			return err
 		}
 		for i := 0; i < TableCreationRetries; i++ {
-			describe, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.table)})
+			describe, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.jobTable)})
 			if (err == nil) && (describe.Table.TableStatus == types.TableStatusActive) {
 				return nil
 			}
@@ -146,7 +150,7 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 		rangeTs = ttlTs
 	}
 	p := dynamodb.NewQueryPaginator(db.client, &dynamodb.QueryInput{
-		TableName:              aws.String(db.table),
+		TableName:              aws.String(db.jobTable),
 		KeyConditionExpression: aws.String("#stage = :stage and #ts > :ts"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":stage": &types.AttributeValueMemberS{Value: string(jobStage)},
@@ -222,9 +226,71 @@ func (db DynamoDb) writeJob(jobState manager.JobState) error {
 		return err
 	} else {
 		_, err = db.client.PutItem(context.Background(), &dynamodb.PutItemInput{
-			TableName: aws.String(db.table),
+			TableName: aws.String(db.jobTable),
 			Item:      attributeValues,
 		})
 		return err
+	}
+}
+
+func (db DynamoDb) UpdateBuildHash(component manager.DeployComponent, sha string) error {
+	_, err := db.client.UpdateItem(context.Background(), &dynamodb.UpdateItemInput{
+		TableName: aws.String(db.buildTable),
+		Key: map[string]types.AttributeValue{
+			"key": &types.AttributeValueMemberS{Value: string(component)},
+		},
+		UpdateExpression: aws.String("set #buildInfo.#shaTag = :sha"),
+		ExpressionAttributeNames: map[string]string{
+			"#buildInfo": "buildInfo",
+			"#shaTag":    "sha_tag",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":sha": &types.AttributeValueMemberS{Value: sha},
+		},
+	})
+	return err
+}
+
+func (db DynamoDb) UpdateDeployHash(component manager.DeployComponent, sha string) error {
+	_, err := db.client.UpdateItem(context.Background(), &dynamodb.UpdateItemInput{
+		TableName: aws.String(db.buildTable),
+		Key: map[string]types.AttributeValue{
+			"key": &types.AttributeValueMemberS{Value: string(component)},
+		},
+		UpdateExpression: aws.String("set #deployTag = :sha"),
+		ExpressionAttributeNames: map[string]string{
+			"#deployTag": "deployTag",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":sha": &types.AttributeValueMemberS{Value: sha},
+		},
+	})
+	return err
+}
+
+func (db DynamoDb) GetDeployHashes() (map[manager.DeployComponent]string, error) {
+	if buildStates, err := db.getBuildStates(); err != nil {
+		return nil, err
+	} else {
+		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
+		for _, state := range buildStates {
+			commitHashes[state.Key] = state.DeployTag
+		}
+		return commitHashes, nil
+	}
+}
+
+func (db DynamoDb) getBuildStates() ([]manager.BuildState, error) {
+	// We don't need to paginate since we're only ever going to have a handful of components.
+	if scanOutput, err := db.client.Scan(context.Background(), &dynamodb.ScanInput{
+		TableName: aws.String(db.buildTable),
+	}); err != nil {
+		return nil, err
+	} else {
+		var buildStates []manager.BuildState
+		if err = attributevalue.UnmarshalListOfMapsWithOptions(scanOutput.Items, &buildStates); err != nil {
+			return nil, err
+		}
+		return buildStates, nil
 	}
 }
