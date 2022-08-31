@@ -26,7 +26,6 @@ const (
 	DiscordColor_Alert   = 16711712
 )
 
-const DiscordUnknownJob = "UNKNOWN JOB"
 const DiscordPacing = 2 * time.Second
 const GitHubOrg = "https://github.com/ceramicnetwork"
 
