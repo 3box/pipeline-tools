@@ -3,18 +3,25 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
 func Setup(addr string, m manager.Manager) http.Server {
+	logger := log.New(os.Stdout, "http: ", log.LstdFlags)
 	mux := http.NewServeMux()
 	mux.Handle("/healthcheck", healthcheckHandler())
 	mux.Handle("/time", timeHandler(time.RFC1123))
 	mux.Handle("/job", jobHandler(m))
-	return http.Server{Addr: addr, Handler: mux}
+	return http.Server{
+		Addr:     addr,
+		Handler:  logging(logger)(mux),
+		ErrorLog: logger,
+	}
 }
 
 func healthcheckHandler() http.HandlerFunc {
@@ -68,4 +75,15 @@ func errorResponse(w http.ResponseWriter, message string, httpStatusCode int) {
 	resp["message"] = message
 	jsonResp, _ := json.Marshal(resp)
 	w.Write(jsonResp)
+}
+
+func logging(logger *log.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				logger.Println(r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
 }
