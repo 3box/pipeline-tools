@@ -26,7 +26,9 @@ func healthcheckHandler() http.HandlerFunc {
 func timeHandler(format string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tm := time.Now().Format(format)
-		w.Write([]byte("The time is: " + tm))
+		status := http.StatusOK
+		message := "The time is " + tm
+		writeJsonResponse(w, message, status)
 	}
 }
 
@@ -34,7 +36,7 @@ func jobHandler(m manager.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		headerContentTtype := r.Header.Get("Content-Type")
 		if headerContentTtype != "application/json" {
-			errorResponse(w, "Content Type is not application/json", http.StatusUnsupportedMediaType)
+			writeJsonResponse(w, "Content Type is not application/json", http.StatusUnsupportedMediaType)
 			return
 		}
 		jobState := manager.JobState{}
@@ -51,17 +53,15 @@ func jobHandler(m manager.Manager) http.HandlerFunc {
 			} else {
 				message = "jobHandler: bad request: " + err.Error()
 			}
-			return
 		} else if err = m.NewJob(jobState); err != nil {
 			status = http.StatusBadRequest
 			message = "jobHandler: could not queue job: " + err.Error()
 		}
-		errorResponse(w, message, status)
-		return
+		writeJsonResponse(w, message, status)
 	}
 }
 
-func errorResponse(w http.ResponseWriter, message string, httpStatusCode int) {
+func writeJsonResponse(w http.ResponseWriter, message string, httpStatusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatusCode)
 	resp := make(map[string]string)
