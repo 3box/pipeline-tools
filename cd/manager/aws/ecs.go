@@ -99,7 +99,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 	}
 	var vpcConfig types.AwsVpcConfiguration
 	if err := json.Unmarshal([]byte(*getParamOutput.Parameter.Value), &vpcConfig); err != nil {
-		log.Printf("anchorJob: error unmarshaling worker network configuration: %v", err)
+		log.Printf("anchorJob: error unmarshaling worker network configuration:  %s, %s, %s, %+v, %v", family, cluster, vpcConfigParam, overrides, err)
 		return "", err
 	}
 
@@ -129,7 +129,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 	}
 	runTaskOutput, err := e.ecsClient.RunTask(ctx, runTaskInput)
 	if err != nil {
-		log.Printf("ecs: run task error: %s, %s, %s, %+v, %v", family, cluster, vpcConfigParam, overrides, err)
+		log.Printf("ecs: run task error: %s, %s, %v, %+v, %v", family, cluster, vpcConfig, overrides, err)
 		return "", err
 	}
 	return *runTaskOutput.Tasks[0].TaskArn, nil
