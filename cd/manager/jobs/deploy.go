@@ -23,9 +23,9 @@ type deployJob struct {
 }
 
 func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) (*deployJob, error) {
-	if component, found := jobState.Params[manager.EventParam_Component].(string); !found {
+	if component, found := jobState.Params[manager.JobParam_Component].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
-	} else if sha, found := jobState.Params[manager.EventParam_Sha].(string); !found {
+	} else if sha, found := jobState.Params[manager.JobParam_Sha].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
 		c := manager.DeployComponent(component)
@@ -47,6 +47,8 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 	if d.state.Stage == manager.JobStage_Queued {
 		if err := d.updateServices(); err != nil {
 			d.state.Stage = manager.JobStage_Failed
+			d.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("deployJob: error updating service: %v, %s", err, manager.PrintJob(d.state))
 		} else {
 			d.state.Stage = manager.JobStage_Started
 			// For started deployments update the build commit hash in the DB.
@@ -57,10 +59,14 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 		}
 	} else if time.Now().Add(-manager.DefaultFailureTime).After(d.state.Ts) {
 		d.state.Stage = manager.JobStage_Failed
+		d.state.Params[manager.JobParam_Error] = manager.Error_Timeout
+		log.Printf("deployJob: job timed out: %s", manager.PrintJob(d.state))
 	} else if d.state.Stage == manager.JobStage_Started {
 		// Check if all service updates completed
 		if running, err := d.checkServices(); err != nil {
 			d.state.Stage = manager.JobStage_Failed
+			d.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("deployJob: error checking services running status: %v, %s", err, manager.PrintJob(d.state))
 		} else if running {
 			d.state.Stage = manager.JobStage_Completed
 			// For completed deployments update the deploy commit hash in the DB.

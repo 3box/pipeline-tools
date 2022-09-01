@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -184,7 +183,8 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 			}
 		})
 		if err != nil {
-			return fmt.Errorf("initialize: unable to unmarshal jobState: %v", err)
+			log.Printf("initialize: unable to unmarshal jobState: %v", err)
+			return err
 		}
 		for _, jobState := range jobsPage {
 			if !iter(jobState) {
