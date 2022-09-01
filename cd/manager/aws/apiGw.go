@@ -2,7 +2,7 @@ package aws
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
@@ -27,7 +27,8 @@ func (a *Api) Invoke(method, resourceId, restApiId, pathWithQueryString string) 
 	}
 	output, err := a.client.TestInvokeMethod(context.TODO(), input)
 	if (err != nil) || (output.Status != 200) {
-		return "", fmt.Errorf("api: invocation failed: %s", err)
+		log.Printf("api: invocation failed: %v", err)
+		return "", err
 	}
 	return *output.Body, nil
 }

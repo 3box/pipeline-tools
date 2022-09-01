@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -30,6 +31,8 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 		restApiId := os.Getenv("SMOKE_TEST_REST_API_ID")
 		if _, err := s.api.Invoke("GET", resourceId, restApiId, ""); err != nil {
 			s.state.Stage = manager.JobStage_Failed
+			s.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("smokeTestJob: error starting tests: %v, %s", err, manager.PrintJob(s.state))
 		} else {
 			s.state.Stage = manager.JobStage_Started
 		}

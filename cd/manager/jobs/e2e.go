@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -28,15 +29,21 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 	if e.state.Stage == manager.JobStage_Queued {
 		if err := e.startE2eTests(); err != nil {
 			e.state.Stage = manager.JobStage_Failed
+			e.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("e2eTestJob: error starting tests: %v, %s", err, manager.PrintJob(e.state))
 		} else {
 			e.state.Stage = manager.JobStage_Started
 		}
 	} else if time.Now().Add(-FailureTime).After(e.state.Ts) {
 		e.state.Stage = manager.JobStage_Failed
+		e.state.Params[manager.JobParam_Error] = manager.Error_Timeout
+		log.Printf("e2eTestJob: job timed out: %s", manager.PrintJob(e.state))
 	} else if e.state.Stage == manager.JobStage_Started {
 		// Check if all suites started successfully
 		if running, err := e.checkE2eTests(true); err != nil {
 			e.state.Stage = manager.JobStage_Failed
+			e.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("e2eTestJob: error checking tests running status: %v, %s", err, manager.PrintJob(e.state))
 		} else if running {
 			e.state.Stage = manager.JobStage_Waiting
 		} else {
@@ -47,6 +54,8 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 		// Check if all suites completed
 		if stopped, err := e.checkE2eTests(false); err != nil {
 			e.state.Stage = manager.JobStage_Failed
+			e.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("e2eTestJob: error checking tests stopped status: %v, %s", err, manager.PrintJob(e.state))
 		} else if stopped {
 			e.state.Stage = manager.JobStage_Completed
 		} else {

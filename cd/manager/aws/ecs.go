@@ -2,13 +2,16 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
@@ -18,12 +21,17 @@ const EcsWaitTime = 30 * time.Second
 var _ manager.Deployment = &Ecs{}
 
 type Ecs struct {
-	client *ecs.Client
-	env    manager.EnvType
+	ecsClient *ecs.Client
+	ssmClient *ssm.Client
+	env       manager.EnvType
+}
+
+type ecsFailure struct {
+	arn, detail, reason string
 }
 
 func NewEcs(cfg aws.Config) manager.Deployment {
-	return &Ecs{ecs.NewFromConfig(cfg), manager.EnvType(os.Getenv("ENV"))}
+	return &Ecs{ecs.NewFromConfig(cfg), ssm.NewFromConfig(cfg), manager.EnvType(os.Getenv("ENV"))}
 }
 
 func (e Ecs) LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error) {
@@ -34,9 +42,15 @@ func (e Ecs) LaunchService(cluster, service, family, container string, overrides
 		Services: []string{service},
 		Cluster:  aws.String(cluster),
 	}
-	descOutput, err := e.client.DescribeServices(ctx, descInput)
+	descOutput, err := e.ecsClient.DescribeServices(ctx, descInput)
 	if err != nil {
-		return "", fmt.Errorf("launchService: describe service error: %s, %s, %w", family, cluster, err)
+		log.Printf("launchService: describe service error: %s, %s, %v", family, cluster, err)
+		return "", err
+	}
+	if len(descOutput.Failures) > 0 {
+		ecsFailures := parseEcsFailures(descOutput.Failures)
+		log.Printf("launchService: describe service error: %s, %s, %v", family, cluster, ecsFailures)
+		return "", fmt.Errorf("%v", ecsFailures)
 	}
 	input := &ecs.RunTaskInput{
 		TaskDefinition:       aws.String(family),
@@ -61,11 +75,64 @@ func (e Ecs) LaunchService(cluster, service, family, container string, overrides
 			},
 		}
 	}
-	output, err := e.client.RunTask(ctx, input)
+	output, err := e.ecsClient.RunTask(ctx, input)
 	if err != nil {
-		return "", fmt.Errorf("ecs: run task error: %s, %s, %+v, %w", family, cluster, overrides, err)
+		log.Printf("ecs: run task error: %s, %s, %+v, %v", family, cluster, overrides, err)
+		return "", err
 	}
 	return *output.Tasks[0].TaskArn, nil
+}
+
+func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	defer cancel()
+
+	// Get the VPC configuration from SSM
+	getParamInput := &ssm.GetParameterInput{
+		Name:           aws.String(vpcConfigParam),
+		WithDecryption: false,
+	}
+	getParamOutput, err := e.ssmClient.GetParameter(ctx, getParamInput)
+	if err != nil {
+		log.Printf("ecs: get vpc config error: %s, %s, %s, %+v, %v", family, cluster, vpcConfigParam, overrides, err)
+		return "", err
+	}
+	var vpcConfig types.AwsVpcConfiguration
+	if err := json.Unmarshal([]byte(*getParamOutput.Parameter.Value), &vpcConfig); err != nil {
+		log.Printf("anchorJob: error unmarshaling worker network configuration: %v", err)
+		return "", err
+	}
+
+	// Now run the task
+	runTaskInput := &ecs.RunTaskInput{
+		TaskDefinition:       aws.String(family),
+		Cluster:              aws.String(cluster),
+		Count:                aws.Int32(1),
+		EnableExecuteCommand: true,
+		LaunchType:           "FARGATE",
+		NetworkConfiguration: &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig},
+		StartedBy:            aws.String("cd-manager"),
+	}
+	if (overrides != nil) && (len(overrides) > 0) {
+		overrideEnv := make([]types.KeyValuePair, 0, len(overrides))
+		for k, v := range overrides {
+			overrideEnv = append(overrideEnv, types.KeyValuePair{Name: aws.String(k), Value: aws.String(v)})
+		}
+		runTaskInput.Overrides = &types.TaskOverride{
+			ContainerOverrides: []types.ContainerOverride{
+				{
+					Name:        aws.String(container),
+					Environment: overrideEnv,
+				},
+			},
+		}
+	}
+	runTaskOutput, err := e.ecsClient.RunTask(ctx, runTaskInput)
+	if err != nil {
+		log.Printf("ecs: run task error: %s, %s, %s, %+v, %v", family, cluster, vpcConfigParam, overrides, err)
+		return "", err
+	}
+	return *runTaskOutput.Tasks[0].TaskArn, nil
 }
 
 func (e Ecs) CheckTask(running bool, cluster string, taskArn ...string) (bool, error) {
@@ -77,9 +144,10 @@ func (e Ecs) CheckTask(running bool, cluster string, taskArn ...string) (bool, e
 		Cluster: aws.String(cluster),
 		Tasks:   taskArn,
 	}
-	descOutput, err := e.client.DescribeTasks(ctx, descInput)
+	descOutput, err := e.ecsClient.DescribeTasks(ctx, descInput)
 	if err != nil {
-		return false, fmt.Errorf("checkTask: describe service error: %s, %s, %w", cluster, taskArn, err)
+		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskArn, err)
+		return false, err
 	}
 	var checkStatus types.DesiredStatus
 	if running {
@@ -109,9 +177,15 @@ func (e Ecs) UpdateService(cluster, service, image string) (string, error) {
 		Services: []string{service},
 		Cluster:  aws.String(cluster),
 	}
-	descOutput, err := e.client.DescribeServices(ctx, descSvcInput)
+	descOutput, err := e.ecsClient.DescribeServices(ctx, descSvcInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: describe service error: %s, %s, %s, %w", cluster, service, image, err)
+		log.Printf("updateService: describe service error: %s, %s, %s, %v", cluster, service, image, err)
+		return "", err
+	}
+	if len(descOutput.Failures) > 0 {
+		ecsFailures := parseEcsFailures(descOutput.Failures)
+		log.Printf("updateService: describe service error: %s, %s, %s, %v", cluster, service, image, ecsFailures)
+		return "", fmt.Errorf("%v", ecsFailures)
 	}
 
 	// Describe task to get full task definition.
@@ -119,9 +193,10 @@ func (e Ecs) UpdateService(cluster, service, image string) (string, error) {
 	descTaskInput := &ecs.DescribeTaskDefinitionInput{
 		TaskDefinition: taskDefArn,
 	}
-	descTaskOutput, err := e.client.DescribeTaskDefinition(ctx, descTaskInput)
+	descTaskOutput, err := e.ecsClient.DescribeTaskDefinition(ctx, descTaskInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: describe task definition error: %s, %s, %s, %w", cluster, service, image, err)
+		log.Printf("updateService: describe task definition error: %s, %s, %s, %v", cluster, service, image, err)
+		return "", err
 	}
 
 	// Register a new task definition with an updated image.
@@ -145,9 +220,10 @@ func (e Ecs) UpdateService(cluster, service, image string) (string, error) {
 		TaskRoleArn:             taskDef.TaskRoleArn,
 		Volumes:                 taskDef.Volumes,
 	}
-	regTaskOutput, err := e.client.RegisterTaskDefinition(ctx, regTaskInput)
+	regTaskOutput, err := e.ecsClient.RegisterTaskDefinition(ctx, regTaskInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: register task definition error: %s, %s, %s, %w", cluster, service, image, err)
+		log.Printf("updateService: register task definition error: %s, %s, %s, %v", cluster, service, image, err)
+		return "", err
 	}
 
 	// Update the service to use the new task definition.
@@ -160,9 +236,10 @@ func (e Ecs) UpdateService(cluster, service, image string) (string, error) {
 		ForceNewDeployment:   false,
 		TaskDefinition:       newTaskDef.TaskDefinitionArn,
 	}
-	_, err = e.client.UpdateService(ctx, updateSvcInput)
+	_, err = e.ecsClient.UpdateService(ctx, updateSvcInput)
 	if err != nil {
-		return "", fmt.Errorf("updateService: update service error: %s, %s, %s, %w", cluster, service, image, err)
+		log.Printf("updateService: update service error: %s, %s, %s, %v", cluster, service, image, err)
+		return "", err
 	}
 	return *newTaskDef.TaskDefinitionArn, nil
 }
@@ -176,9 +253,15 @@ func (e Ecs) CheckService(cluster, service, taskDefArn string) (bool, error) {
 		Services: []string{service},
 		Cluster:  aws.String(cluster),
 	}
-	descOutput, err := e.client.DescribeServices(ctx, descSvcInput)
+	descOutput, err := e.ecsClient.DescribeServices(ctx, descSvcInput)
 	if err != nil {
-		return false, fmt.Errorf("checkService: describe service error: %s, %s, %s, %w", cluster, service, taskDefArn, err)
+		log.Printf("checkService: describe service error: %s, %s, %s, %v", cluster, service, taskDefArn, err)
+		return false, err
+	}
+	if len(descOutput.Failures) > 0 {
+		ecsFailures := parseEcsFailures(descOutput.Failures)
+		log.Printf("checkService: describe service error: %s, %s, %s, %v", cluster, service, taskDefArn, ecsFailures)
+		return false, fmt.Errorf("%v", ecsFailures)
 	}
 
 	// Look for deployments using the new task definition with at least 1 running task.
@@ -273,4 +356,20 @@ func (e Ecs) GetRegistryUri(component manager.DeployComponent) (string, error) {
 		return "", fmt.Errorf("getImagePath: invalid component: %s", component)
 	}
 	return os.Getenv("AWS_ACCOUNT_ID") + ".dkr.ecr." + os.Getenv("AWS_REGION") + ".amazonaws.com/" + repo, nil
+}
+
+func parseEcsFailures(ecsFailures []types.Failure) []ecsFailure {
+	failures := make([]ecsFailure, len(ecsFailures))
+	for idx, f := range ecsFailures {
+		if f.Arn != nil {
+			failures[idx].arn = *f.Arn
+		}
+		if f.Detail != nil {
+			failures[idx].detail = *f.Detail
+		}
+		if f.Reason != nil {
+			failures[idx].reason = *f.Reason
+		}
+	}
+	return failures
 }

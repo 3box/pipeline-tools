@@ -55,8 +55,9 @@ const (
 )
 
 const (
-	EventParam_Component string = "component"
-	EventParam_Sha       string = "sha"
+	JobParam_Component string = "component"
+	JobParam_Sha       string = "sha"
+	JobParam_Error     string = "error"
 )
 
 type DeployComponent string
@@ -77,6 +78,10 @@ const (
 	E2eTest_PrivatePublic     string = "private-public"
 	E2eTest_LocalClientPublic string = "local_client-public"
 	E2eTest_LocalNodePrivate  string = "local_node-private"
+)
+
+const (
+	Error_Timeout string = "Timeout"
 )
 
 type JobState struct {
@@ -120,6 +125,7 @@ type Cache interface {
 
 type Deployment interface {
 	LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error)
+	LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error)
 	CheckTask(bool, string, ...string) (bool, error)
 	UpdateService(string, string, string) (string, error)
 	CheckService(string, string, string) (bool, error)

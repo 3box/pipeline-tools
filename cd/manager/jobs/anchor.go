@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -29,13 +30,15 @@ func AnchorJob(db manager.Database, d manager.Deployment, n manager.Notifs, jobS
 func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 	if a.state.Stage == manager.JobStage_Queued {
 		// Launch anchor worker
-		if id, err := a.d.LaunchService(
+		if id, err := a.d.LaunchTask(
 			"ceramic-"+a.env+"-cas",
 			"ceramic-"+a.env+"-cas-anchor",
-			"ceramic-"+a.env+"-cas-anchor",
 			"cas_anchor",
+			"/ceramic-"+a.env+"-cas/anchor_network_configuration",
 			nil); err != nil {
 			a.state.Stage = manager.JobStage_Failed
+			a.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("anchorJob: error starting task: %v, %s", err, manager.PrintJob(a.state))
 		} else {
 			// Update the job stage and spawned task identifier
 			a.state.Stage = manager.JobStage_Started
@@ -43,9 +46,13 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		}
 	} else if time.Now().Add(-AnchorFailureTime).After(a.state.Ts) {
 		a.state.Stage = manager.JobStage_Failed
+		a.state.Params[manager.JobParam_Error] = manager.Error_Timeout
+		log.Printf("anchorJob: job timed out: %s", manager.PrintJob(a.state))
 	} else if a.state.Stage == manager.JobStage_Started {
 		if running, err := a.d.CheckTask(true, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
+			a.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("anchorJob: error checking task running status: %v, %s", err, manager.PrintJob(a.state))
 		} else if running {
 			a.state.Stage = manager.JobStage_Waiting
 		} else {
@@ -55,11 +62,14 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 	} else if a.state.Stage == manager.JobStage_Waiting {
 		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
+			a.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
 		} else if stopped {
 			a.state.Stage = manager.JobStage_Completed
 		} else if time.Now().Add(-AnchorFailureTime / 2).After(a.state.Ts) {
 			// If the job has been running for 1.5 hours, mark it "delayed".
 			a.state.Stage = manager.JobStage_Delayed
+			log.Printf("anchorJob: job delayed: %s", manager.PrintJob(a.state))
 		} else {
 			// Return so we come back again to check
 			return a.state, nil
@@ -67,6 +77,8 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 	} else if a.state.Stage == manager.JobStage_Delayed {
 		if stopped, err := a.d.CheckTask(false, "ceramic-"+a.env+"-cas", a.state.Params[TaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
+			a.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
 		} else if stopped {
 			a.state.Stage = manager.JobStage_Completed
 		} else {

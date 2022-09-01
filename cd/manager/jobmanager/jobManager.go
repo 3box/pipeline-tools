@@ -32,6 +32,9 @@ func (m JobManager) NewJob(jobState manager.JobState) error {
 	if jobState.Ts.IsZero() {
 		jobState.Ts = time.Now()
 	}
+	if jobState.Params == nil {
+		jobState.Params = make(map[string]interface{}, 0)
+	}
 	return m.db.QueueJob(jobState)
 }
 
@@ -115,7 +118,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 	incompatibleJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		// Match non-deploy jobs, or jobs for the same component (viz. Ceramic, IPFS, or CAS).
 		return m.isActiveJob(js) &&
-			((js.Type != manager.JobType_Deploy) || (js.Params[manager.EventParam_Component] == firstJob.Params[manager.EventParam_Component]))
+			((js.Type != manager.JobType_Deploy) || (js.Params[manager.JobParam_Component] == firstJob.Params[manager.JobParam_Component]))
 	})
 	if len(incompatibleJobs) == 0 {
 		// Collapse similar, back-to-back deployments into a single run and kick it off.
@@ -127,7 +130,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 				break
 			}
 			// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
-			deployComponent := jobs[i].Params[manager.EventParam_Component].(string)
+			deployComponent := jobs[i].Params[manager.JobParam_Component].(string)
 			// Update the cache and database for every skipped job.
 			if skippedJob, found := deployJobs[deployComponent]; found {
 				if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
