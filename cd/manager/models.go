@@ -89,6 +89,7 @@ const (
 	NotifField_ErrorTrace   string = "Error Trace"
 )
 
+const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
 
 type JobState struct {

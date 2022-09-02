@@ -60,6 +60,7 @@ func (e Ecs) LaunchService(cluster, service, family, container string, overrides
 		LaunchType:           "FARGATE",
 		NetworkConfiguration: descOutput.Services[0].NetworkConfiguration,
 		StartedBy:            aws.String(manager.ServiceName),
+		Tags:                 []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
 	}
 	if (overrides != nil) && (len(overrides) > 0) {
 		overrideEnv := make([]types.KeyValuePair, 0, len(overrides))
@@ -112,6 +113,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 		LaunchType:           "FARGATE",
 		NetworkConfiguration: &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig},
 		StartedBy:            aws.String(manager.ServiceName),
+		Tags:                 []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
 	}
 	if (overrides != nil) && (len(overrides) > 0) {
 		overrideEnv := make([]types.KeyValuePair, 0, len(overrides))
@@ -219,6 +221,7 @@ func (e Ecs) UpdateService(cluster, service, image string) (string, error) {
 		RuntimePlatform:         taskDef.RuntimePlatform,
 		TaskRoleArn:             taskDef.TaskRoleArn,
 		Volumes:                 taskDef.Volumes,
+		Tags:                    []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
 	}
 	regTaskOutput, err := e.ecsClient.RegisterTaskDefinition(ctx, regTaskInput)
 	if err != nil {
