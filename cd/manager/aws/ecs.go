@@ -59,7 +59,7 @@ func (e Ecs) LaunchService(cluster, service, family, container string, overrides
 		EnableExecuteCommand: true,
 		LaunchType:           "FARGATE",
 		NetworkConfiguration: descOutput.Services[0].NetworkConfiguration,
-		StartedBy:            aws.String("cd-manager"),
+		StartedBy:            aws.String(manager.ServiceName),
 	}
 	if (overrides != nil) && (len(overrides) > 0) {
 		overrideEnv := make([]types.KeyValuePair, 0, len(overrides))
@@ -111,7 +111,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 		EnableExecuteCommand: true,
 		LaunchType:           "FARGATE",
 		NetworkConfiguration: &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig},
-		StartedBy:            aws.String("cd-manager"),
+		StartedBy:            aws.String(manager.ServiceName),
 	}
 	if (overrides != nil) && (len(overrides) > 0) {
 		overrideEnv := make([]types.KeyValuePair, 0, len(overrides))

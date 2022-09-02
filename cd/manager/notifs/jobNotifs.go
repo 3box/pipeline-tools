@@ -35,6 +35,7 @@ type JobNotifs struct {
 	db                 manager.Database
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
+	testWebhook        webhook.Client
 	env                manager.EnvType
 }
 
@@ -43,8 +44,10 @@ func NewJobNotifs(db manager.Database) (manager.Notifs, error) {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
+	} else if t, err := parseDiscordWebhookUrl("DISCORD_TEST_WEBHOOK"); err != nil {
+		return nil, err
 	} else {
-		return &JobNotifs{db, d, c, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &JobNotifs{db, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
@@ -71,7 +74,7 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 			if channel != nil {
 				n.sendNotif(
 					n.getNotifTitle(jobState),
-					n.getNotifDesc(jobState),
+					n.getNotifFields(jobState),
 					n.getNotifColor(jobState),
 					channel,
 				)
@@ -80,19 +83,20 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 	}
 }
 
-func (n JobNotifs) sendNotif(title, desc string, color DiscordColor, channel webhook.Client) {
+func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color DiscordColor, channel webhook.Client) {
 	messageEmbed := discord.Embed{
-		Title:       title,
-		Type:        discord.EmbedTypeRich,
-		Description: desc,
-		Color:       int(color),
+		Title:  title,
+		Type:   discord.EmbedTypeRich,
+		Fields: fields,
+		Color:  int(color),
 	}
 	if _, err := channel.CreateMessage(discord.NewWebhookMessageCreateBuilder().
 		SetEmbeds(messageEmbed).
+		SetUsername(manager.ServiceName).
 		Build(),
 		rest.WithDelay(DiscordPacing),
 	); err != nil {
-		log.Printf("notifyJob: error sending discord notification: %v, %s, %s, %d", err, title, desc, color)
+		log.Printf("notifyJob: error sending discord notification: %v, %s, %v, %d", err, title, fields, color)
 	}
 }
 
@@ -105,6 +109,8 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 			webhooks = append(webhooks, n.communityWebhook)
 		}
 	}
+	// Send all notifications to the test webhook.
+	webhooks = append(webhooks, n.testWebhook)
 	return webhooks
 }
 
@@ -117,11 +123,22 @@ func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 	return fmt.Sprintf("%s%s %s", jobTitlePfx, manager.JobName(jobState.Type), strings.ToUpper(string(jobState.Stage)))
 }
 
-func (n JobNotifs) getNotifDesc(jobState manager.JobState) string {
-	if jobState.Type == manager.JobType_Deploy {
-		return n.getDeployHashes()
+func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedField {
+	// Just return deploy hashes for all jobs for now.
+	fields := []discord.EmbedField{
+		{
+			Name:  manager.NotifField_CommitHashes,
+			Value: n.getDeployHashes(),
+		},
 	}
-	return ""
+	if err, found := jobState.Params[manager.JobParam_Error]; found {
+		errField := discord.EmbedField{
+			Name:  manager.NotifField_ErrorTrace,
+			Value: err.(string),
+		}
+		fields = append(fields, errField)
+	}
+	return fields
 }
 
 func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {

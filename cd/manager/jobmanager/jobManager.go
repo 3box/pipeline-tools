@@ -3,6 +3,7 @@ package jobmanager
 import (
 	"fmt"
 	"log"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -201,7 +202,21 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 func (m JobManager) advanceJob(jobState manager.JobState) {
 	m.waitGroup.Add(1)
 	go func() {
-		defer m.waitGroup.Done()
+		defer func() {
+			m.waitGroup.Done()
+			if r := recover(); r != nil {
+				fmt.Println("Panic while advancing job: ", r)
+				fmt.Println("Stack Trace:")
+				debug.PrintStack()
+
+				// Update the job stage and send a Discord notification.
+				jobState.Params[manager.JobParam_Error] = string(debug.Stack())
+				if err := m.updateJobStage(jobState, manager.JobStage_Failed); err != nil {
+					log.Printf("advanceJob: job update failed after panic: %v, %s", err, manager.PrintJob(jobState))
+				}
+			}
+		}()
+
 		log.Printf("advanceJob: checking job: %s", manager.PrintJob(jobState))
 		if job, err := m.generateJob(jobState); err != nil {
 			log.Printf("advanceJob: job generation failed: %v, %s", err, manager.PrintJob(jobState))

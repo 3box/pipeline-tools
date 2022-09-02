@@ -84,6 +84,13 @@ const (
 	Error_Timeout string = "Timeout"
 )
 
+const (
+	NotifField_CommitHashes string = "Commit Hashes"
+	NotifField_ErrorTrace   string = "Error Trace"
+)
+
+const ServiceName = "cd-manager"
+
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
 	Ts     time.Time              `dynamodbav:"ts"`
