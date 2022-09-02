@@ -87,6 +87,8 @@ const (
 const (
 	NotifField_CommitHashes string = "Commit Hashes"
 	NotifField_ErrorTrace   string = "Error Trace"
+	NotifField_JobId        string = "Job ID"
+	NotifField_Time         string = "Time"
 )
 
 const ResourceTag = "Ceramic"

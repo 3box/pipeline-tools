@@ -127,8 +127,16 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 	// Just return deploy hashes for all jobs for now.
 	fields := []discord.EmbedField{
 		{
+			Name:  manager.NotifField_JobId,
+			Value: jobState.Id,
+		},
+		{
 			Name:  manager.NotifField_CommitHashes,
 			Value: n.getDeployHashes(),
+		},
+		{
+			Name:  manager.NotifField_Time,
+			Value: jobState.Ts.Format("Mon, 02 Jan 2006 15:04:05 -0700"),
 		},
 	}
 	if err, found := jobState.Params[manager.JobParam_Error]; found {
