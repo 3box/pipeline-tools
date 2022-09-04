@@ -136,20 +136,34 @@ dagger.#Plan & {
 			}
 		}
 
-		queue: [Region=aws.#Region]: [EnvTag=string]: [Branch=string]: [Sha=string]: [ShaTag=string]: utils.#Queue & {
-			env: {
-				AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
-				AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
-				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
-				AWS_REGION:            Region
+		deploy: [Region=aws.#Region]: [EnvTag=string]: {
+				jobEnv: {
+					AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
+					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
+					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
+					AWS_REGION:            Region
+				}
+				jobParams: {
+					type:   "deploy"
+					params: {
+						component: "cas"
+						sha:       "\(_version.sha)"
+						shaTag:    "\(_version.shaTag)"
+					}
+				}
+			_deployEnv: utils.#Job & {
+				env: jobEnv & {
+					ENV_TAG: "\(EnvTag)"
+				}
+				job: jobParams
 			}
-			params: {
-				event:  "deploy"
-				repo:   _repo
-				envTag: EnvTag
-				branch: Branch
-				sha:    Sha
-				shaTag: ShaTag
+			if EnvTag == "dev" {
+				_deployQa: utils.#Job & {
+					env: jobEnv & {
+						ENV_TAG: "qa"
+					}
+					job: jobParams
+				}
 			}
 		}
 	}

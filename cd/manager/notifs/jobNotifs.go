@@ -132,7 +132,7 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 		},
 		{
 			Name:  manager.NotifField_CommitHashes,
-			Value: n.getDeployHashes(),
+			Value: n.getDeployHashes(jobState),
 		},
 		{
 			Name:  manager.NotifField_Time,
@@ -171,10 +171,13 @@ func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 	}
 }
 
-func (n JobNotifs) getDeployHashes() string {
+func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 	if commitHashes, err := n.db.GetDeployHashes(); err != nil {
 		return ""
 	} else {
+		// Overwrite the hash being deployed
+		commitHashes[manager.DeployComponent(jobState.Params[manager.JobParam_Component].(string))] = jobState.Params[manager.JobParam_Sha].(string)
+		// Prepare component messages
 		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes[manager.DeployComponent_Ceramic])
 		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes[manager.DeployComponent_Cas])
 		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, commitHashes[manager.DeployComponent_Ipfs])
