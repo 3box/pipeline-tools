@@ -136,7 +136,7 @@ dagger.#Plan & {
 			}
 		}
 
-		deploy: [Region=aws.#Region]: [EnvTag=string]: {
+		deploy: [Region=aws.#Region]: [EnvTag=string]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
 				jobEnv: {
 					AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
 					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
@@ -147,8 +147,8 @@ dagger.#Plan & {
 					type:   "deploy"
 					params: {
 						component: "cas"
-						sha:       "\(_version.sha)"
-						shaTag:    "\(_version.shaTag)"
+						sha:       Sha
+						shaTag:    ShaTag
 					}
 				}
 			_deployEnv: utils.#Job & {
