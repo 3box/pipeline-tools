@@ -57,6 +57,7 @@ import (
 		healthcheck: bash.#Run & {
 			env: {
 				URL:        "http://0.0.0.0:\(port)/\(endpoint)"
+				PORTS:      "\(port):\(port)"
 				TIMEOUT:    "60"
 				CMD:        "\(cmd)"
 				IMAGE_NAME: testImageName

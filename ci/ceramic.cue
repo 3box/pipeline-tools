@@ -182,26 +182,36 @@ dagger.#Plan & {
 			}
 		}
 
-		queue: [Region=aws.#Region]: [EnvTag=string]: utils.#Queue & {
-			_version: version
-			_envTag:  string | *EnvTag
-			// Push to the QA queue for "dev"
+		deploy: [Region=aws.#Region]: [EnvTag=string]: {
+				_version: version
+				jobEnv: {
+					AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
+					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
+					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
+					AWS_REGION:            Region
+				}
+				jobParams: {
+					type:   "deploy"
+					params: {
+						component: "ceramic"
+						sha:       "\(_version.sha)"
+						shaTag:    "\(_version.shaTag)"
+						version:   "\(_version.version)"
+					}
+				}
+			_deployEnv: utils.#Job & {
+				env: jobEnv & {
+					ENV_TAG: "\(EnvTag)"
+				}
+				job: jobParams
+			}
 			if EnvTag == "dev" {
-				_envTag: "qa"
-			}
-			env: {
-				AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
-				AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
-				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
-				AWS_REGION:            Region
-				ENV_TAG:               _envTag
-			}
-			params: {
-				event:     "deploy"
-				component: "ceramic"
-				sha:       "\(_version.sha)"
-				shaTag:    "\(_version.shaTag)"
-				version:   "\(_version.version)"
+				_deployQa: utils.#Job & {
+					env: jobEnv & {
+						ENV_TAG: "qa"
+					}
+					job: jobParams
+				}
 			}
 		}
 
