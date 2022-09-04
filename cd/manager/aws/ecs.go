@@ -317,7 +317,7 @@ func (e Ecs) PopulateLayout(component manager.DeployComponent) (map[string]inter
 		}
 	case manager.DeployComponent_Ipfs:
 		privateLayout = map[string]interface{}{
-			privateCluster + ServiceSuffix_IpfsNode: nil,
+			privateCluster + "-" + ServiceSuffix_IpfsNode: nil,
 		}
 		publicLayout = map[string]interface{}{
 			publicCluster + "-" + ServiceSuffix_IpfsNode:    nil,
