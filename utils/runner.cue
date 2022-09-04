@@ -6,7 +6,6 @@ import (
 )
 
 #Runner: {
-	ver: string | *"0.2.21"
 	docker.#Build & {
 		steps: [
 			alpine.#Build & {
@@ -61,11 +60,10 @@ import (
 			},
 			// Install Dagger
 			docker.#Run & {
-				env: DAGGER_VERSION: "\(ver)"
 				command: {
 					name: "sh"
 					flags: "-c": #"""
-							curl -fsSL https://dl.dagger.io/dagger/install.sh | DAGGER_VERSION=$DAGGER_VERSION sh
+							curl -fsSL https://dl.dagger.io/dagger/install.sh | sh
 							dagger version
 						"""#
 				}
