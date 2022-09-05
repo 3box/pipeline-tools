@@ -210,7 +210,7 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 				debug.PrintStack()
 
 				// Update the job stage and send a Discord notification.
-				jobState.Params[manager.JobParam_Error] = string(debug.Stack())
+				jobState.Params[manager.JobParam_Error] = string(debug.Stack())[:1024]
 				if err := m.updateJobStage(jobState, manager.JobStage_Failed); err != nil {
 					log.Printf("advanceJob: job update failed after panic: %v, %s", err, manager.PrintJob(jobState))
 				}

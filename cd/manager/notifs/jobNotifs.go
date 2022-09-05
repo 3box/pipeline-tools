@@ -175,8 +175,10 @@ func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 	if commitHashes, err := n.db.GetDeployHashes(); err != nil {
 		return ""
 	} else {
-		// Overwrite the hash being deployed
-		commitHashes[manager.DeployComponent(jobState.Params[manager.JobParam_Component].(string))] = jobState.Params[manager.JobParam_Sha].(string)
+		if jobState.Type == manager.JobType_Deploy {
+			// Overwrite the hash being deployed
+			commitHashes[manager.DeployComponent(jobState.Params[manager.JobParam_Component].(string))] = jobState.Params[manager.JobParam_Sha].(string)
+		}
 		// Prepare component messages
 		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes[manager.DeployComponent_Ceramic])
 		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes[manager.DeployComponent_Cas])

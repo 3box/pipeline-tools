@@ -74,6 +74,13 @@ const (
 	DeployRepo_Ipfs    string = "go-ipfs-daemon"
 )
 
+type DeployType string
+
+const (
+	DeployType_Service DeployType = "service"
+	DeployType_Task    DeployType = "task"
+)
+
 const (
 	E2eTest_PrivatePublic     string = "private-public"
 	E2eTest_LocalClientPublic string = "local_client-public"
@@ -138,6 +145,7 @@ type Deployment interface {
 	LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error)
 	CheckTask(bool, string, ...string) (bool, error)
 	UpdateService(string, string, string) (string, error)
+	UpdateTask(string, string) (string, error)
 	CheckService(string, string, string) (bool, error)
 	PopulateLayout(DeployComponent) (map[string]interface{}, error)
 	GetRegistryUri(DeployComponent) (string, error)
