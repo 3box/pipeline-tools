@@ -52,7 +52,8 @@ func jobHandler(m manager.Manager) http.HandlerFunc {
 		message := "Success"
 
 		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
+		// Allow unknown fields so that we ignore unneeded params sent by calling services.
+		//decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&jobState); err != nil {
 			status = http.StatusBadRequest
 			if errors.As(err, &unmarshalErr) {
