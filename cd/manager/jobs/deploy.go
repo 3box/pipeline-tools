@@ -13,13 +13,12 @@ const LayoutParam = "layout"
 var _ manager.Job = &deployJob{}
 
 type deployJob struct {
-	state       manager.JobState
-	db          manager.Database
-	d           manager.Deployment
-	notifs      manager.Notifs
-	component   manager.DeployComponent
-	sha         string
-	registryUri string
+	state     manager.JobState
+	db        manager.Database
+	d         manager.Deployment
+	notifs    manager.Notifs
+	component manager.DeployComponent
+	sha       string
 }
 
 func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) (*deployJob, error) {
@@ -29,23 +28,21 @@ func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs,
 		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
 		c := manager.DeployComponent(component)
-		if clusterLayout, err := d.PopulateLayout(c); err != nil {
-			return nil, err
-		} else if registryUri, err := d.GetRegistryUri(c); err != nil {
-			return nil, err
-		} else {
-			// Only overwrite the cluster layout if it wasn't already present.
-			if _, found = jobState.Params[LayoutParam]; !found {
-				jobState.Params[LayoutParam] = clusterLayout
+		// Only populate the env layout if it wasn't already present.
+		if _, found = jobState.Params[LayoutParam]; !found {
+			if envLayout, err := d.PopulateEnvLayout(c); err != nil {
+				return nil, err
+			} else {
+				jobState.Params[LayoutParam] = *envLayout
 			}
-			return &deployJob{jobState, db, d, notifs, c, sha, registryUri}, nil
 		}
+		return &deployJob{jobState, db, d, notifs, c, sha}, nil
 	}
 }
 
 func (d deployJob) AdvanceJob() (manager.JobState, error) {
 	if d.state.Stage == manager.JobStage_Queued {
-		if err := d.updateCluster(); err != nil {
+		if err := d.updateEnv(d.sha); err != nil {
 			d.state.Stage = manager.JobStage_Failed
 			d.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("deployJob: error updating service: %v, %s", err, manager.PrintJob(d.state))
@@ -63,7 +60,7 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 		log.Printf("deployJob: job timed out: %s", manager.PrintJob(d.state))
 	} else if d.state.Stage == manager.JobStage_Started {
 		// Check if all service updates completed
-		if running, err := d.checkCluster(); err != nil {
+		if running, err := d.checkEnv(); err != nil {
 			d.state.Stage = manager.JobStage_Failed
 			d.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("deployJob: error checking services running status: %v, %s", err, manager.PrintJob(d.state))
@@ -89,53 +86,16 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 	return d.state, d.db.UpdateJob(d.state)
 }
 
-func (d deployJob) updateCluster() error {
-	image := d.registryUri + ":" + d.sha
-	for cluster, typeLayout := range d.state.Params[LayoutParam].(map[string]interface{}) {
-		for deployType, deployLayout := range typeLayout.(map[manager.DeployType]interface{}) {
-			switch deployType {
-			case manager.DeployType_Service:
-				for service, _ := range deployLayout.(map[string]interface{}) {
-					if id, err := d.d.UpdateService(cluster, service, image); err != nil {
-						return err
-					} else {
-						deployLayout.(map[string]interface{})[service] = id
-					}
-				}
-			case manager.DeployType_Task:
-				for task, _ := range deployLayout.(map[string]interface{}) {
-					if id, err := d.d.UpdateTask(task, image); err != nil {
-						return err
-					} else {
-						deployLayout.(map[string]interface{})[task] = id
-					}
-				}
-			default:
-				return fmt.Errorf("updateCluster: invalid deploy type: %s", deployType)
-			}
-		}
+func (d deployJob) updateEnv(commitHash string) error {
+	if layout, found := d.state.Params[manager.JobParam_Layout].(manager.Layout); found {
+		return d.d.UpdateEnv(&layout, commitHash)
 	}
-	return nil
+	return fmt.Errorf("updateEnv: missing env layout")
 }
 
-func (d deployJob) checkCluster() (bool, error) {
-	// Check the status of cluster services, only return success if all services were successfully started.
-	for cluster, typeLayout := range d.state.Params[LayoutParam].(map[string]interface{}) {
-		for deployType, deployLayout := range typeLayout.(map[manager.DeployType]interface{}) {
-			switch deployType {
-			case manager.DeployType_Service:
-				for service, id := range deployLayout.(map[string]interface{}) {
-					if deployed, err := d.d.CheckService(cluster, service, id.(string)); err != nil {
-						return false, err
-					} else if !deployed {
-						return false, nil
-					}
-				}
-			case manager.DeployType_Task:
-			default:
-				return false, fmt.Errorf("checkCluster: invalid deploy type: %s", deployType)
-			}
-		}
+func (d deployJob) checkEnv() (bool, error) {
+	if layout, found := d.state.Params[manager.JobParam_Layout].(manager.Layout); found {
+		return d.d.CheckEnv(&layout)
 	}
-	return true, nil
+	return false, fmt.Errorf("checkEnv: missing env layout")
 }

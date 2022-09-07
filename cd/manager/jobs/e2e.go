@@ -81,7 +81,7 @@ func (e e2eTestJob) startE2eTests() error {
 }
 
 func (e e2eTestJob) startE2eTest(config string) error {
-	if id, err := e.d.LaunchService(
+	if id, err := e.d.LaunchServiceTask(
 		"ceramic-qa-tests",
 		"ceramic-qa-tests-e2e_tests",
 		"ceramic-qa-tests-e2e_tests",
