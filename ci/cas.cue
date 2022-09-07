@@ -136,9 +136,8 @@ dagger.#Plan & {
 			}
 		}
 
-		deploy: [Region=aws.#Region]: [EnvTag=string]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
+		deploy: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
 				jobEnv: {
-					AWS_ACCOUNT_ID:        client.env.AWS_ACCOUNT_ID
 					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
 					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
 					AWS_REGION:            Region
