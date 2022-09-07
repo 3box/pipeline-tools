@@ -12,7 +12,7 @@ The CI portion of the code consists of Dagger plans for:
 - Building Docker images
 - Validating Docker images
 - Pushing Docker images to Dockerhub and ECR
-- Creating CD jobs
+- Creating CD jobs (deployments, e2e tests, smoke tests)
 
 ### CD
 
