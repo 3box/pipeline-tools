@@ -52,7 +52,6 @@ import (
 
 #Job: {
 	env: {
-		AWS_ACCOUNT_ID:        string
 		AWS_ACCESS_KEY_ID:     dagger.#Secret
 		AWS_SECRET_ACCESS_KEY: dagger.#Secret
 		AWS_REGION:            aws.#Region
