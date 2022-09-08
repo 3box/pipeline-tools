@@ -130,22 +130,23 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 			Name:  manager.NotifField_JobId,
 			Value: jobState.Id,
 		},
-		{
+	}
+	if commitHashes := n.getDeployHashes(jobState); len(commitHashes) > 0 {
+		fields = append(fields, discord.EmbedField{
 			Name:  manager.NotifField_CommitHashes,
-			Value: n.getDeployHashes(jobState),
-		},
-		{
-			Name:  manager.NotifField_Time,
-			Value: jobState.Ts.Format("Mon, 02 Jan 2006 15:04:05 -0700"),
-		},
+			Value: commitHashes,
+		})
 	}
 	if err, found := jobState.Params[manager.JobParam_Error]; found {
-		errField := discord.EmbedField{
+		fields = append(fields, discord.EmbedField{
 			Name:  manager.NotifField_ErrorTrace,
 			Value: err.(string),
-		}
-		fields = append(fields, errField)
+		})
 	}
+	fields = append(fields, discord.EmbedField{
+		Name:  manager.NotifField_Time,
+		Value: jobState.Ts.Format("Mon, 02 Jan 2006 15:04:05 -0700"),
+	})
 	return fields
 }
 

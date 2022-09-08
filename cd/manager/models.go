@@ -58,6 +58,7 @@ const (
 	JobParam_Component string = "component"
 	JobParam_Sha       string = "sha"
 	JobParam_Error     string = "error"
+	JobParam_Layout    string = "layout"
 )
 
 type DeployComponent string
@@ -103,7 +104,7 @@ const ServiceName = "cd-manager"
 
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
-	Ts     time.Time              `dynamodbav:"ts"`
+	Ts     time.Time              `dynamodbav:"ts,unixtime"`
 	Id     string                 `dynamodbav:"id"`
 	Type   JobType                `dynamodbav:"type"`
 	Params map[string]interface{} `dynamodbav:"params"`
@@ -113,6 +114,28 @@ type BuildState struct {
 	Key       DeployComponent        `dynamodbav:"key"`
 	DeployTag string                 `dynamodbav:"deployTag"`
 	BuildInfo map[string]interface{} `dynamodbav:"buildInfo"`
+}
+
+type Task struct {
+	Id   string `dynamodbav:"id"`
+	Repo string `dynamodbav:"repo,omitempty"`
+	Temp bool   `dynamodbav:"perm,omitempty"` // Whether or not the task is meant to go down once it has completed
+}
+
+type TaskSet struct {
+	Tasks map[string]*Task `dynamodbav:"tasks"`
+	Repo  string           `dynamodbav:"repo,omitempty"`
+}
+
+type Cluster struct {
+	ServiceTasks *TaskSet `dynamodbav:"serviceTasks,omitempty"`
+	Tasks        *TaskSet `dynamodbav:"tasks,omitempty"`
+	Repo         string   `dynamodbav:"repo,omitempty"`
+}
+
+type Layout struct {
+	Clusters map[string]*Cluster `dynamodbav:"clusters"`
+	Repo     string              `dynamodbav:"repo,omitempty"`
 }
 
 type Job interface {
@@ -141,14 +164,12 @@ type Cache interface {
 }
 
 type Deployment interface {
-	LaunchService(cluster, service, family, container string, overrides map[string]string) (string, error)
+	LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error)
 	LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error)
 	CheckTask(bool, string, ...string) (bool, error)
-	UpdateService(string, string, string) (string, error)
-	UpdateTask(string, string) (string, error)
-	CheckService(string, string, string) (bool, error)
-	PopulateLayout(DeployComponent) (map[string]interface{}, error)
-	GetRegistryUri(DeployComponent) (string, error)
+	PopulateEnvLayout(DeployComponent) (*Layout, error)
+	UpdateEnv(*Layout, string) error
+	CheckEnv(*Layout) (bool, error)
 }
 
 type Notifs interface {

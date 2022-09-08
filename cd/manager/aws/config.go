@@ -9,19 +9,22 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 )
 
+func ConfigWithOverride(customEndpoint string) (aws.Config, error) {
+	log.Printf("Using custom aws endpoint: %s", customEndpoint)
+	endpointResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+		return aws.Endpoint{
+			PartitionID:   "aws",
+			URL:           customEndpoint,
+			SigningRegion: os.Getenv("AWS_REGION"),
+		}, nil
+	})
+	return config.LoadDefaultConfig(context.TODO(), config.WithEndpointResolverWithOptions(endpointResolver))
+}
+
 func Config() (aws.Config, error) {
 	awsEndpoint := os.Getenv("AWS_ENDPOINT")
-	awsRegion := os.Getenv("AWS_REGION")
 	if len(awsEndpoint) > 0 {
-		log.Printf("Using custom aws endpoint: %s", awsEndpoint)
-		endpointResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-			return aws.Endpoint{
-				PartitionID:   "aws",
-				URL:           awsEndpoint,
-				SigningRegion: awsRegion,
-			}, nil
-		})
-		return config.LoadDefaultConfig(context.TODO(), config.WithEndpointResolverWithOptions(endpointResolver))
+		return ConfigWithOverride(awsEndpoint)
 	}
-	return config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
+	return config.LoadDefaultConfig(context.TODO(), config.WithRegion(os.Getenv("AWS_REGION")))
 }

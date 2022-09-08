@@ -30,6 +30,16 @@ type DynamoDb struct {
 
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 	env := os.Getenv("ENV")
+	// Use override endpoint, if specified, so that we can store jobs locally, while hitting regular AWS endpoints for
+	// other operations. This allows local testing without affecting CD manager instances running in AWS.
+	overrideDbEndpoint := os.Getenv("DB_AWS_ENDPOINT")
+	var err error
+	if len(overrideDbEndpoint) > 0 {
+		cfg, err = ConfigWithOverride(overrideDbEndpoint)
+		if err != nil {
+			log.Fatalf("Failed to create AWS cfg: %q", err)
+		}
+	}
 	jobTable := "ceramic-" + env + "-ops"
 	buildTable := "ceramic-utils-" + env
 	db := &DynamoDb{
