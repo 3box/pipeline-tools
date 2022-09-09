@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
@@ -197,6 +198,16 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 			return err
 		}
 		for _, jobState := range jobsPage {
+			if jobState.Type == manager.JobType_Deploy {
+				// Marshal layout back into `Layout` structure
+				if layout, found := jobState.Params[manager.JobParam_Layout].(map[string]interface{}); found {
+					var marshaledLayout manager.Layout
+					if err = mapstructure.Decode(layout, &marshaledLayout); err != nil {
+						return err
+					}
+					jobState.Params[manager.JobParam_Layout] = marshaledLayout
+				}
+			}
 			if !iter(jobState) {
 				return nil
 			}

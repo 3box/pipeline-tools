@@ -217,7 +217,7 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 			}
 		}()
 
-		log.Printf("advanceJob: checking job: %s", manager.PrintJob(jobState))
+		currentJobStage := jobState.Stage
 		if job, err := m.generateJob(jobState); err != nil {
 			log.Printf("advanceJob: job generation failed: %v, %s", err, manager.PrintJob(jobState))
 			if err = m.updateJobStage(jobState, manager.JobStage_Failed); err != nil {
@@ -226,7 +226,7 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 		} else if newJobState, err := job.AdvanceJob(); err != nil {
 			// Advancing should automatically update the cache and database in case of failures.
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
-		} else {
+		} else if newJobState.Stage != currentJobStage {
 			log.Printf("advanceJob: next job state: %s", manager.PrintJob(newJobState))
 			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment to
 			// stabilize.
