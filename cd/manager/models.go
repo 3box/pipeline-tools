@@ -104,7 +104,7 @@ const ServiceName = "cd-manager"
 
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
-	Ts     time.Time              `dynamodbav:"ts,unixtime"`
+	Ts     time.Time              `dynamodbav:"ts"`
 	Id     string                 `dynamodbav:"id"`
 	Type   JobType                `dynamodbav:"type"`
 	Params map[string]interface{} `dynamodbav:"params"`
