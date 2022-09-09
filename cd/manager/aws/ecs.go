@@ -171,7 +171,7 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 					}},
 				},
 			},
-			Repo: "ceramic-" + env,
+			Repo: "go-ipfs-" + env,
 		}
 		if e.env == manager.EnvType_Prod {
 			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp11IpfsNode] = &manager.Task{}
