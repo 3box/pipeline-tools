@@ -188,7 +188,7 @@ type Manager interface {
 func PrintJob(jobStates ...JobState) string {
 	prettyString := ""
 	for _, jobState := range jobStates {
-		prettyBytes, err := json.MarshalIndent(jobState, "", "  ")
+		prettyBytes, err := json.Marshal(jobState)
 		if err != nil {
 			prettyString += fmt.Sprintf("\n%+v", jobState)
 		}
