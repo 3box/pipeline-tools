@@ -182,8 +182,7 @@ dagger.#Plan & {
 			}
 		}
 
-		deploy: [Region=aws.#Region]: [EnvTag=#EnvTag]: {
-				_version: version
+		deploy: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
 				jobEnv: {
 					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
 					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
@@ -193,9 +192,8 @@ dagger.#Plan & {
 					type:   "deploy"
 					params: {
 						component: "ceramic"
-						sha:       "\(_version.sha)"
-						shaTag:    "\(_version.shaTag)"
-						version:   "\(_version.version)"
+						sha:       Sha
+						shaTag:    ShaTag
 					}
 				}
 			_deployEnv: utils.#Job & {
