@@ -9,7 +9,7 @@ import (
 	"github.com/3box/pipeline-tools/utils"
 )
 
-#Branch: "develop" | "release-candidate" | "main"
+#Branch: "develop" | "tnet" | "main"
 #EnvTag: "dev" | "qa" | "tnet" | "prod"
 #Sha:    =~"[0-9a-f]{40}"
 #ShaTag: =~"[0-9a-f]{12}"
