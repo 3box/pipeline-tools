@@ -8,8 +8,6 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-const LayoutParam = "layout"
-
 var _ manager.Job = &deployJob{}
 
 type deployJob struct {
@@ -24,16 +22,24 @@ type deployJob struct {
 func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) (*deployJob, error) {
 	if component, found := jobState.Params[manager.JobParam_Component].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
-	} else if sha, found := jobState.Params[manager.JobParam_Sha].(string); !found {
-		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
 		c := manager.DeployComponent(component)
+		sha, found := jobState.Params[manager.JobParam_Sha].(string)
+		if !found {
+			// Get the latest build hash from the database
+			if commitHashes, err := db.GetDeployHashes(); err != nil {
+				return nil, err
+			} else {
+				sha = commitHashes[c]
+				jobState.Params[manager.JobParam_Sha] = sha
+			}
+		}
 		// Only populate the env layout if it wasn't already present.
-		if _, found = jobState.Params[LayoutParam]; !found {
+		if _, found = jobState.Params[manager.JobParam_Layout]; !found {
 			if envLayout, err := d.PopulateEnvLayout(c); err != nil {
 				return nil, err
 			} else {
-				jobState.Params[LayoutParam] = *envLayout
+				jobState.Params[manager.JobParam_Layout] = *envLayout
 			}
 		}
 		return &deployJob{jobState, db, d, notifs, c, sha}, nil
