@@ -44,7 +44,7 @@ dagger.#Plan & {
 	actions: {
 		image: docker.#Dockerfile & {
 			buildArg: "ENV_TAG": client.env.ENV_TAG
-			source:   client.filesystem.source.read.contents
+			source: client.filesystem.source.read.contents
 		}
 
 		verify: utils.#TestLocalstack & {
@@ -68,7 +68,7 @@ dagger.#Plan & {
 				if "\(EnvTag)" == "dev" {
 					qaImage: docker.#Dockerfile & {
 						buildArg: "ENV_TAG": "qa"
-						source:   client.filesystem.source.read.contents
+						source: client.filesystem.source.read.contents
 					}
 					qa: utils.#ECR & {
 						img: qaImage.output

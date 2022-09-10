@@ -44,7 +44,7 @@ import (
 				echo -n "$(date +%s)000" > /epochTs
 			"""#
 		export: files: {
-			"/epochTs":  string
+			"/epochTs": string
 		}
 	}
 	epochTs: run.export.files["/epochTs"]
@@ -59,7 +59,7 @@ import (
 	}
 
 	job: {
-		type:   "deploy" | "anchor" | "test_e2e" | "test_smoke"
+		type: "deploy" | "anchor" | "test_e2e" | "test_smoke"
 		params: {
 			component: "ceramic" | "cas" | "ipfs" | *null
 			sha:       string | *null
@@ -68,7 +68,7 @@ import (
 		}
 	}
 
-	_uuid: #Uuid
+	_uuid:    #Uuid
 	_epochTs: #EpochTs
 	_job: {
 		type: {
@@ -115,7 +115,7 @@ import (
 			secretAccessKey: env.AWS_SECRET_ACCESS_KEY
 		}
 		options: {
-			region:    "\(env.AWS_REGION)"
+			region: "\(env.AWS_REGION)"
 		}
 		unmarshal: false
 		service: {
@@ -125,7 +125,7 @@ import (
 				"--table-name",
 				"ceramic-\(env.ENV_TAG)-ops",
 				"--item",
-				"'\(json.Marshal(_job))'"
+				"'\(json.Marshal(_job))'",
 			]
 		}
 	}
