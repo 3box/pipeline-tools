@@ -1,11 +1,11 @@
-package ci
+package plans
 
 import (
 	"dagger.io/dagger"
 
 	"universe.dagger.io/aws"
 
-	"github.com/3box/pipeline-tools/utils"
+	"github.com/3box/pipeline-tools/ci/utils"
 )
 
 #EnvTag: "dev" | "qa" | "tnet" | "prod"

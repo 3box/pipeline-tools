@@ -10,7 +10,6 @@ import (
 )
 
 func ConfigWithOverride(customEndpoint string) (aws.Config, error) {
-	log.Printf("Using custom aws endpoint: %s", customEndpoint)
 	endpointResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
 			PartitionID:   "aws",
@@ -24,6 +23,7 @@ func ConfigWithOverride(customEndpoint string) (aws.Config, error) {
 func Config() (aws.Config, error) {
 	awsEndpoint := os.Getenv("AWS_ENDPOINT")
 	if len(awsEndpoint) > 0 {
+		log.Printf("config: using custom global aws endpoint: %s", awsEndpoint)
 		return ConfigWithOverride(awsEndpoint)
 	}
 	return config.LoadDefaultConfig(context.TODO(), config.WithRegion(os.Getenv("AWS_REGION")))

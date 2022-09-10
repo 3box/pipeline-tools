@@ -33,10 +33,11 @@ func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 	env := os.Getenv("ENV")
 	// Use override endpoint, if specified, so that we can store jobs locally, while hitting regular AWS endpoints for
 	// other operations. This allows local testing without affecting CD manager instances running in AWS.
-	overrideDbEndpoint := os.Getenv("DB_AWS_ENDPOINT")
+	customEndpoint := os.Getenv("DB_AWS_ENDPOINT")
 	var err error
-	if len(overrideDbEndpoint) > 0 {
-		cfg, err = ConfigWithOverride(overrideDbEndpoint)
+	if len(customEndpoint) > 0 {
+		log.Printf("newDynamoDb: using custom dynamodb aws endpoint: %s", customEndpoint)
+		cfg, err = ConfigWithOverride(customEndpoint)
 		if err != nil {
 			log.Fatalf("Failed to create AWS cfg: %q", err)
 		}

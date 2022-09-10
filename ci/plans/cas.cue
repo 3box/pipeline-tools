@@ -1,4 +1,4 @@
-package ci
+package plans
 
 import (
 	"dagger.io/dagger"
@@ -8,7 +8,7 @@ import (
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
 
-	"github.com/3box/pipeline-tools/utils"
+	"github.com/3box/pipeline-tools/ci/utils"
 )
 
 #Branch: "develop" | "release-candidate" | "main"
@@ -136,7 +136,8 @@ dagger.#Plan & {
 			}
 		}
 
-		deploy: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
+		// Don't validate `Sha` and `ShaTag` - the CD manager will automatically pull valid values from the database.
+		deploy: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Sha=string]: [ShaTag=string]: {
 				jobEnv: {
 					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
 					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
