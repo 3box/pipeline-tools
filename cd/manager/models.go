@@ -101,6 +101,8 @@ const (
 
 const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
+const CommitHashRegex = "[0-9a-f]{40}"
+const BuildHashTag = "sha_tag"
 
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
@@ -153,6 +155,7 @@ type Database interface {
 	UpdateJob(JobState) error
 	UpdateBuildHash(DeployComponent, string) error
 	UpdateDeployHash(DeployComponent, string) error
+	GetBuildHashes() (map[DeployComponent]string, error)
 	GetDeployHashes() (map[DeployComponent]string, error)
 }
 

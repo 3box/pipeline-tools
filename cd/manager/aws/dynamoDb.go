@@ -292,6 +292,18 @@ func (db DynamoDb) UpdateDeployHash(component manager.DeployComponent, sha strin
 	return err
 }
 
+func (db DynamoDb) GetBuildHashes() (map[manager.DeployComponent]string, error) {
+	if buildStates, err := db.getBuildStates(); err != nil {
+		return nil, err
+	} else {
+		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
+		for _, state := range buildStates {
+			commitHashes[state.Key] = state.BuildInfo[manager.BuildHashTag].(string)
+		}
+		return commitHashes, nil
+	}
+}
+
 func (db DynamoDb) GetDeployHashes() (map[manager.DeployComponent]string, error) {
 	if buildStates, err := db.getBuildStates(); err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package jobs
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
@@ -20,22 +21,29 @@ type deployJob struct {
 }
 
 func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) (*deployJob, error) {
-	if component, found := jobState.Params[manager.JobParam_Component].(string); !found {
+	if component, compFound := jobState.Params[manager.JobParam_Component].(string); !compFound {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
 	} else {
 		c := manager.DeployComponent(component)
-		sha, found := jobState.Params[manager.JobParam_Sha].(string)
-		if !found {
-			// Get the latest build hash from the database
-			if commitHashes, err := db.GetDeployHashes(); err != nil {
+		sha, shaFound := jobState.Params[manager.JobParam_Sha].(string)
+		// If the commit hash was unspecified or invalid, pull the latest build hash from the database.
+		if shaFound {
+			if isValidSha, err := regexp.MatchString(manager.CommitHashRegex, sha); err != nil {
+				return nil, err
+			} else if !isValidSha {
+				shaFound = false
+			}
+		}
+		if !shaFound {
+			if buildHashes, err := db.GetBuildHashes(); err != nil {
 				return nil, err
 			} else {
-				sha = commitHashes[c]
+				sha = buildHashes[c]
 				jobState.Params[manager.JobParam_Sha] = sha
 			}
 		}
 		// Only populate the env layout if it wasn't already present.
-		if _, found = jobState.Params[manager.JobParam_Layout]; !found {
+		if _, layoutFound := jobState.Params[manager.JobParam_Layout]; !layoutFound {
 			if envLayout, err := d.PopulateEnvLayout(c); err != nil {
 				return nil, err
 			} else {
