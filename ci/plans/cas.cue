@@ -138,19 +138,19 @@ dagger.#Plan & {
 
 		// Don't validate `Sha` and `ShaTag` - the CD manager will automatically pull valid values from the database.
 		deploy: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Sha=string]: [ShaTag=string]: {
-				jobEnv: {
-					AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
-					AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
-					AWS_REGION:            Region
+			jobEnv: {
+				AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
+				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
+				AWS_REGION:            Region
+			}
+			jobParams: {
+				type: "deploy"
+				params: {
+					component: "cas"
+					sha:       Sha
+					shaTag:    ShaTag
 				}
-				jobParams: {
-					type:   "deploy"
-					params: {
-						component: "cas"
-						sha:       Sha
-						shaTag:    ShaTag
-					}
-				}
+			}
 			_deployEnv: utils.#Job & {
 				env: jobEnv & {
 					ENV_TAG: "\(EnvTag)"

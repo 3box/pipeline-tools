@@ -9,7 +9,7 @@ import (
 )
 
 #EnvTag: "dev" | "qa" | "tnet" | "prod"
-#Test: "test_e2e" | "test_smoke"
+#Test:   "test_e2e" | "test_smoke"
 
 dagger.#Plan & {
 	client: env: {
@@ -27,7 +27,7 @@ dagger.#Plan & {
 				AWS_ACCESS_KEY_ID:     client.env.AWS_ACCESS_KEY_ID
 				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
 				AWS_REGION:            Region
-				ENV_TAG:							 EnvTag
+				ENV_TAG:               EnvTag
 			}
 			job: type: Test
 		}
