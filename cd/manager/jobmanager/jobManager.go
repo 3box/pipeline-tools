@@ -270,6 +270,10 @@ func (m JobManager) isActiveJob(jobState manager.JobState) bool {
 
 func (m JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
 	jobState.Stage = jobStage
+	// Update the job in the database before sending any notification - we should just come back and try again.
+	if err := m.db.UpdateJob(jobState); err != nil {
+		return err
+	}
 	m.notifs.NotifyJob(jobState)
-	return m.db.UpdateJob(jobState)
+	return nil
 }

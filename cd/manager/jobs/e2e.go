@@ -9,8 +9,8 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-// Allow up to 2 hours for E2E tests to run
-const FailureTime = 2 * time.Hour
+// Allow up to 4 hours for E2E tests to run
+const FailureTime = 4 * time.Hour
 
 var _ manager.Job = &e2eTestJob{}
 
