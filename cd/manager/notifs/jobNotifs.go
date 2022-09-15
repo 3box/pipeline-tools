@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -171,8 +172,11 @@ func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 		return ""
 	} else {
 		if jobState.Type == manager.JobType_Deploy {
-			// Overwrite the hash being deployed
-			commitHashes[manager.DeployComponent(jobState.Params[manager.JobParam_Component].(string))] = jobState.Params[manager.JobParam_Sha].(string)
+			sha := jobState.Params[manager.JobParam_Sha].(string)
+			// If the specified hash is valid, overwrite the previous hash from the database.
+			if isValidSha, _ := regexp.MatchString(manager.CommitHashRegex, sha); isValidSha {
+				commitHashes[manager.DeployComponent(jobState.Params[manager.JobParam_Component].(string))] = sha
+			}
 		}
 		// Prepare component messages
 		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes[manager.DeployComponent_Ceramic])
