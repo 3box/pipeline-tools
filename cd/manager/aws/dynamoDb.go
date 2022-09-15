@@ -131,7 +131,7 @@ func (db DynamoDb) loadJobs(stage manager.JobStage) error {
 func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 	// Only write this job to the database since that's where our de/queueing is expected to happen from. The cache is
 	// just a hash-map from job IDs to job state.
-	return db.writeJob(jobState)
+	return db.WriteJob(jobState)
 }
 
 func (db DynamoDb) DequeueJobs() []manager.JobState {
@@ -217,7 +217,7 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 	return nil
 }
 
-func (db DynamoDb) UpdateJob(jobState manager.JobState) error {
+func (db DynamoDb) AdvanceJob(jobState manager.JobState) error {
 	// We might decide dequeue multiple, compatible jobs from the queue during processing, and if we set the timestamp
 	// cursor to the timestamp of the last unprocessed job to be dequeued then decided not to process these jobs
 	// (e.g. if a deployment was in progress), then the cursor could potentially miss one or more earlier jobs out of
@@ -235,14 +235,14 @@ func (db DynamoDb) UpdateJob(jobState manager.JobState) error {
 	}
 	// Update the timestamp
 	jobState.Ts = time.Now()
-	if err := db.writeJob(jobState); err != nil {
+	if err := db.WriteJob(jobState); err != nil {
 		return err
 	}
 	db.cache.WriteJob(jobState)
 	return nil
 }
 
-func (db DynamoDb) writeJob(jobState manager.JobState) error {
+func (db DynamoDb) WriteJob(jobState manager.JobState) error {
 	if attributeValues, err := attributevalue.MarshalMapWithOptions(jobState, func(options *attributevalue.EncoderOptions) {
 		options.EncodeTime = func(time time.Time) (types.AttributeValue, error) {
 			return &types.AttributeValueMemberN{Value: strconv.FormatInt(time.UnixMilli(), 10)}, nil

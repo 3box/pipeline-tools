@@ -100,7 +100,20 @@ func (m JobManager) advanceJobs() {
 	dequeuedJobs := m.db.DequeueJobs()
 	if len(dequeuedJobs) > 0 {
 		log.Printf("processJobs: dequeued %d new jobs...", len(dequeuedJobs))
-		// Decide how to proceed based on the first job from the list.
+		// Send notifications as needed for jobs dequeued for the first time
+		for _, job := range dequeuedJobs {
+			if _, found := job.Params[manager.JobParam_Dequeued]; !found {
+				// Mark job as "dequeued" so we don't resend notifications
+				job.Params[manager.JobParam_Dequeued] = true
+				// If this fails, we'll just try it again next time we look for jobs to dequeue.
+				if err := m.db.WriteJob(job); err != nil {
+					log.Printf("processJobs: failed to update job: %v, %s", err, manager.PrintJob(job))
+				} else {
+					m.notifs.NotifyJob(job)
+				}
+			}
+		}
+		// Decide how to proceed based on the first job from the list
 		if dequeuedJobs[0].Type == manager.JobType_Deploy {
 			m.processDeployJobs(dequeuedJobs)
 		} else {
@@ -135,7 +148,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 			// Update the cache and database for every skipped job.
 			if skippedJob, found := deployJobs[deployComponent]; found {
 				if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-					log.Printf("processDeployJobs: could not update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
+					log.Printf("processDeployJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
 					// Return from here so that no state is changed and the loop can restart cleanly. Any jobs already
 					// skipped won't be picked up again, which is ok.
 					return
@@ -177,7 +190,7 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 				// Update the cache and database for every skipped job.
 				if skippedJob, found := testJobs[jobType]; found {
 					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-						log.Printf("processNonDeployJobs: could not update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
+						log.Printf("processNonDeployJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
 						// already skipped won't be picked up again, which is ok.
 						return
@@ -271,7 +284,7 @@ func (m JobManager) isActiveJob(jobState manager.JobState) bool {
 func (m JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
 	jobState.Stage = jobStage
 	// Update the job in the database before sending any notification - we should just come back and try again.
-	if err := m.db.UpdateJob(jobState); err != nil {
+	if err := m.db.AdvanceJob(jobState); err != nil {
 		return err
 	}
 	m.notifs.NotifyJob(jobState)

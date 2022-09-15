@@ -97,7 +97,7 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 	if (d.state.Stage == manager.JobStage_Started) || (d.state.Stage == manager.JobStage_Failed) || (d.state.Stage == manager.JobStage_Completed) {
 		d.notifs.NotifyJob(d.state)
 	}
-	return d.state, d.db.UpdateJob(d.state)
+	return d.state, d.db.AdvanceJob(d.state)
 }
 
 func (d deployJob) updateEnv(commitHash string) error {
