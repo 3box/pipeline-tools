@@ -59,6 +59,7 @@ const (
 	JobParam_Sha       string = "sha"
 	JobParam_Error     string = "error"
 	JobParam_Layout    string = "layout"
+	JobParam_Dequeued  string = "dequeued"
 )
 
 type DeployComponent string
@@ -94,7 +95,6 @@ const (
 
 const (
 	NotifField_CommitHashes string = "Commit Hashes"
-	NotifField_ErrorTrace   string = "Error Trace"
 	NotifField_JobId        string = "Job ID"
 	NotifField_Time         string = "Time"
 )
@@ -152,7 +152,8 @@ type Database interface {
 	InitializeJobs() error
 	QueueJob(JobState) error
 	DequeueJobs() []JobState
-	UpdateJob(JobState) error
+	AdvanceJob(JobState) error
+	WriteJob(JobState) error
 	UpdateBuildHash(DeployComponent, string) error
 	UpdateDeployHash(DeployComponent, string) error
 	GetBuildHashes() (map[DeployComponent]string, error)

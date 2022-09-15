@@ -67,7 +67,7 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 		return e.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
 	e.notifs.NotifyJob(e.state)
-	return e.state, e.db.UpdateJob(e.state)
+	return e.state, e.db.AdvanceJob(e.state)
 }
 
 func (e e2eTestJob) startE2eTests() error {

@@ -89,5 +89,5 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return a.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
-	return a.state, a.db.UpdateJob(a.state)
+	return a.state, a.db.AdvanceJob(a.state)
 }
