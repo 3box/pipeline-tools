@@ -36,7 +36,12 @@ func (m JobManager) NewJob(jobState manager.JobState) error {
 	if jobState.Params == nil {
 		jobState.Params = make(map[string]interface{}, 0)
 	}
-	return m.db.QueueJob(jobState)
+	// Queue the job in the database before sending a notification
+	if err := m.db.QueueJob(jobState); err != nil {
+		return err
+	}
+	m.notifs.NotifyJob(jobState)
+	return nil
 }
 
 func (m JobManager) ProcessJobs(shutdownCh chan bool) {

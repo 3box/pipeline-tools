@@ -102,6 +102,7 @@ func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color Di
 
 func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client {
 	webhooks := make([]webhook.Client, 0, 1)
+	// Only send "deploy" job notifications to team/public webhooks
 	if jobState.Type == manager.JobType_Deploy {
 		webhooks = append(webhooks, n.deploymentsWebhook)
 		// Don't send Dev/QA notifications to the community channel.
@@ -109,7 +110,7 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 			webhooks = append(webhooks, n.communityWebhook)
 		}
 	}
-	// Send all notifications to the test webhook.
+	// Send all notifications to the test webhook
 	webhooks = append(webhooks, n.testWebhook)
 	return webhooks
 }
@@ -147,7 +148,7 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 	switch jobState.Stage {
 	case manager.JobStage_Queued:
-		return DiscordColor_None
+		return DiscordColor_Info
 	case manager.JobStage_Skipped:
 		return DiscordColor_Warning
 	case manager.JobStage_Started:
