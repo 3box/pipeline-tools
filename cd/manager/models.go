@@ -136,7 +136,7 @@ type BuildState struct {
 type Task struct {
 	Id   string `dynamodbav:"id"`
 	Repo string `dynamodbav:"repo,omitempty"`
-	Temp bool   `dynamodbav:"perm,omitempty"` // Whether or not the task is meant to go down once it has completed
+	Temp bool   `dynamodbav:"temp,omitempty"` // Whether or not the task is meant to go down once it has completed
 }
 
 type TaskSet struct {
