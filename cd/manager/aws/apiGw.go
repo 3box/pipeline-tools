@@ -10,15 +10,15 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-type Api struct {
+type ApiGw struct {
 	client *apigateway.Client
 }
 
-func NewApi(cfg aws.Config) manager.ApiGw {
-	return &Api{apigateway.NewFromConfig(cfg)}
+func NewApiGw(cfg aws.Config) manager.ApiGw {
+	return &ApiGw{apigateway.NewFromConfig(cfg)}
 }
 
-func (a *Api) Invoke(method, resourceId, restApiId, pathWithQueryString string) (string, error) {
+func (a *ApiGw) Invoke(method, resourceId, restApiId, pathWithQueryString string) (string, error) {
 	input := &apigateway.TestInvokeMethodInput{
 		HttpMethod:          aws.String(method),
 		ResourceId:          aws.String(resourceId),

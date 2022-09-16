@@ -28,7 +28,6 @@ const (
 )
 
 const DiscordPacing = 2 * time.Second
-const GitHubOrg = "https://github.com/ceramicnetwork"
 
 var _ manager.Notifs = &JobNotifs{}
 
@@ -187,14 +186,6 @@ func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 }
 
 func (n JobNotifs) getComponentMsg(component manager.DeployComponent, sha string) string {
-	var repo string
-	switch component {
-	case manager.DeployComponent_Ceramic:
-		repo = manager.DeployRepo_Ceramic
-	case manager.DeployComponent_Cas:
-		repo = manager.DeployRepo_Cas
-	case manager.DeployComponent_Ipfs:
-		repo = manager.DeployRepo_Ipfs
-	}
-	return fmt.Sprintf("[%s (%s)](%s/%s/commit/%s)", repo, sha[:12], GitHubOrg, repo, sha)
+	repo := manager.ComponentRepo(component)
+	return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, sha[:12], manager.GitHubOrg, repo, sha)
 }

@@ -21,7 +21,7 @@ type smokeTestJob struct {
 	notifs manager.Notifs
 }
 
-func SmokeTestJob(db manager.Database, api manager.ApiGw, notifs manager.Notifs, jobState manager.JobState) *smokeTestJob {
+func SmokeTestJob(db manager.Database, api manager.ApiGw, notifs manager.Notifs, jobState manager.JobState) manager.Job {
 	return &smokeTestJob{jobState, db, api, notifs}
 }
 

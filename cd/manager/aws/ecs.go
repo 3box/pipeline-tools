@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -15,8 +14,6 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
-
-const EcsWaitTime = 5 * time.Second
 
 var _ manager.Deployment = &Ecs{}
 
@@ -37,7 +34,7 @@ func NewEcs(cfg aws.Config) manager.Deployment {
 }
 
 func (e Ecs) LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	if output, err := e.describeEcsService(ctx, cluster, service); err != nil {
@@ -48,7 +45,7 @@ func (e Ecs) LaunchServiceTask(cluster, service, family, container string, overr
 }
 
 func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Get the VPC configuration from SSM
@@ -70,7 +67,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 }
 
 func (e Ecs) CheckTask(running bool, cluster string, taskArn ...string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Describe cluster tasks matching the specified ARNs
@@ -315,7 +312,7 @@ func (e Ecs) updateEcsTaskDefinition(ctx context.Context, taskDefArn, image stri
 }
 
 func (e Ecs) updateEcsService(cluster, service, image string, transientTask bool) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Describe service to get task definition ARN
@@ -347,7 +344,7 @@ func (e Ecs) updateEcsService(cluster, service, image string, transientTask bool
 }
 
 func (e Ecs) updateEcsTask(cluster, family, image string, transientTask bool) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Get the latest task definition ARN
@@ -394,7 +391,7 @@ func (e Ecs) stopEcsTasks(ctx context.Context, cluster, family string) error {
 }
 
 func (e Ecs) checkEcsService(cluster, service, taskDefArn string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), EcsWaitTime)
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Describe service to get deployment status

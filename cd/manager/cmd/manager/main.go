@@ -16,6 +16,7 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/aws"
 	"github.com/3box/pipeline-tools/cd/manager/jobmanager"
 	"github.com/3box/pipeline-tools/cd/manager/notifs"
+	"github.com/3box/pipeline-tools/cd/manager/repository"
 	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
@@ -79,12 +80,13 @@ func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Man
 		log.Fatalf("failed to populate jobs from database: %q", err)
 	}
 	deployment := aws.NewEcs(cfg)
-	api := aws.NewApi(cfg)
-	n, err := notifs.NewJobNotifs(db)
+	apiGw := aws.NewApiGw(cfg)
+	repo := repository.NewRepository()
+	notifs, err := notifs.NewJobNotifs(db)
 	if err != nil {
 		log.Fatalf("failed to initialize notifications: %q", err)
 	}
-	m, err := jobmanager.NewJobManager(cache, db, deployment, api, n)
+	jobManager, err := jobmanager.NewJobManager(cache, db, deployment, apiGw, repo, notifs)
 	if err != nil {
 		log.Fatalf("failed to create job queue: %q", err)
 	}
@@ -92,10 +94,10 @@ func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Man
 	go func() {
 		defer waitGroup.Done()
 		log.Println("started job queue processing")
-		m.ProcessJobs(shutdownCh)
+		jobManager.ProcessJobs(shutdownCh)
 		log.Println("stopped job queue processing")
 	}()
-	return m
+	return jobManager
 }
 
 func shutdown(waitGroup *sync.WaitGroup, cleanup func() bool) {

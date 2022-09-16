@@ -3,6 +3,7 @@ package jobs
 import (
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"time"
 
@@ -15,42 +16,53 @@ type deployJob struct {
 	state     manager.JobState
 	db        manager.Database
 	d         manager.Deployment
+	repo      manager.Repository
 	notifs    manager.Notifs
 	component manager.DeployComponent
 	sha       string
 }
 
-func DeployJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) (*deployJob, error) {
+func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repository, notifs manager.Notifs, jobState manager.JobState) (manager.Job, error) {
 	if component, compFound := jobState.Params[manager.JobParam_Component].(string); !compFound {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
+	} else if sha, shaFound := jobState.Params[manager.JobParam_Sha].(string); !shaFound {
+		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
 		c := manager.DeployComponent(component)
-		sha, shaFound := jobState.Params[manager.JobParam_Sha].(string)
-		// If the commit hash was unspecified or invalid, pull the latest build hash from the database.
-		if shaFound {
-			if isValidSha, err := regexp.MatchString(manager.CommitHashRegex, sha); err != nil {
-				return nil, err
-			} else if !isValidSha {
-				shaFound = false
+		// If "layout" is absent, this job has been dequeued for the first time and we need to do some preprocessing.
+		if _, found := jobState.Params[manager.JobParam_Layout]; !found {
+			// - If the specified commit hash is "latest", fetch the latest branch commit hash from GitHub.
+			// - Else if it's a valid hash, use it.
+			// - Else use the latest build hash from the database.
+			if sha == manager.BuildHashLatest {
+				if latestSha, err := repo.GetLatestCommitHash(
+					manager.ComponentRepo(c),
+					manager.EnvBranch(manager.EnvType(os.Getenv("ENV"))),
+				); err != nil {
+					return nil, err
+				} else {
+					sha = latestSha
+				}
+			} else if isValidSha, err := regexp.MatchString(manager.CommitHashRegex, sha); (err != nil) || !isValidSha {
+				if buildHashes, err := db.GetBuildHashes(); err != nil {
+					return nil, err
+				} else {
+					sha = buildHashes[c]
+				}
 			}
-		}
-		if !shaFound {
-			if buildHashes, err := db.GetBuildHashes(); err != nil {
-				return nil, err
-			} else {
-				sha = buildHashes[c]
-				jobState.Params[manager.JobParam_Sha] = sha
-			}
-		}
-		// Only populate the env layout if it wasn't already present.
-		if _, layoutFound := jobState.Params[manager.JobParam_Layout]; !layoutFound {
+			jobState.Params[manager.JobParam_Sha] = sha
 			if envLayout, err := d.PopulateEnvLayout(c); err != nil {
 				return nil, err
 			} else {
 				jobState.Params[manager.JobParam_Layout] = *envLayout
 			}
+			if err := db.WriteJob(jobState); err != nil {
+				return nil, err
+			}
+			// Send notification for job dequeued for the first time
+			notifs.NotifyJob(jobState)
 		}
-		return &deployJob{jobState, db, d, notifs, c, sha}, nil
+		return &deployJob{jobState, db, d, repo, notifs, c, sha}, nil
 	}
 }
 

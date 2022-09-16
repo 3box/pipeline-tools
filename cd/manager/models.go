@@ -9,6 +9,7 @@ import (
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
 const DefaultFailureTime = 30 * time.Minute
+const DefaultHttpWaitTime = 5 * time.Second
 
 type JobType string
 
@@ -55,11 +56,17 @@ const (
 )
 
 const (
+	EnvBranch_Dev  string = "develop"
+	EnvBranch_Qa   string = "develop"
+	EnvBranch_Tnet string = "release-candidate"
+	EnvBranch_Prod string = "main"
+)
+
+const (
 	JobParam_Component string = "component"
 	JobParam_Sha       string = "sha"
 	JobParam_Error     string = "error"
 	JobParam_Layout    string = "layout"
-	JobParam_Dequeued  string = "dequeued"
 )
 
 type DeployComponent string
@@ -70,10 +77,12 @@ const (
 	DeployComponent_Ipfs    DeployComponent = "ipfs"
 )
 
+type DeployRepo string
+
 const (
-	DeployRepo_Ceramic string = "js-ceramic"
-	DeployRepo_Cas     string = "ceramic-anchor-service"
-	DeployRepo_Ipfs    string = "go-ipfs-daemon"
+	DeployRepo_Ceramic DeployRepo = "js-ceramic"
+	DeployRepo_Cas     DeployRepo = "ceramic-anchor-service"
+	DeployRepo_Ipfs    DeployRepo = "go-ipfs-daemon"
 )
 
 type DeployType string
@@ -99,11 +108,17 @@ const (
 	NotifField_Time         string = "Time"
 )
 
-const ResourceTag = "Ceramic"
-const ServiceName = "cd-manager"
+// Repository
 const CommitHashRegex = "[0-9a-f]{40}"
 const BuildHashTag = "sha_tag"
+const BuildHashLatest = "latest"
+const GitHubOrg = "ceramicnetwork"
 
+// Miscellaneous
+const ResourceTag = "Ceramic"
+const ServiceName = "cd-manager"
+
+// JobState represents the state of a job in the database.
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
 	Ts     time.Time              `dynamodbav:"ts"`
@@ -189,6 +204,10 @@ type Manager interface {
 	ProcessJobs(shutdownCh chan bool)
 }
 
+type Repository interface {
+	GetLatestCommitHash(repo DeployRepo, branch string) (string, error)
+}
+
 func PrintJob(jobStates ...JobState) string {
 	prettyString := ""
 	for _, jobState := range jobStates {
@@ -211,6 +230,34 @@ func EnvName(env EnvType) string {
 		return EnvName_Tnet
 	case EnvType_Prod:
 		return EnvName_Prod
+	default:
+		return ""
+	}
+}
+
+func EnvBranch(env EnvType) string {
+	switch env {
+	case EnvType_Dev:
+		return EnvBranch_Dev
+	case EnvType_Qa:
+		return EnvBranch_Qa
+	case EnvType_Tnet:
+		return EnvBranch_Tnet
+	case EnvType_Prod:
+		return EnvBranch_Prod
+	default:
+		return ""
+	}
+}
+
+func ComponentRepo(component DeployComponent) DeployRepo {
+	switch component {
+	case DeployComponent_Ceramic:
+		return DeployRepo_Ceramic
+	case DeployComponent_Cas:
+		return DeployRepo_Cas
+	case DeployComponent_Ipfs:
+		return DeployRepo_Ipfs
 	default:
 		return ""
 	}
