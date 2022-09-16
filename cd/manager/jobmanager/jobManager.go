@@ -18,12 +18,13 @@ type JobManager struct {
 	db        manager.Database
 	d         manager.Deployment
 	apiGw     manager.ApiGw
+	repo      manager.Repository
 	notifs    manager.Notifs
 	waitGroup *sync.WaitGroup
 }
 
-func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, a manager.ApiGw, n manager.Notifs) (JobManager, error) {
-	return JobManager{cache, db, d, a, n, new(sync.WaitGroup)}, nil
+func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, apiGw manager.ApiGw, repo manager.Repository, notifs manager.Notifs) (JobManager, error) {
+	return JobManager{cache, db, d, apiGw, repo, notifs, new(sync.WaitGroup)}, nil
 }
 
 func (m JobManager) NewJob(jobState manager.JobState) error {
@@ -59,7 +60,7 @@ func (m JobManager) ProcessJobs(shutdownCh chan bool) {
 				// Acquire the run token so that no loop iterations can run in parallel (shouldn't happen), and so that
 				// shutdown can't complete until a running iteration has finished.
 				<-runToken
-				m.advanceJobs()
+				m.processJobs()
 				// Release the run token
 				runToken <- true
 			}
@@ -67,7 +68,7 @@ func (m JobManager) ProcessJobs(shutdownCh chan bool) {
 	}
 }
 
-func (m JobManager) advanceJobs() {
+func (m JobManager) processJobs() {
 	// Age out completed/failed/skipped jobs older than 1 day.
 	oldJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return m.isFinishedJob(js) && time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
@@ -100,17 +101,10 @@ func (m JobManager) advanceJobs() {
 	dequeuedJobs := m.db.DequeueJobs()
 	if len(dequeuedJobs) > 0 {
 		log.Printf("processJobs: dequeued %d new jobs...", len(dequeuedJobs))
-		// Send notifications as needed for jobs dequeued for the first time
-		for _, job := range dequeuedJobs {
-			if _, found := job.Params[manager.JobParam_Dequeued]; !found {
-				// Mark job as "dequeued" so we don't resend notifications
-				job.Params[manager.JobParam_Dequeued] = true
-				// If this fails, we'll just try it again next time we look for jobs to dequeue.
-				if err := m.db.WriteJob(job); err != nil {
-					log.Printf("processJobs: failed to update job: %v, %s", err, manager.PrintJob(job))
-				} else {
-					m.notifs.NotifyJob(job)
-				}
+		// Prepare job objects to allow job-specific preprocessing to be performed on dequeued jobs
+		for _, jobState := range dequeuedJobs {
+			if _, err := m.prepareJob(jobState); err != nil {
+				log.Printf("preprocessJobs: job generation failed: %v, %s", err, manager.PrintJob(jobState))
 			}
 		}
 		// Decide how to proceed based on the first job from the list
@@ -231,11 +225,8 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 		}()
 
 		currentJobStage := jobState.Stage
-		if job, err := m.generateJob(jobState); err != nil {
+		if job, err := m.prepareJob(jobState); err != nil {
 			log.Printf("advanceJob: job generation failed: %v, %s", err, manager.PrintJob(jobState))
-			if err = m.updateJobStage(jobState, manager.JobStage_Failed); err != nil {
-				log.Printf("advanceJob: job update failed: %v, %s", err, manager.PrintJob(jobState))
-			}
 		} else if newJobState, err := job.AdvanceJob(); err != nil {
 			// Advancing should automatically update the cache and database in case of failures.
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
@@ -255,12 +246,12 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 	}()
 }
 
-func (m JobManager) generateJob(jobState manager.JobState) (manager.Job, error) {
+func (m JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) {
 	var job manager.Job
-	var err error = nil
+	var genErr error = nil
 	switch jobState.Type {
 	case manager.JobType_Deploy:
-		job, err = jobs.DeployJob(m.db, m.d, m.notifs, jobState)
+		job, genErr = jobs.DeployJob(m.db, m.d, m.repo, m.notifs, jobState)
 	case manager.JobType_Anchor:
 		job = jobs.AnchorJob(m.db, m.d, m.notifs, jobState)
 	case manager.JobType_TestE2E:
@@ -268,9 +259,14 @@ func (m JobManager) generateJob(jobState manager.JobState) (manager.Job, error) 
 	case manager.JobType_TestSmoke:
 		job = jobs.SmokeTestJob(m.db, m.apiGw, m.notifs, jobState)
 	default:
-		return nil, fmt.Errorf("generateJob: unknown job type: %s", manager.PrintJob(jobState))
+		genErr = fmt.Errorf("prepareJob: unknown job type: %s", manager.PrintJob(jobState))
 	}
-	return job, err
+	if genErr != nil {
+		if updErr := m.updateJobStage(jobState, manager.JobStage_Failed); updErr != nil {
+			log.Printf("prepareJob: job update failed: %v, %s", updErr, manager.PrintJob(jobState))
+		}
+	}
+	return job, genErr
 }
 
 func (m JobManager) isFinishedJob(jobState manager.JobState) bool {

@@ -23,7 +23,7 @@ type anchorJob struct {
 	env   string
 }
 
-func AnchorJob(db manager.Database, d manager.Deployment, n manager.Notifs, jobState manager.JobState) *anchorJob {
+func AnchorJob(db manager.Database, d manager.Deployment, n manager.Notifs, jobState manager.JobState) manager.Job {
 	return &anchorJob{jobState, db, d, n, os.Getenv("ENV")}
 }
 

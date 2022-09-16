@@ -21,7 +21,7 @@ type e2eTestJob struct {
 	notifs manager.Notifs
 }
 
-func E2eTestJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) *e2eTestJob {
+func E2eTestJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) manager.Job {
 	return &e2eTestJob{jobState, db, d, notifs}
 }
 

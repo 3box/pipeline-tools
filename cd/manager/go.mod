@@ -14,6 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.27.12
 	github.com/disgoorg/disgo v0.13.16
 	github.com/disgoorg/snowflake/v2 v2.0.0
+	github.com/google/go-github v17.0.0+incompatible
 	github.com/google/uuid v1.3.0
 	github.com/joho/godotenv v1.4.0
 	github.com/mitchellh/mapstructure v1.5.0
@@ -34,6 +35,7 @@ require (
 	github.com/aws/smithy-go v1.13.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/disgoorg/log v1.2.0 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/sasha-s/go-csync v0.0.0-20210812194225-61421b77c44b // indirect
 	github.com/stretchr/testify v1.7.2 // indirect
