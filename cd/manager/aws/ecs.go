@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
+
+const EcsTaskStabilityTime = 5 * time.Minute
 
 var _ manager.Deployment = &Ecs{}
 
@@ -66,18 +70,18 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 	return e.runEcsTask(ctx, cluster, family, container, &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig}, overrides)
 }
 
-func (e Ecs) CheckTask(running bool, cluster string, taskArn ...string) (bool, error) {
+func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArns ...string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Describe cluster tasks matching the specified ARNs
 	input := &ecs.DescribeTasksInput{
 		Cluster: aws.String(cluster),
-		Tasks:   taskArn,
+		Tasks:   taskArns,
 	}
 	output, err := e.ecsClient.DescribeTasks(ctx, input)
 	if err != nil {
-		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskArn, err)
+		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskArns, err)
 		return false, err
 	}
 	var checkStatus types.DesiredStatus
@@ -86,17 +90,25 @@ func (e Ecs) CheckTask(running bool, cluster string, taskArn ...string) (bool, e
 	} else {
 		checkStatus = types.DesiredStatusStopped
 	}
-	// Check whether the specified tasks are running
+	// If checking for running tasks, at least one task must be present, but when checking for stopped tasks, it's ok to
+	// have found no matching tasks (i.e. the tasks have already stopped and been removed from the list).
+	tasksFound := !running
+	tasksInState := true
 	if len(output.Tasks) > 0 {
-		// We found one or more tasks, only return true if all specified tasks were in the right state.
+		// We found one or more tasks, only return true if all specified tasks were in the right state for at least a
+		// few minutes.
 		for _, task := range output.Tasks {
-			if *task.LastStatus != string(checkStatus) {
-				return false, nil
+			// If a task definition ARN was specified, make sure that we found at least one task with that definition.
+			if (len(taskDefArn) == 0) || (*task.TaskDefinitionArn == taskDefArn) {
+				tasksFound = true
+				if (*task.LastStatus != string(checkStatus)) ||
+					(running && stable && time.Now().Add(-EcsTaskStabilityTime).Before(*task.StartedAt)) {
+					tasksInState = false
+				}
 			}
 		}
-		return true, nil
 	}
-	return false, nil
+	return tasksFound && tasksInState, nil
 }
 
 func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layout, error) {
@@ -231,7 +243,7 @@ func (e Ecs) describeEcsService(ctx context.Context, cluster, service string) (*
 		log.Printf("describeEcsService: %s, %s, %v", service, cluster, err)
 		return nil, err
 	} else if len(output.Failures) > 0 {
-		ecsFailures := parseEcsFailures(output.Failures)
+		ecsFailures := e.parseEcsFailures(output.Failures)
 		log.Printf("describeEcsService: failure: %s, %s, %v", service, cluster, ecsFailures)
 		return nil, fmt.Errorf("%v", ecsFailures)
 	} else {
@@ -311,7 +323,7 @@ func (e Ecs) updateEcsTaskDefinition(ctx context.Context, taskDefArn, image stri
 	return *regTaskDefOutput.TaskDefinition.TaskDefinitionArn, nil
 }
 
-func (e Ecs) updateEcsService(cluster, service, image string, transientTask bool) (string, error) {
+func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -320,6 +332,7 @@ func (e Ecs) updateEcsService(cluster, service, image string, transientTask bool
 
 	// Describe task to get full task definition
 	newTaskDefArn, err := e.updateEcsTaskDefinition(ctx, *descSvcOutput.Services[0].TaskDefinition, image)
+	family := e.taskFamilyFromArn(newTaskDefArn)
 
 	// Update the service to use the new task definition
 	updateSvcInput := &ecs.UpdateServiceInput{
@@ -331,42 +344,84 @@ func (e Ecs) updateEcsService(cluster, service, image string, transientTask bool
 		TaskDefinition:       aws.String(newTaskDefArn),
 	}
 	if _, err = e.ecsClient.UpdateService(ctx, updateSvcInput); err != nil {
-		log.Printf("updateEcsService: update service error: %s, %s, %s, %v", cluster, service, image, err)
+		log.Printf("updateEcsService: update service error: %s, %s, %s, %s, %v", cluster, service, family, image, err)
 		return "", err
-	} else if !transientTask {
-		// Stop all permanently running tasks in the service (family == service, based on our configuration).
-		if err = e.stopEcsTasks(ctx, cluster, service); err != nil {
-			log.Printf("updateEcsService: stop tasks error: %s, %s, %s, %v", cluster, service, image, err)
+	} else if !tempTask {
+		// Stop all permanently running tasks in the service
+		if err = e.stopEcsTasks(ctx, cluster, family); err != nil {
+			log.Printf("updateEcsService: stop tasks error: %s, %s, %s, %s, %v", cluster, service, family, image, err)
 			return "", err
 		}
 	}
 	return newTaskDefArn, nil
 }
 
-func (e Ecs) updateEcsTask(cluster, family, image string, transientTask bool) (string, error) {
+func (e Ecs) updateEcsTask(cluster, familyPfx, image string, transientTask bool) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Get the latest task definition ARN
 	input := &ecs.ListTaskDefinitionsInput{
-		FamilyPrefix: aws.String(family),
+		FamilyPrefix: aws.String(familyPfx),
 		MaxResults:   aws.Int32(1),
 		Sort:         types.SortOrderDesc,
 	}
 	output, err := e.ecsClient.ListTaskDefinitions(ctx, input)
+	taskDefArn := output.TaskDefinitionArns[0]
+	family := e.taskFamilyFromArn(taskDefArn)
 	if err != nil {
 		return "", err
 	} else if !transientTask {
 		// Stop all permanently running tasks in the service
 		if err = e.stopEcsTasks(ctx, cluster, family); err != nil {
-			log.Printf("updateEcsTask: stop tasks error: %s, %s, %v", cluster, image, err)
+			log.Printf("updateEcsTask: stop tasks error: %s, %s, %s, %s, %v", cluster, family, taskDefArn, image, err)
 			return "", err
 		}
 	}
-	return e.updateEcsTaskDefinition(ctx, output.TaskDefinitionArns[0], image)
+	return e.updateEcsTaskDefinition(ctx, taskDefArn, image)
 }
 
 func (e Ecs) stopEcsTasks(ctx context.Context, cluster, family string) error {
+	if taskArns, err := e.listEcsTasks(ctx, cluster, family); err != nil {
+		log.Printf("stopEcsTasks: list tasks error: %s, %s, %v", cluster, family, err)
+		return err
+	} else {
+		for _, taskArn := range taskArns {
+			stopTasksInput := &ecs.StopTaskInput{
+				Task:    aws.String(taskArn),
+				Cluster: aws.String(cluster),
+			}
+			if _, err = e.ecsClient.StopTask(ctx, stopTasksInput); err != nil {
+				log.Printf("stopEcsTasks: stop task error: %s, %s, %v", cluster, family, err)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (e Ecs) checkEcsService(cluster, taskDefArn string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	family := e.taskFamilyFromArn(taskDefArn)
+	if taskArns, err := e.listEcsTasks(ctx, cluster, family); err != nil {
+		log.Printf("checkEcsService: list tasks error: %s, %s, %s, %v", cluster, family, taskDefArn, err)
+		return false, err
+	} else if len(taskArns) > 0 {
+		// For each running task, check if it's been up for a few minutes.
+		if deployed, err := e.CheckTask(cluster, taskDefArn, true, true, taskArns...); err != nil {
+			log.Printf("checkEcsService: check task error: %s, %s, %s, %v", cluster, family, taskDefArn, err)
+			return false, err
+		} else if !deployed {
+			return false, nil
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (e Ecs) listEcsTasks(ctx context.Context, cluster, family string) ([]string, error) {
 	listTasksInput := &ecs.ListTasksInput{
 		Cluster:       aws.String(cluster),
 		DesiredStatus: types.DesiredStatusRunning,
@@ -374,49 +429,10 @@ func (e Ecs) stopEcsTasks(ctx context.Context, cluster, family string) error {
 	}
 	listTasksOutput, err := e.ecsClient.ListTasks(ctx, listTasksInput)
 	if err != nil {
-		log.Printf("stopEcsTasks: list tasks error: %s, %s, %v", cluster, family, err)
-		return err
+		log.Printf("listEcsTasks: list tasks error: %s, %s, %v", cluster, family, err)
+		return nil, err
 	}
-	for _, taskArn := range listTasksOutput.TaskArns {
-		stopTasksInput := &ecs.StopTaskInput{
-			Task:    aws.String(taskArn),
-			Cluster: aws.String(cluster),
-		}
-		if _, err = e.ecsClient.StopTask(ctx, stopTasksInput); err != nil {
-			log.Printf("stopEcsTasks: stop task error: %s, %s, %v", cluster, family, err)
-			return err
-		}
-	}
-	return nil
-}
-
-func (e Ecs) checkEcsService(cluster, service, taskDefArn string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
-	defer cancel()
-
-	// Describe service to get deployment status
-	descSvcInput := &ecs.DescribeServicesInput{
-		Services: []string{service},
-		Cluster:  aws.String(cluster),
-	}
-	descOutput, err := e.ecsClient.DescribeServices(ctx, descSvcInput)
-	if err != nil {
-		log.Printf("checkEcsService: describe service error: %s, %s, %s, %v", cluster, service, taskDefArn, err)
-		return false, err
-	}
-	if len(descOutput.Failures) > 0 {
-		ecsFailures := parseEcsFailures(descOutput.Failures)
-		log.Printf("checkEcsService: describe service error: %s, %s, %s, %v", cluster, service, taskDefArn, ecsFailures)
-		return false, fmt.Errorf("%v", ecsFailures)
-	}
-
-	// Look for deployments using the new task definition with at least 1 running task.
-	for _, deployment := range descOutput.Services[0].Deployments {
-		if (*deployment.TaskDefinition == taskDefArn) && (deployment.RunningCount > 0) {
-			return true, nil
-		}
-	}
-	return false, nil
+	return listTasksOutput.TaskArns, nil
 }
 
 func (e Ecs) updateEnvCluster(cluster *manager.Cluster, clusterName, clusterRepo, commitHash string) error {
@@ -492,10 +508,10 @@ func (e Ecs) checkEnvCluster(cluster *manager.Cluster, clusterName string) (bool
 
 func (e Ecs) checkEnvTaskSet(taskSet *manager.TaskSet, deployType manager.DeployType, cluster string) (bool, error) {
 	if taskSet != nil {
-		for taskSetName, task := range taskSet.Tasks {
+		for _, task := range taskSet.Tasks {
 			switch deployType {
 			case manager.DeployType_Service:
-				if deployed, err := e.checkEcsService(cluster, taskSetName, task.Id); err != nil {
+				if deployed, err := e.checkEcsService(cluster, task.Id); err != nil {
 					return false, err
 				} else if !deployed {
 					return false, nil
@@ -504,7 +520,7 @@ func (e Ecs) checkEnvTaskSet(taskSet *manager.TaskSet, deployType manager.Deploy
 			case manager.DeployType_Task:
 				// Only check tasks that are meant to stay up permanently
 				if !task.Temp {
-					if deployed, err := e.CheckTask(true, cluster, taskSetName, task.Id); err != nil {
+					if deployed, err := e.CheckTask(cluster, "", true, true, task.Id); err != nil {
 						return false, err
 					} else if !deployed {
 						return false, nil
@@ -519,7 +535,14 @@ func (e Ecs) checkEnvTaskSet(taskSet *manager.TaskSet, deployType manager.Deploy
 	return true, nil
 }
 
-func parseEcsFailures(ecsFailures []types.Failure) []ecsFailure {
+func (e Ecs) taskFamilyFromArn(taskArn string) string {
+	// Given our configuration, the task family is the same as the name of the task definition. For a task definition
+	// ARN like "arn:aws:ecs:us-east-2:967314784947:task-definition/ceramic-qa-ex-ipfs-nd-go-new-peer:18", we can get
+	// the name by splitting around the "/", taking the second part, then splitting around the ":" and taking the first.
+	return strings.Split(strings.Split(taskArn, "/")[1], ":")[0]
+}
+
+func (e Ecs) parseEcsFailures(ecsFailures []types.Failure) []ecsFailure {
 	failures := make([]ecsFailure, len(ecsFailures))
 	for idx, f := range ecsFailures {
 		if f.Arn != nil {

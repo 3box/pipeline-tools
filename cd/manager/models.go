@@ -67,6 +67,7 @@ const (
 	JobParam_Sha       string = "sha"
 	JobParam_Error     string = "error"
 	JobParam_Layout    string = "layout"
+	JobParam_Manual    string = "manual"
 )
 
 type DeployComponent string
@@ -118,7 +119,7 @@ const GitHubOrg = "ceramicnetwork"
 const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
 
-// JobState represents the state of a job in the database.
+// JobState represents the state of a job in the database
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
 	Ts     time.Time              `dynamodbav:"ts"`
@@ -127,21 +128,19 @@ type JobState struct {
 	Params map[string]interface{} `dynamodbav:"params"`
 }
 
+// BuildState represents build/deploy commit hash information. This information is maintained in a legacy DynamoDB table
+// used by our utility AWS Lambdas.
 type BuildState struct {
 	Key       DeployComponent        `dynamodbav:"key"`
 	DeployTag string                 `dynamodbav:"deployTag"`
 	BuildInfo map[string]interface{} `dynamodbav:"buildInfo"`
 }
 
-type Task struct {
-	Id   string `dynamodbav:"id"`
-	Repo string `dynamodbav:"repo,omitempty"`
-	Temp bool   `dynamodbav:"temp,omitempty"` // Whether or not the task is meant to go down once it has completed
-}
-
-type TaskSet struct {
-	Tasks map[string]*Task `dynamodbav:"tasks"`
-	Repo  string           `dynamodbav:"repo,omitempty"`
+// Layout (as well as Cluster, TaskSet, and Task) are a generic representation of our service structure within an
+// orchestration service (e.g. AWS ECS).
+type Layout struct {
+	Clusters map[string]*Cluster `dynamodbav:"clusters"`
+	Repo     string              `dynamodbav:"repo,omitempty"`
 }
 
 type Cluster struct {
@@ -150,19 +149,30 @@ type Cluster struct {
 	Repo         string   `dynamodbav:"repo,omitempty"`
 }
 
-type Layout struct {
-	Clusters map[string]*Cluster `dynamodbav:"clusters"`
-	Repo     string              `dynamodbav:"repo,omitempty"`
+type TaskSet struct {
+	Tasks map[string]*Task `dynamodbav:"tasks"`
+	Repo  string           `dynamodbav:"repo,omitempty"`
 }
 
+type Task struct {
+	Id   string `dynamodbav:"id"`
+	Repo string `dynamodbav:"repo,omitempty"`
+	Temp bool   `dynamodbav:"temp,omitempty"` // Whether or not the task is meant to go down once it has completed
+}
+
+// Job represents job state machine objects processed by the job manager
 type Job interface {
 	AdvanceJob() (JobState, error)
 }
 
+// ApiGw represents an API Gateway service containing APIs we wish to invoke directly, i.e. not through an API call
+// (e.g. AWS API Gateway).
 type ApiGw interface {
 	Invoke(string, string, string, string) (string, error)
 }
 
+// Database represents a database service that can be used as a job queue (e.g. AWS DynamoDB). Most popular document
+// databases provide the primitives for them to be used in this fashion.
 type Database interface {
 	InitializeJobs() error
 	QueueJob(JobState) error
@@ -175,6 +185,7 @@ type Database interface {
 	GetDeployHashes() (map[DeployComponent]string, error)
 }
 
+// Cache represents an in-memory cache for job states
 type Cache interface {
 	WriteJob(JobState)
 	DeleteJob(string)
@@ -182,30 +193,30 @@ type Cache interface {
 	JobsByMatcher(func(JobState) bool) []JobState
 }
 
+// Deployment represents a container orchestration service (e.g. AWS ECS)
 type Deployment interface {
-	LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error)
-	LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error)
-	CheckTask(bool, string, ...string) (bool, error)
+	LaunchServiceTask(string, string, string, string, map[string]string) (string, error)
+	LaunchTask(string, string, string, string, map[string]string) (string, error)
+	CheckTask(string, string, bool, bool, ...string) (bool, error)
 	PopulateEnvLayout(DeployComponent) (*Layout, error)
 	UpdateEnv(*Layout, string) error
 	CheckEnv(*Layout) (bool, error)
 }
 
+// Notifs represents a notification service (e.g. Discord)
 type Notifs interface {
 	NotifyJob(...JobState)
 }
 
-type Server interface {
-	Setup(cluster, service, family, container string, overrides map[string]string) error
-}
-
+// Manager represents the job manager, which is the central job orchestrator of this service.
 type Manager interface {
 	NewJob(JobState) error
-	ProcessJobs(shutdownCh chan bool)
+	ProcessJobs(chan bool)
 }
 
+// Repository represents a git service hosting our repositories (e.g. GitHub)
 type Repository interface {
-	GetLatestCommitHash(repo DeployRepo, branch string) (string, error)
+	GetLatestCommitHash(DeployRepo, string) (string, error)
 }
 
 func PrintJob(jobStates ...JobState) string {

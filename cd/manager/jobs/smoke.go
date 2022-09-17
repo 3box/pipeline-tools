@@ -48,6 +48,5 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return s.state, fmt.Errorf("smokeTestJob: unexpected state: %s", manager.PrintJob(s.state))
 	}
-	s.notifs.NotifyJob(s.state)
 	return s.state, s.db.AdvanceJob(s.state)
 }

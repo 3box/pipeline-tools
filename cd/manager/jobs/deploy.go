@@ -34,6 +34,9 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 			// - If the specified commit hash is "latest", fetch the latest branch commit hash from GitHub.
 			// - Else if it's a valid hash, use it.
 			// - Else use the latest build hash from the database.
+			//
+			// The last two cases will only happen when redeploying manually, so we can note that in the notification.
+			manual := true
 			if sha == manager.BuildHashLatest {
 				if latestSha, err := repo.GetLatestCommitHash(
 					manager.ComponentRepo(c),
@@ -42,6 +45,7 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 					return nil, err
 				} else {
 					sha = latestSha
+					manual = false
 				}
 			} else if isValidSha, err := regexp.MatchString(manager.CommitHashRegex, sha); (err != nil) || !isValidSha {
 				if buildHashes, err := db.GetBuildHashes(); err != nil {
@@ -51,6 +55,9 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 				}
 			}
 			jobState.Params[manager.JobParam_Sha] = sha
+			if manual {
+				jobState.Params[manager.JobParam_Manual] = true
+			}
 			if envLayout, err := d.PopulateEnvLayout(c); err != nil {
 				return nil, err
 			} else {

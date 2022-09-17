@@ -120,17 +120,21 @@ func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 		component := jobState.Params[manager.JobParam_Component].(string)
 		jobTitlePfx = fmt.Sprintf("3Box Labs `%s` %s ", manager.EnvName(n.env), strings.ToUpper(component))
 	}
-	return fmt.Sprintf("%s%s %s", jobTitlePfx, manager.JobName(jobState.Type), strings.ToUpper(string(jobState.Stage)))
+	jobName := manager.JobName(jobState.Type)
+	if manual, found := jobState.Params[manager.JobParam_Manual].(bool); found && manual {
+		jobName = fmt.Sprintf("%s %s", manager.JobParam_Manual, jobName)
+	}
+	return fmt.Sprintf("%s%s %s", jobTitlePfx, jobName, strings.ToUpper(string(jobState.Stage)))
 }
 
 func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedField {
-	// Just return deploy hashes for all jobs for now.
 	fields := []discord.EmbedField{
 		{
 			Name:  manager.NotifField_JobId,
 			Value: jobState.Id,
 		},
 	}
+	// Return deploy hashes for all jobs, if we were able to retrieve them successfully.
 	if commitHashes := n.getDeployHashes(jobState); len(commitHashes) > 0 {
 		fields = append(fields, discord.EmbedField{
 			Name:  manager.NotifField_CommitHashes,
@@ -139,7 +143,7 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 	}
 	fields = append(fields, discord.EmbedField{
 		Name:  manager.NotifField_Time,
-		Value: jobState.Ts.Format("Mon, 02 Jan 2006 15:04:05 -0700"),
+		Value: time.Now().Format(time.RFC1123), // "Mon, 02 Jan 2006 15:04:05 MST"
 	})
 	return fields
 }
@@ -177,7 +181,7 @@ func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 				commitHashes[manager.DeployComponent(jobState.Params[manager.JobParam_Component].(string))] = sha
 			}
 		}
-		// Prepare component messages
+		// Prepare component messages with GitHub commit hashes and hyperlinks
 		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes[manager.DeployComponent_Ceramic])
 		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes[manager.DeployComponent_Cas])
 		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, commitHashes[manager.DeployComponent_Ipfs])
