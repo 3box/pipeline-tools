@@ -67,6 +67,7 @@ const (
 	JobParam_Sha       string = "sha"
 	JobParam_Error     string = "error"
 	JobParam_Layout    string = "layout"
+	JobParam_Manual    string = "manual"
 )
 
 type DeployComponent string
