@@ -101,11 +101,11 @@ func (e e2eTestJob) startE2eTest(config string) error {
 }
 
 func (e e2eTestJob) checkE2eTests(isRunning bool) (bool, error) {
-	if privatePublic, err := e.d.CheckTask(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_PrivatePublic].(string)); err != nil {
+	if privatePublic, err := e.d.CheckTask("ceramic-qa-tests", "", isRunning, false, e.state.Params[manager.E2eTest_PrivatePublic].(string)); err != nil {
 		return false, err
-	} else if localClientPublic, err := e.d.CheckTask(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_LocalClientPublic].(string)); err != nil {
+	} else if localClientPublic, err := e.d.CheckTask("ceramic-qa-tests", "", isRunning, false, e.state.Params[manager.E2eTest_LocalClientPublic].(string)); err != nil {
 		return false, err
-	} else if localNodePrivate, err := e.d.CheckTask(isRunning, "ceramic-qa-tests", e.state.Params[manager.E2eTest_LocalNodePrivate].(string)); err != nil {
+	} else if localNodePrivate, err := e.d.CheckTask("ceramic-qa-tests", "", isRunning, false, e.state.Params[manager.E2eTest_LocalNodePrivate].(string)); err != nil {
 		return false, err
 	} else if privatePublic && localClientPublic && localNodePrivate {
 		return true, nil

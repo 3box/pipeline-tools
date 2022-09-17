@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
+
+const EcsTaskStabilityTime = 5 * time.Minute
 
 var _ manager.Deployment = &Ecs{}
 
@@ -66,7 +69,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 	return e.runEcsTask(ctx, cluster, family, container, &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig}, overrides)
 }
 
-func (e Ecs) CheckTask(running bool, cluster string, taskArns ...string) (bool, error) {
+func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArns ...string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -86,17 +89,24 @@ func (e Ecs) CheckTask(running bool, cluster string, taskArns ...string) (bool, 
 	} else {
 		checkStatus = types.DesiredStatusStopped
 	}
-	// Check whether the specified tasks are running
+	// Check whether the specified tasks are in the right state
+	tasksFound := false
+	tasksInState := true
 	if len(output.Tasks) > 0 {
-		// We found one or more tasks, only return true if all specified tasks were in the right state.
+		// We found one or more tasks, only return true if all specified tasks were in the right state for at least a
+		// few minutes.
 		for _, task := range output.Tasks {
-			if *task.LastStatus != string(checkStatus) {
-				return false, nil
+			// If a task definition ARN was specified, make sure that we found at least one task with that definition.
+			if (len(taskDefArn) == 0) || (*task.TaskDefinitionArn == taskDefArn) {
+				tasksFound = true
+				if (*task.LastStatus != string(checkStatus)) ||
+					(running && stable && time.Now().Add(-EcsTaskStabilityTime).Before(*task.StartedAt)) {
+					tasksInState = false
+				}
 			}
 		}
-		return true, nil
 	}
-	return false, nil
+	return tasksFound && tasksInState, nil
 }
 
 func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layout, error) {
@@ -394,29 +404,25 @@ func (e Ecs) checkEcsService(cluster, service, taskDefArn string) (bool, error) 
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
-	// Describe service to get deployment status
-	descSvcInput := &ecs.DescribeServicesInput{
-		Services: []string{service},
-		Cluster:  aws.String(cluster),
+	// List service tasks to get deployment status
+	listTasksInput := &ecs.ListTasksInput{
+		Cluster:       aws.String(cluster),
+		DesiredStatus: types.DesiredStatusRunning,
+		Family:        aws.String(service),
 	}
-	descOutput, err := e.ecsClient.DescribeServices(ctx, descSvcInput)
+	listTasksOutput, err := e.ecsClient.ListTasks(ctx, listTasksInput)
 	if err != nil {
-		log.Printf("checkEcsService: describe service error: %s, %s, %s, %v", cluster, service, taskDefArn, err)
+		log.Printf("checkEcsService: list tasks error: %s, %s, %s, %v", cluster, service, taskDefArn, err)
 		return false, err
 	}
-	if len(descOutput.Failures) > 0 {
-		ecsFailures := parseEcsFailures(descOutput.Failures)
-		log.Printf("checkEcsService: describe service error: %s, %s, %s, %v", cluster, service, taskDefArn, ecsFailures)
-		return false, fmt.Errorf("%v", ecsFailures)
+	// For each running task, check if it's been up for a few minutes.
+	if deployed, err := e.CheckTask(cluster, taskDefArn, true, true, listTasksOutput.TaskArns...); err != nil {
+		log.Printf("checkEcsService: check task error: %s, %s, %s, %v", cluster, service, taskDefArn, err)
+		return false, err
+	} else if !deployed {
+		return false, nil
 	}
-
-	// Look for deployments using the new task definition with at least 1 running task.
-	for _, deployment := range descOutput.Services[0].Deployments {
-		if (*deployment.TaskDefinition == taskDefArn) && (deployment.RunningCount > 0) {
-			return true, nil
-		}
-	}
-	return false, nil
+	return true, nil
 }
 
 func (e Ecs) updateEnvCluster(cluster *manager.Cluster, clusterName, clusterRepo, commitHash string) error {
@@ -504,7 +510,7 @@ func (e Ecs) checkEnvTaskSet(taskSet *manager.TaskSet, deployType manager.Deploy
 			case manager.DeployType_Task:
 				// Only check tasks that are meant to stay up permanently
 				if !task.Temp {
-					if deployed, err := e.CheckTask(true, cluster, taskSetName, task.Id); err != nil {
+					if deployed, err := e.CheckTask(cluster, "", true, true, task.Id); err != nil {
 						return false, err
 					} else if !deployed {
 						return false, nil

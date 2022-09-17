@@ -197,7 +197,7 @@ type Cache interface {
 type Deployment interface {
 	LaunchServiceTask(string, string, string, string, map[string]string) (string, error)
 	LaunchTask(string, string, string, string, map[string]string) (string, error)
-	CheckTask(bool, string, ...string) (bool, error)
+	CheckTask(string, string, bool, bool, ...string) (bool, error)
 	PopulateEnvLayout(DeployComponent) (*Layout, error)
 	UpdateEnv(*Layout, string) error
 	CheckEnv(*Layout) (bool, error)
