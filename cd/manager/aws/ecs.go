@@ -66,18 +66,18 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 	return e.runEcsTask(ctx, cluster, family, container, &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig}, overrides)
 }
 
-func (e Ecs) CheckTask(running bool, cluster string, taskArn ...string) (bool, error) {
+func (e Ecs) CheckTask(running bool, cluster string, taskArns ...string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Describe cluster tasks matching the specified ARNs
 	input := &ecs.DescribeTasksInput{
 		Cluster: aws.String(cluster),
-		Tasks:   taskArn,
+		Tasks:   taskArns,
 	}
 	output, err := e.ecsClient.DescribeTasks(ctx, input)
 	if err != nil {
-		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskArn, err)
+		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskArns, err)
 		return false, err
 	}
 	var checkStatus types.DesiredStatus
