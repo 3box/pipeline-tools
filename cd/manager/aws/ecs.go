@@ -200,8 +200,11 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 		}
 		// TODO: Move Prod to CASv2 once it is ready
 		if e.env == manager.EnvType_Prod {
-			// Production CAS has an ECS Service for running Anchor workers, so set it up like the API service.
-			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasRunner] = &manager.Task{}
+			// Production CAS has an ECS Service for running Anchor workers, so set it up like the API service. Mark
+			// the worker "temporary" because it is not expected to come up and stay up after the service is updated.
+			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasRunner] = &manager.Task{
+				Temp: true, // Anchor workers do not stay up permanently
+			}
 		} else {
 			// All other CAS clusters have a Scheduler ECS Service, and standalone Anchor worker ECS Tasks.
 			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasScheduler] = &manager.Task{}
