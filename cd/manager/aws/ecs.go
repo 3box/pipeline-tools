@@ -344,7 +344,7 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		log.Printf("updateEcsService: describe service error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
 		return "", err
 	}
-	// Describe task to get full task definition
+	// Update task definition with new image
 	newTaskDefArn, err := e.updateEcsTaskDefinition(ctx, *descSvcOutput.Services[0].TaskDefinition, image)
 	if err != nil {
 		log.Printf("updateEcsService: update task def error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
@@ -382,7 +382,7 @@ func (e Ecs) updateEcsTask(cluster, familyPfx, image string, tempTask bool) (str
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
-	// Get the latest task definition ARN
+	// List all task definitions and get the latest definition's ARN
 	input := &ecs.ListTaskDefinitionsInput{
 		FamilyPrefix: aws.String(familyPfx),
 		MaxResults:   aws.Int32(1),
@@ -393,6 +393,7 @@ func (e Ecs) updateEcsTask(cluster, familyPfx, image string, tempTask bool) (str
 		log.Printf("updateEcsTask: list task defs error: %s, %s, %s, %v", cluster, familyPfx, image, err)
 		return "", err
 	}
+	// Update task definition with new image
 	newTaskDefArn, err := e.updateEcsTaskDefinition(ctx, output.TaskDefinitionArns[0], image)
 	if err != nil {
 		log.Printf("updateEcsTask: update task def error: %s, %s, %s, %v, %v", cluster, familyPfx, image, tempTask, err)
