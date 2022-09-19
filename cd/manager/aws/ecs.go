@@ -326,12 +326,12 @@ func (e Ecs) updateEcsTaskDefinition(ctx context.Context, taskDefArn, image stri
 		Volumes:                 taskDef.Volumes,
 		Tags:                    []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
 	}
-	regTaskDefOutput, err := e.ecsClient.RegisterTaskDefinition(ctx, regTaskDefInput)
-	if err != nil {
+	if regTaskDefOutput, err := e.ecsClient.RegisterTaskDefinition(ctx, regTaskDefInput); err != nil {
 		log.Printf("updateEcsTaskDefinition: register task def error: %s, %s, %v", taskDefArn, image, err)
 		return "", err
+	} else {
+		return *regTaskDefOutput.TaskDefinition.TaskDefinitionArn, nil
 	}
-	return *regTaskDefOutput.TaskDefinition.TaskDefinitionArn, nil
 }
 
 func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (string, error) {
@@ -340,10 +340,16 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 
 	// Describe service to get task definition ARN
 	descSvcOutput, err := e.describeEcsService(ctx, cluster, service)
-
+	if err != nil {
+		log.Printf("updateEcsService: describe service error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
+		return "", err
+	}
 	// Describe task to get full task definition
 	newTaskDefArn, err := e.updateEcsTaskDefinition(ctx, *descSvcOutput.Services[0].TaskDefinition, image)
-	family := e.taskFamilyFromArn(newTaskDefArn)
+	if err != nil {
+		log.Printf("updateEcsService: update task def error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
+		return "", err
+	}
 
 	// Update the service to use the new task definition
 	updateSvcInput := &ecs.UpdateServiceInput{
@@ -355,19 +361,19 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		TaskDefinition:       aws.String(newTaskDefArn),
 	}
 	if _, err = e.ecsClient.UpdateService(ctx, updateSvcInput); err != nil {
-		log.Printf("updateEcsService: update service error: %s, %s, %s, %s, %v", cluster, service, family, image, err)
+		log.Printf("updateEcsService: update service error: %s, %s, %s, %s, %v, %v", cluster, service, image, newTaskDefArn, tempTask, err)
 		return "", err
 	} else if !tempTask {
 		// Stop all permanently running tasks in the service
-		if err = e.stopEcsTasks(ctx, cluster, family); err != nil {
-			log.Printf("updateEcsService: stop tasks error: %s, %s, %s, %s, %v", cluster, service, family, image, err)
+		if err = e.stopEcsTasks(ctx, cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
+			log.Printf("updateEcsService: stop tasks error: %s, %s, %s, %s, %v, %v", cluster, service, image, newTaskDefArn, tempTask, err)
 			return "", err
 		}
 	}
 	return newTaskDefArn, nil
 }
 
-func (e Ecs) updateEcsTask(cluster, familyPfx, image string, transientTask bool) (string, error) {
+func (e Ecs) updateEcsTask(cluster, familyPfx, image string, tempTask bool) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -378,18 +384,22 @@ func (e Ecs) updateEcsTask(cluster, familyPfx, image string, transientTask bool)
 		Sort:         types.SortOrderDesc,
 	}
 	output, err := e.ecsClient.ListTaskDefinitions(ctx, input)
-	taskDefArn := output.TaskDefinitionArns[0]
-	family := e.taskFamilyFromArn(taskDefArn)
 	if err != nil {
+		log.Printf("updateEcsTask: list task defs error: %s, %s, %s, %v", cluster, familyPfx, image, err)
 		return "", err
-	} else if !transientTask {
+	}
+	newTaskDefArn, err := e.updateEcsTaskDefinition(ctx, output.TaskDefinitionArns[0], image)
+	if err != nil {
+		log.Printf("updateEcsTask: update task def error: %s, %s, %s, %v, %v", cluster, familyPfx, image, tempTask, err)
+		return "", err
+	} else if !tempTask {
 		// Stop all permanently running tasks in the service
-		if err = e.stopEcsTasks(ctx, cluster, family); err != nil {
-			log.Printf("updateEcsTask: stop tasks error: %s, %s, %s, %s, %v", cluster, family, taskDefArn, image, err)
+		if err = e.stopEcsTasks(ctx, cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
+			log.Printf("updateEcsTask: stop tasks error: %s, %s, %s, %s, %v, %v", cluster, familyPfx, image, newTaskDefArn, tempTask, err)
 			return "", err
 		}
 	}
-	return e.updateEcsTaskDefinition(ctx, taskDefArn, image)
+	return newTaskDefArn, nil
 }
 
 func (e Ecs) stopEcsTasks(ctx context.Context, cluster, family string) error {
