@@ -350,12 +350,17 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		log.Printf("updateEcsService: update task def error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
 		return "", err
 	}
-
+	// For "temporary" tasks, i.e. tasks that come up, do their work, then exit, the number of running tasks should be
+	// set to 0.
+	var desiredCount int32 = 1
+	if tempTask {
+		desiredCount = 0
+	}
 	// Update the service to use the new task definition
 	updateSvcInput := &ecs.UpdateServiceInput{
 		Service:              aws.String(service),
 		Cluster:              aws.String(cluster),
-		DesiredCount:         aws.Int32(1),
+		DesiredCount:         aws.Int32(desiredCount),
 		EnableExecuteCommand: aws.Bool(true),
 		ForceNewDeployment:   false,
 		TaskDefinition:       aws.String(newTaskDefArn),
