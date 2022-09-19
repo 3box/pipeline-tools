@@ -20,8 +20,6 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
-// TODO: Add more comments across the code
-
 func main() {
 	if err := godotenv.Load("env/.env"); err != nil {
 		log.Fatal("Error loading .env file")

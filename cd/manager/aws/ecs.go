@@ -134,7 +134,7 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		layout := manager.Layout{
+		layout := &manager.Layout{
 			Clusters: map[string]*manager.Cluster{
 				privateCluster: {
 					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
@@ -159,9 +159,9 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp11CeramicNode] = &manager.Task{}
 			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp12CeramicNode] = &manager.Task{}
 		}
-		return &layout, nil
+		return layout, nil
 	case manager.DeployComponent_Ipfs:
-		layout := manager.Layout{
+		layout := &manager.Layout{
 			Clusters: map[string]*manager.Cluster{
 				privateCluster: {
 					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
@@ -186,25 +186,33 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp11IpfsNode] = &manager.Task{}
 			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp12IpfsNode] = &manager.Task{}
 		}
-		return &layout, nil
+		return layout, nil
 	case manager.DeployComponent_Cas:
-		return &manager.Layout{
+		layout := &manager.Layout{
 			Clusters: map[string]*manager.Cluster{
 				casCluster: {
 					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						casCluster + "-" + ServiceSuffix_CasApi:       {},
-						casCluster + "-" + ServiceSuffix_CasScheduler: {},
-					}},
-					Tasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						casCluster + "-" + ServiceSuffix_CasRunner: {
-							Repo: "ceramic-" + env + "-cas-runner",
-							Temp: true, // Anchor workers do not stay up permanently
-						},
+						casCluster + "-" + ServiceSuffix_CasApi: {},
 					}},
 				},
 			},
 			Repo: "ceramic-" + env + "-cas",
-		}, nil
+		}
+		// TODO: Move Prod to CASv2 once it is ready
+		if e.env == manager.EnvType_Prod {
+			// Production CAS has an ECS Service for running Anchor workers, so set it up like the API service.
+			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasRunner] = &manager.Task{}
+		} else {
+			// All other CAS clusters have a Scheduler ECS Service, and standalone Anchor worker ECS Tasks.
+			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasScheduler] = &manager.Task{}
+			layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
+				casCluster + "-" + ServiceSuffix_CasRunner: {
+					Repo: "ceramic-" + env + "-cas-runner",
+					Temp: true, // Anchor workers do not stay up permanently
+				},
+			}}
+		}
+		return layout, nil
 	default:
 		return nil, fmt.Errorf("deployJob: unexpected component: %s", component)
 	}
