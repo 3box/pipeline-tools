@@ -112,112 +112,82 @@ func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArn
 }
 
 func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layout, error) {
-	const (
-		ServiceSuffix_CeramicNode      string = "node"
-		ServiceSuffix_CeramicGateway   string = "gateway"
-		ServiceSuffix_Elp11CeramicNode string = "elp-1-1-node"
-		ServiceSuffix_Elp12CeramicNode string = "elp-1-2-node"
-		ServiceSuffix_IpfsNode         string = "ipfs-nd"
-		ServiceSuffix_IpfsGateway      string = "ipfs-gw"
-		ServiceSuffix_Elp11IpfsNode    string = "elp-1-1-ipfs-nd"
-		ServiceSuffix_Elp12IpfsNode    string = "elp-1-2-ipfs-nd"
-		ServiceSuffix_CasApi           string = "api"
-		ServiceSuffix_CasScheduler     string = "scheduler"
-		ServiceSuffix_CasRunner        string = "anchor"
-	)
+	privateCluster := manager.CeramicEnvPfx()
+	publicCluster := manager.CeramicEnvPfx() + "-ex"
+	casCluster := manager.CeramicEnvPfx() + "-cas"
+	ecrRepo, err := e.componentEcrRepo(component)
+	if err != nil {
+		log.Printf("populateEnvLayout: ecr repo error: %s, %v", component, err)
+		return nil, err
+	}
+	// Populate the service layout by retrieving the clusters/services from ECS
+	layout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: ecrRepo}
+	for _, cluster := range []string{privateCluster, publicCluster, casCluster} {
+		if clusterServices, err := e.listEcsServices(cluster); err != nil {
+			log.Printf("populateEnvLayout: list services error: %s, %v", cluster, err)
+			return nil, err
+		} else {
+			for _, serviceArn := range clusterServices.ServiceArns {
+				serviceName := e.serviceNameFromArn(serviceArn)
+				if task, matched := e.componentTask(component, serviceName); matched {
+					if _, found := layout.Clusters[cluster]; !found {
+						// We found at least one matching task so we can start populating the cluster layout
+						layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
+					}
+					layout.Clusters[cluster].ServiceTasks.Tasks[serviceName] = task
+				}
+			}
+		}
+	}
+	// TODO: Enable for Prod/Tnet once CASv2 is deployed to those environments
+	// Add the CASv2 worker to the layout manually since it doesn't get updated through an ECS Service
+	if (component == manager.DeployComponent_Cas) && ((e.env == manager.EnvType_Dev) || (e.env == manager.EnvType_Qa)) {
+		layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
+			casCluster + "-" + manager.ServiceSuffix_CasWorker: {
+				Repo: manager.CeramicEnvPfx() + "-cas-runner",
+				Temp: true, // Anchor workers do not stay up permanently
+			},
+		}}
+	}
+	return layout, nil
+}
 
-	env := os.Getenv("ENV")
-	globalPrefix := "ceramic"
-	privateCluster := globalPrefix + "-" + env
-	publicCluster := globalPrefix + "-" + env + "-ex"
-	casCluster := globalPrefix + "-" + env + "-cas"
-
+func (e Ecs) componentTask(component manager.DeployComponent, serviceArn string) (*manager.Task, bool) {
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		layout := &manager.Layout{
-			Clusters: map[string]*manager.Cluster{
-				privateCluster: {
-					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						privateCluster + "-" + ServiceSuffix_CeramicNode: {},
-					}},
-				},
-				publicCluster: {
-					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						publicCluster + "-" + ServiceSuffix_CeramicNode:    {},
-						publicCluster + "-" + ServiceSuffix_CeramicGateway: {},
-					}},
-				},
-				casCluster: {
-					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						casCluster + "-" + ServiceSuffix_CeramicNode: {},
-					}},
-				},
-			},
-			Repo: "ceramic-" + env,
+		if strings.Contains(serviceArn, manager.ServiceSuffix_CeramicNode) || strings.Contains(serviceArn, manager.ServiceSuffix_CeramicGateway) {
+			return &manager.Task{}, true
 		}
-		if e.env == manager.EnvType_Prod {
-			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp11CeramicNode] = &manager.Task{}
-			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp12CeramicNode] = &manager.Task{}
-		}
-		return layout, nil
 	case manager.DeployComponent_Ipfs:
-		layout := &manager.Layout{
-			Clusters: map[string]*manager.Cluster{
-				privateCluster: {
-					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						privateCluster + "-" + ServiceSuffix_IpfsNode: {},
-					}},
-				},
-				publicCluster: {
-					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						publicCluster + "-" + ServiceSuffix_IpfsNode:    {},
-						publicCluster + "-" + ServiceSuffix_IpfsGateway: {},
-					}},
-				},
-				casCluster: {
-					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						casCluster + "-" + ServiceSuffix_IpfsNode: {},
-					}},
-				},
-			},
-			Repo: "go-ipfs-" + env,
+		if strings.Contains(serviceArn, manager.ServiceSuffix_IpfsNode) || strings.Contains(serviceArn, manager.ServiceSuffix_IpfsGateway) {
+			return &manager.Task{}, true
 		}
-		if e.env == manager.EnvType_Prod {
-			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp11IpfsNode] = &manager.Task{}
-			layout.Clusters[publicCluster].ServiceTasks.Tasks[globalPrefix+"-"+ServiceSuffix_Elp12IpfsNode] = &manager.Task{}
-		}
-		return layout, nil
 	case manager.DeployComponent_Cas:
-		layout := &manager.Layout{
-			Clusters: map[string]*manager.Cluster{
-				casCluster: {
-					ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{
-						casCluster + "-" + ServiceSuffix_CasApi: {},
-					}},
-				},
-			},
-			Repo: "ceramic-" + env + "-cas",
-		}
-		// TODO: Move Prod/Tnet to CASv2 once it is ready
-		if (e.env == manager.EnvType_Prod) || (e.env == manager.EnvType_Tnet) {
-			// Production CAS has an ECS Service for running Anchor workers, so set it up like the API service. Mark
-			// the worker "temporary" because it is not expected to come up and stay up after the service is updated.
-			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasRunner] = &manager.Task{
+		if strings.Contains(serviceArn, manager.ServiceSuffix_CasApi) || strings.Contains(serviceArn, manager.ServiceSuffix_CasScheduler) {
+			return &manager.Task{}, true
+		} else if strings.Contains(serviceArn, manager.ServiceSuffix_CasWorker) {
+			// CASv1
+			return &manager.Task{
 				Temp: true, // Anchor workers do not stay up permanently
-			}
-		} else {
-			// All other CAS clusters have a Scheduler ECS Service, and standalone Anchor worker ECS Tasks.
-			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasScheduler] = &manager.Task{}
-			layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
-				casCluster + "-" + ServiceSuffix_CasRunner: {
-					Repo: "ceramic-" + env + "-cas-runner",
-					Temp: true, // Anchor workers do not stay up permanently
-				},
-			}}
+			}, true
 		}
-		return layout, nil
 	default:
-		return nil, fmt.Errorf("deployJob: unexpected component: %s", component)
+		log.Printf("componentTask: unknown component: %s", component)
+	}
+	return nil, false
+}
+
+func (e Ecs) componentEcrRepo(component manager.DeployComponent) (string, error) {
+	envStr := string(e.env)
+	switch component {
+	case manager.DeployComponent_Ceramic:
+		return manager.CeramicEnvPfx(), nil
+	case manager.DeployComponent_Ipfs:
+		return "go-ipfs-" + envStr, nil
+	case manager.DeployComponent_Cas:
+		return manager.CeramicEnvPfx() + "-cas", nil
+	default:
+		return "", fmt.Errorf("componentTask: unknown component: %s", component)
 	}
 }
 
@@ -257,6 +227,21 @@ func (e Ecs) describeEcsService(ctx context.Context, cluster, service string) (*
 		ecsFailures := e.parseEcsFailures(output.Failures)
 		log.Printf("describeEcsService: failure: %s, %s, %v", service, cluster, ecsFailures)
 		return nil, fmt.Errorf("%v", ecsFailures)
+	} else {
+		return output, nil
+	}
+}
+
+func (e Ecs) listEcsServices(cluster string) (*ecs.ListServicesOutput, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	input := &ecs.ListServicesInput{
+		Cluster: aws.String(cluster),
+	}
+	if output, err := e.ecsClient.ListServices(ctx, input); err != nil {
+		log.Printf("listEcsServices: %s, %v", cluster, err)
+		return nil, err
 	} else {
 		return output, nil
 	}
@@ -567,6 +552,12 @@ func (e Ecs) taskFamilyFromArn(taskArn string) string {
 	// ARN like "arn:aws:ecs:us-east-2:967314784947:task-definition/ceramic-qa-ex-ipfs-nd-go-new-peer:18", we can get
 	// the name by splitting around the "/", taking the second part, then splitting around the ":" and taking the first.
 	return strings.Split(strings.Split(taskArn, "/")[1], ":")[0]
+}
+
+func (e Ecs) serviceNameFromArn(serviceArn string) string {
+	// For a service ARN like "arn:aws:ecs:us-east-2:967314784947:service/ceramic-dev/ceramic-dev-node", we can get the
+	// the name by splitting around the "/", then taking the last part.
+	return strings.Split(serviceArn, "/")[2]
 }
 
 func (e Ecs) parseEcsFailures(ecsFailures []types.Failure) []ecsFailure {

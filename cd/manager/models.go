@@ -3,6 +3,7 @@ package manager
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -91,6 +92,16 @@ type DeployType string
 const (
 	DeployType_Service DeployType = "service"
 	DeployType_Task    DeployType = "task"
+)
+
+const (
+	ServiceSuffix_CeramicNode    string = "node"
+	ServiceSuffix_CeramicGateway string = "gateway"
+	ServiceSuffix_IpfsNode       string = "ipfs-nd"
+	ServiceSuffix_IpfsGateway    string = "ipfs-gw"
+	ServiceSuffix_CasApi         string = "api"
+	ServiceSuffix_CasWorker      string = "anchor"
+	ServiceSuffix_CasScheduler   string = "scheduler"
 )
 
 const (
@@ -288,4 +299,8 @@ func JobName(job JobType) string {
 	default:
 		return ""
 	}
+}
+
+func CeramicEnvPfx() string {
+	return "ceramic-" + os.Getenv("ENV")
 }
