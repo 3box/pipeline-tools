@@ -198,8 +198,8 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 			},
 			Repo: "ceramic-" + env + "-cas",
 		}
-		// TODO: Move Prod to CASv2 once it is ready
-		if e.env == manager.EnvType_Prod {
+		// TODO: Move Prod/Tnet to CASv2 once it is ready
+		if (e.env == manager.EnvType_Prod) || (e.env == manager.EnvType_Tnet) {
 			// Production CAS has an ECS Service for running Anchor workers, so set it up like the API service. Mark
 			// the worker "temporary" because it is not expected to come up and stay up after the service is updated.
 			layout.Clusters[casCluster].ServiceTasks.Tasks[casCluster+"-"+ServiceSuffix_CasRunner] = &manager.Task{
