@@ -152,23 +152,23 @@ type BuildState struct {
 // orchestration service (e.g. AWS ECS).
 type Layout struct {
 	Clusters map[string]*Cluster `dynamodbav:"clusters"`
-	Repo     string              `dynamodbav:"repo,omitempty"`
+	Repo     string              `dynamodbav:"repo,omitempty"` // Layout repo
 }
 
 type Cluster struct {
 	ServiceTasks *TaskSet `dynamodbav:"serviceTasks,omitempty"`
 	Tasks        *TaskSet `dynamodbav:"tasks,omitempty"`
-	Repo         string   `dynamodbav:"repo,omitempty"`
+	Repo         string   `dynamodbav:"repo,omitempty"` // Cluster repo override
 }
 
 type TaskSet struct {
 	Tasks map[string]*Task `dynamodbav:"tasks"`
-	Repo  string           `dynamodbav:"repo,omitempty"`
+	Repo  string           `dynamodbav:"repo,omitempty"` // TaskSet repo override
 }
 
 type Task struct {
 	Id   string `dynamodbav:"id"`
-	Repo string `dynamodbav:"repo,omitempty"`
+	Repo string `dynamodbav:"repo,omitempty"` // Task repo override
 	Temp bool   `dynamodbav:"temp,omitempty"` // Whether or not the task is meant to go down once it has completed
 }
 

@@ -163,10 +163,14 @@ func (e Ecs) componentTask(component manager.DeployComponent, serviceArn string)
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Cas:
-		if strings.Contains(serviceArn, manager.ServiceSuffix_CasApi) || strings.Contains(serviceArn, manager.ServiceSuffix_CasScheduler) {
+		// Until all environments are moved to CASv2, the CAS Scheduler (CASv2) and CAS Worker (CASv1) ECS Services will
+		// exist in some environments and not others. This is ok because only if a service exists in an environment will
+		// we attempt to update it during a deployment.
+		if strings.Contains(serviceArn, manager.ServiceSuffix_CasApi) ||
+			// CASv2
+			strings.Contains(serviceArn, manager.ServiceSuffix_CasScheduler) {
 			return &manager.Task{}, true
-		} else if strings.Contains(serviceArn, manager.ServiceSuffix_CasWorker) {
-			// CASv1
+		} else if strings.Contains(serviceArn, manager.ServiceSuffix_CasWorker) { // CASv1
 			return &manager.Task{
 				Temp: true, // Anchor workers do not stay up permanently
 			}, true
