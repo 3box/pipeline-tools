@@ -38,13 +38,10 @@ func NewEcs(cfg aws.Config) manager.Deployment {
 }
 
 func (e Ecs) LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
-	defer cancel()
-
-	if output, err := e.describeEcsService(ctx, cluster, service); err != nil {
+	if output, err := e.describeEcsService(cluster, service); err != nil {
 		return "", err
 	} else {
-		return e.runEcsTask(ctx, cluster, family, container, output.Services[0].NetworkConfiguration, overrides)
+		return e.runEcsTask(cluster, family, container, output.Services[0].NetworkConfiguration, overrides)
 	}
 }
 
@@ -67,7 +64,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 		log.Printf("launchTask: error unmarshaling worker network configuration: %s, %s, %s, %+v, %v", cluster, family, vpcConfigParam, overrides, err)
 		return "", err
 	}
-	return e.runEcsTask(ctx, cluster, family, container, &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig}, overrides)
+	return e.runEcsTask(cluster, family, container, &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig}, overrides)
 }
 
 func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArns ...string) (bool, error) {
@@ -139,15 +136,25 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 			}
 		}
 	}
-	// TODO: Enable for Prod/Tnet once CASv2 is deployed to those environments
-	// Add the CASv2 worker to the layout manually since it doesn't get updated through an ECS Service
-	if (component == manager.DeployComponent_Cas) && ((e.env == manager.EnvType_Dev) || (e.env == manager.EnvType_Qa)) {
-		layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
-			casCluster + "-" + manager.ServiceSuffix_CasWorker: {
-				Repo: manager.CeramicEnvPfx() + "-cas-runner",
-				Temp: true, // Anchor workers do not stay up permanently
-			},
-		}}
+	// Add the CASv2 worker to the layout separately since it doesn't get updated through an ECS Service. Make sure the
+	// image is meant for a CASv2 worker before setting it up to be updated since not all environments are on CASv2.
+	if component == manager.DeployComponent_Cas {
+		casWorkerFamilyPfx := casCluster + "-" + manager.ServiceSuffix_CasWorker
+		casV2WorkerRepo := manager.CeramicEnvPfx() + "-cas-runner"
+		if casWorkerTaskDefArn, err := e.getEcsTaskDefinitionArn(casWorkerFamilyPfx); err != nil {
+			log.Printf("populateEnvLayout: get task def arn failed: %s, %v", casWorkerFamilyPfx, err)
+			return nil, err
+		} else if casWorkerTaskDef, err := e.getEcsTaskDefinition(casWorkerTaskDefArn); err != nil {
+			log.Printf("populateEnvLayout: get task def failed: %s, %v", casWorkerFamilyPfx, err)
+			return nil, err
+		} else if strings.Contains(*casWorkerTaskDef.ContainerDefinitions[0].Image, casV2WorkerRepo) {
+			layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
+				casWorkerFamilyPfx: {
+					Repo: casV2WorkerRepo,
+					Temp: true, // Anchor workers do not stay up permanently
+				},
+			}}
+		}
 	}
 	return layout, nil
 }
@@ -219,7 +226,10 @@ func (e Ecs) CheckEnv(layout *manager.Layout) (bool, error) {
 	return true, nil
 }
 
-func (e Ecs) describeEcsService(ctx context.Context, cluster, service string) (*ecs.DescribeServicesOutput, error) {
+func (e Ecs) describeEcsService(cluster, service string) (*ecs.DescribeServicesOutput, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	input := &ecs.DescribeServicesInput{
 		Services: []string{service},
 		Cluster:  aws.String(cluster),
@@ -229,7 +239,7 @@ func (e Ecs) describeEcsService(ctx context.Context, cluster, service string) (*
 		return nil, err
 	} else if len(output.Failures) > 0 {
 		ecsFailures := e.parseEcsFailures(output.Failures)
-		log.Printf("describeEcsService: failure: %s, %s, %v", service, cluster, ecsFailures)
+		log.Printf("describeEcsService: %s, %s, %v", service, cluster, ecsFailures)
 		return nil, fmt.Errorf("%v", ecsFailures)
 	} else {
 		return output, nil
@@ -251,7 +261,10 @@ func (e Ecs) listEcsServices(cluster string) (*ecs.ListServicesOutput, error) {
 	}
 }
 
-func (e Ecs) runEcsTask(ctx context.Context, cluster, family, container string, networkConfig *types.NetworkConfiguration, overrides map[string]string) (string, error) {
+func (e Ecs) runEcsTask(cluster, family, container string, networkConfig *types.NetworkConfiguration, overrides map[string]string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	input := &ecs.RunTaskInput{
 		TaskDefinition:       aws.String(family),
 		Cluster:              aws.String(cluster),
@@ -284,17 +297,16 @@ func (e Ecs) runEcsTask(ctx context.Context, cluster, family, container string, 
 	}
 }
 
-func (e Ecs) updateEcsTaskDefinition(ctx context.Context, taskDefArn, image string) (string, error) {
-	descTaskDefInput := &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: aws.String(taskDefArn),
-	}
-	descTaskDefOutput, err := e.ecsClient.DescribeTaskDefinition(ctx, descTaskDefInput)
+func (e Ecs) updateEcsTaskDefinition(taskDefArn, image string) (string, error) {
+	taskDef, err := e.getEcsTaskDefinition(taskDefArn)
 	if err != nil {
-		log.Printf("updateEcsTaskDefinition: describe task def error: %s, %s, %v", taskDefArn, image, err)
+		log.Printf("updateEcsTaskDefinition: get task def error: %s, %s, %v", taskDefArn, image, err)
 		return "", err
 	}
 	// Register a new task definition with an updated image
-	taskDef := descTaskDefOutput.TaskDefinition
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	taskDef.ContainerDefinitions[0].Image = aws.String(e.ecrUri + image)
 	regTaskDefInput := &ecs.RegisterTaskDefinitionInput{
 		ContainerDefinitions:    taskDef.ContainerDefinitions,
@@ -323,18 +335,30 @@ func (e Ecs) updateEcsTaskDefinition(ctx context.Context, taskDefArn, image stri
 	}
 }
 
-func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (string, error) {
+func (e Ecs) getEcsTaskDefinition(taskDefArn string) (*types.TaskDefinition, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
+	input := &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefArn),
+	}
+	if output, err := e.ecsClient.DescribeTaskDefinition(ctx, input); err != nil {
+		log.Printf("getEcsTaskDefinition: describe task def error: %s, %v", taskDefArn, err)
+		return nil, err
+	} else {
+		return output.TaskDefinition, nil
+	}
+}
+
+func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (string, error) {
 	// Describe service to get task definition ARN
-	descSvcOutput, err := e.describeEcsService(ctx, cluster, service)
+	descSvcOutput, err := e.describeEcsService(cluster, service)
 	if err != nil {
 		log.Printf("updateEcsService: describe service error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
 		return "", err
 	}
 	// Update task definition with new image
-	newTaskDefArn, err := e.updateEcsTaskDefinition(ctx, *descSvcOutput.Services[0].TaskDefinition, image)
+	newTaskDefArn, err := e.updateEcsTaskDefinition(*descSvcOutput.Services[0].TaskDefinition, image)
 	if err != nil {
 		log.Printf("updateEcsService: update task def error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
 		return "", err
@@ -346,6 +370,9 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		desiredCount = 0
 	}
 	// Update the service to use the new task definition
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	updateSvcInput := &ecs.UpdateServiceInput{
 		Service:              aws.String(service),
 		Cluster:              aws.String(cluster),
@@ -359,7 +386,7 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		return "", err
 	} else if !tempTask {
 		// Stop all permanently running tasks in the service
-		if err = e.stopEcsTasks(ctx, cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
+		if err = e.stopEcsTasks(cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
 			log.Printf("updateEcsService: stop tasks error: %s, %s, %s, %s, %v, %v", cluster, service, image, newTaskDefArn, tempTask, err)
 			return "", err
 		}
@@ -368,6 +395,25 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 }
 
 func (e Ecs) updateEcsTask(cluster, familyPfx, image string, tempTask bool) (string, error) {
+	if prevTaskDefArn, err := e.getEcsTaskDefinitionArn(familyPfx); err != nil {
+		log.Printf("updateEcsTask: get task def error: %s, %s, %s, %v, %v", cluster, familyPfx, image, tempTask, err)
+		return "", err
+	} else if newTaskDefArn, err := e.updateEcsTaskDefinition(prevTaskDefArn, image); err != nil {
+		log.Printf("updateEcsTask: update task def error: %s, %s, %s, %s, %v, %v", cluster, familyPfx, image, prevTaskDefArn, tempTask, err)
+		return "", err
+	} else {
+		if !tempTask {
+			// Stop all permanently running tasks in the service
+			if err = e.stopEcsTasks(cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
+				log.Printf("updateEcsTask: stop tasks error: %s, %s, %s, %s, %s, %v, %v", cluster, familyPfx, image, prevTaskDefArn, newTaskDefArn, tempTask, err)
+				return "", err
+			}
+		}
+		return newTaskDefArn, nil
+	}
+}
+
+func (e Ecs) getEcsTaskDefinitionArn(familyPfx string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -379,29 +425,20 @@ func (e Ecs) updateEcsTask(cluster, familyPfx, image string, tempTask bool) (str
 	}
 	output, err := e.ecsClient.ListTaskDefinitions(ctx, input)
 	if err != nil {
-		log.Printf("updateEcsTask: list task defs error: %s, %s, %s, %v", cluster, familyPfx, image, err)
+		log.Printf("getEcsTaskDefinitionArn: list task defs error: %s, %v", familyPfx, err)
 		return "", err
 	}
-	// Update task definition with new image
-	newTaskDefArn, err := e.updateEcsTaskDefinition(ctx, output.TaskDefinitionArns[0], image)
-	if err != nil {
-		log.Printf("updateEcsTask: update task def error: %s, %s, %s, %v, %v", cluster, familyPfx, image, tempTask, err)
-		return "", err
-	} else if !tempTask {
-		// Stop all permanently running tasks in the service
-		if err = e.stopEcsTasks(ctx, cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
-			log.Printf("updateEcsTask: stop tasks error: %s, %s, %s, %s, %v, %v", cluster, familyPfx, image, newTaskDefArn, tempTask, err)
-			return "", err
-		}
-	}
-	return newTaskDefArn, nil
+	return output.TaskDefinitionArns[0], nil
 }
 
-func (e Ecs) stopEcsTasks(ctx context.Context, cluster, family string) error {
-	if taskArns, err := e.listEcsTasks(ctx, cluster, family); err != nil {
+func (e Ecs) stopEcsTasks(cluster, family string) error {
+	if taskArns, err := e.listEcsTasks(cluster, family); err != nil {
 		log.Printf("stopEcsTasks: list tasks error: %s, %s, %v", cluster, family, err)
 		return err
 	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+		defer cancel()
+
 		for _, taskArn := range taskArns {
 			stopTasksInput := &ecs.StopTaskInput{
 				Task:    aws.String(taskArn),
@@ -417,11 +454,8 @@ func (e Ecs) stopEcsTasks(ctx context.Context, cluster, family string) error {
 }
 
 func (e Ecs) checkEcsService(cluster, taskDefArn string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
-	defer cancel()
-
 	family := e.taskFamilyFromArn(taskDefArn)
-	if taskArns, err := e.listEcsTasks(ctx, cluster, family); err != nil {
+	if taskArns, err := e.listEcsTasks(cluster, family); err != nil {
 		log.Printf("checkEcsService: list tasks error: %s, %s, %s, %v", cluster, family, taskDefArn, err)
 		return false, err
 	} else if len(taskArns) > 0 {
@@ -437,7 +471,10 @@ func (e Ecs) checkEcsService(cluster, taskDefArn string) (bool, error) {
 	return false, nil
 }
 
-func (e Ecs) listEcsTasks(ctx context.Context, cluster, family string) ([]string, error) {
+func (e Ecs) listEcsTasks(cluster, family string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	listTasksInput := &ecs.ListTasksInput{
 		Cluster:       aws.String(cluster),
 		DesiredStatus: types.DesiredStatusRunning,
