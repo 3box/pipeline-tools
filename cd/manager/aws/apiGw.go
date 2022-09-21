@@ -19,13 +19,16 @@ func NewApiGw(cfg aws.Config) manager.ApiGw {
 }
 
 func (a *ApiGw) Invoke(method, resourceId, restApiId, pathWithQueryString string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	input := &apigateway.TestInvokeMethodInput{
 		HttpMethod:          aws.String(method),
 		ResourceId:          aws.String(resourceId),
 		RestApiId:           aws.String(restApiId),
 		PathWithQueryString: aws.String(pathWithQueryString),
 	}
-	output, err := a.client.TestInvokeMethod(context.TODO(), input)
+	output, err := a.client.TestInvokeMethod(ctx, input)
 	if (err != nil) || (output.Status != 200) {
 		log.Printf("api: invocation failed: %v", err)
 		return "", err

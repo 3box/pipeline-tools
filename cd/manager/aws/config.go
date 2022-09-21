@@ -7,9 +7,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+
+	"github.com/3box/pipeline-tools/cd/manager"
 )
 
 func ConfigWithOverride(customEndpoint string) (aws.Config, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	endpointResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
 			PartitionID:   "aws",
@@ -17,7 +22,7 @@ func ConfigWithOverride(customEndpoint string) (aws.Config, error) {
 			SigningRegion: os.Getenv("AWS_REGION"),
 		}, nil
 	})
-	return config.LoadDefaultConfig(context.TODO(), config.WithEndpointResolverWithOptions(endpointResolver))
+	return config.LoadDefaultConfig(ctx, config.WithEndpointResolverWithOptions(endpointResolver))
 }
 
 func Config() (aws.Config, error) {
@@ -26,5 +31,9 @@ func Config() (aws.Config, error) {
 		log.Printf("config: using custom global aws endpoint: %s", awsEndpoint)
 		return ConfigWithOverride(awsEndpoint)
 	}
-	return config.LoadDefaultConfig(context.TODO(), config.WithRegion(os.Getenv("AWS_REGION")))
+	// Load the default configuration
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	return config.LoadDefaultConfig(ctx, config.WithRegion(os.Getenv("AWS_REGION")))
 }
