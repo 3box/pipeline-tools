@@ -117,9 +117,9 @@ dagger.#Plan & {
 						npm install -g genversion
 						cd packages/cli
 						genversion version.ts
-						echo -n $(git rev-parse --abbrev-ref HEAD)					> /branch
-						echo -n $(git rev-parse HEAD)            					> /sha
-						echo -n $(git rev-parse --short=12 HEAD) 					> /shaTag
+						echo -n $(git rev-parse --abbrev-ref HEAD)									> /branch
+						echo -n $(git rev-parse HEAD)            										> /sha
+						echo -n $(git rev-parse --short=12 HEAD) 										> /shaTag
 						echo -n $(cat version.ts | sed -n "s/^.*'\(.*\)'.*$/\1/ p") > /version
 					"""#
 				export: files: {
