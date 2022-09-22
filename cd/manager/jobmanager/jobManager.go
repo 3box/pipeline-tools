@@ -174,7 +174,7 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
 	if len(activeDeploys) == 0 {
-		// Check if there are any anchor jobs in progress
+		// Lookup any anchor jobs in progress
 		activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 			return m.isActiveJob(js) && (js.Type == manager.JobType_Anchor)
 		})
@@ -193,7 +193,7 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 			jobType := jobs[i].Type
 			if jobType == manager.JobType_Anchor {
 				// Launch another anchor job if:
-				//  - The configured maximum number of anchor workers is -1 (infinity)
+				//  - The maximum number of anchor jobs is -1 (infinity)
 				//  - The number of active anchor jobs + the number of dequeued jobs < the configured maximum
 				if (m.maxAnchorJobs == -1) || (len(activeAnchors)+len(dequeuedAnchors) < m.maxAnchorJobs) {
 					dequeuedAnchors = append(dequeuedAnchors, jobs[i])
