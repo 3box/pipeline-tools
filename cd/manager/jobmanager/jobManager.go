@@ -161,10 +161,14 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) {
 
 func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 	// Check if there are any deploy jobs in progress
-	deployJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+	activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
-	if len(deployJobs) == 0 {
+	if len(activeDeploys) == 0 {
+		// Check if there are any anchor jobs in progress
+		activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+			return m.isActiveJob(js) && (js.Type == manager.JobType_Anchor)
+		})
 		// - Launch an anchor worker per anchor job between deployments
 		// - Collapse all smoke tests between deployments into a single run
 		// - Collapse all E2E tests between deployments into a single run
@@ -176,15 +180,26 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 			if jobs[i].Type == manager.JobType_Deploy {
 				break
 			}
-			// Save each anchor job (hence a list).
+			// Save each anchor job (hence a list)
 			jobType := jobs[i].Type
 			if jobType == manager.JobType_Anchor {
-				anchorJobs = append(anchorJobs, jobs[i])
+				// TODO: Launch an anchor worker per anchor job once we're ready to scale using CASv2
+				if (len(activeAnchors) > 0) || (len(anchorJobs) > 0) {
+					// Skip any pending anchor jobs so that they don't linger in the job queue
+					if err := m.updateJobStage(jobs[i], manager.JobStage_Skipped); err != nil {
+						log.Printf("processNonDeployJobs: failed to update skipped anchor job: %v, %s", err, manager.PrintJob(jobs[i]))
+						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
+						// already skipped won't be picked up again, which is ok.
+						return
+					}
+				} else {
+					anchorJobs = append(anchorJobs, jobs[i])
+				}
 			} else {
-				// Update the cache and database for every skipped job.
+				// Update the cache and database for every skipped job
 				if skippedJob, found := testJobs[jobType]; found {
 					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-						log.Printf("processNonDeployJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
+						log.Printf("processNonDeployJobs: failed to update skipped test job: %v, %s", err, manager.PrintJob(skippedJob))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
 						// already skipped won't be picked up again, which is ok.
 						return
@@ -202,7 +217,7 @@ func (m JobManager) processNonDeployJobs(jobs []manager.JobState) {
 			m.advanceJob(testJob)
 		}
 	} else {
-		log.Printf("processNonDeployJobs: deferring job because one or more deployments are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(deployJobs...))
+		log.Printf("processNonDeployJobs: deferring job because one or more deployments are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(activeDeploys...))
 	}
 }
 
