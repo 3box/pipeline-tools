@@ -129,7 +129,7 @@ const GitHubOrg = "ceramicnetwork"
 // Miscellaneous
 const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
-const DefaultCasMaxAnchorWorkers = 1
+const DefaultCasMaxAnchorWorkers = -1
 
 // JobState represents the state of a job in the database
 type JobState struct {
