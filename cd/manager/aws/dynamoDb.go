@@ -59,8 +59,10 @@ func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 
 func (db DynamoDb) createTable() error {
 	// Create the table if it doesn't already exist
-	_, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.jobTable)})
-	if err != nil {
+	if exists, err := db.tableExists(db.jobTable); !exists {
+		ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+		defer cancel()
+
 		createTableInput := dynamodb.CreateTableInput{
 			AttributeDefinitions: []types.AttributeDefinition{
 				{
@@ -88,18 +90,30 @@ func (db DynamoDb) createTable() error {
 				WriteCapacityUnits: aws.Int64(1),
 			},
 		}
-		if _, err = db.client.CreateTable(context.Background(), &createTableInput); err != nil {
+		if _, err = db.client.CreateTable(ctx, &createTableInput); err != nil {
 			return err
 		}
+		var exists bool
 		for i := 0; i < TableCreationRetries; i++ {
-			describe, err := db.client.DescribeTable(context.Background(), &dynamodb.DescribeTableInput{TableName: aws.String(db.jobTable)})
-			if (err == nil) && (describe.Table.TableStatus == types.TableStatusActive) {
+			if exists, err = db.tableExists(db.jobTable); exists {
 				return nil
 			}
 			time.Sleep(TableCreationWait)
 		}
+		return err
 	}
-	return err
+	return nil
+}
+
+func (db DynamoDb) tableExists(table string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	if output, err := db.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(table)}); err != nil {
+		return false, err
+	} else {
+		return output.Table.TableStatus == types.TableStatusActive, nil
+	}
 }
 
 func (db DynamoDb) InitializeJobs() error {
@@ -176,42 +190,51 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 		},
 	})
 	for p.HasMorePages() {
-		page, err := p.NextPage(context.TODO())
-		if err != nil {
-			return err
-		}
-		var jobsPage []manager.JobState
-		tsDecode := func(ts string) (time.Time, error) {
-			msec, err := strconv.ParseInt(ts, 10, 64)
+		err := func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+			defer cancel()
+
+			page, err := p.NextPage(ctx)
 			if err != nil {
-				return time.Time{}, err
+				return err
 			}
-			return time.UnixMilli(msec), nil
-		}
-		err = attributevalue.UnmarshalListOfMapsWithOptions(page.Items, &jobsPage, func(options *attributevalue.DecoderOptions) {
-			options.DecodeTime = attributevalue.DecodeTimeAttributes{
-				S: tsDecode,
-				N: tsDecode,
+			var jobsPage []manager.JobState
+			tsDecode := func(ts string) (time.Time, error) {
+				msec, err := strconv.ParseInt(ts, 10, 64)
+				if err != nil {
+					return time.Time{}, err
+				}
+				return time.UnixMilli(msec), nil
 			}
-		})
-		if err != nil {
-			log.Printf("initialize: unable to unmarshal jobState: %v", err)
-			return err
-		}
-		for _, jobState := range jobsPage {
-			if jobState.Type == manager.JobType_Deploy {
-				// Marshal layout back into `Layout` structure
-				if layout, found := jobState.Params[manager.JobParam_Layout].(map[string]interface{}); found {
-					var marshaledLayout manager.Layout
-					if err = mapstructure.Decode(layout, &marshaledLayout); err != nil {
-						return err
+			err = attributevalue.UnmarshalListOfMapsWithOptions(page.Items, &jobsPage, func(options *attributevalue.DecoderOptions) {
+				options.DecodeTime = attributevalue.DecodeTimeAttributes{
+					S: tsDecode,
+					N: tsDecode,
+				}
+			})
+			if err != nil {
+				log.Printf("initialize: unable to unmarshal jobState: %v", err)
+				return err
+			}
+			for _, jobState := range jobsPage {
+				if jobState.Type == manager.JobType_Deploy {
+					// Marshal layout back into `Layout` structure
+					if layout, found := jobState.Params[manager.JobParam_Layout].(map[string]interface{}); found {
+						var marshaledLayout manager.Layout
+						if err = mapstructure.Decode(layout, &marshaledLayout); err != nil {
+							return err
+						}
+						jobState.Params[manager.JobParam_Layout] = marshaledLayout
 					}
-					jobState.Params[manager.JobParam_Layout] = marshaledLayout
+				}
+				if !iter(jobState) {
+					return nil
 				}
 			}
-			if !iter(jobState) {
-				return nil
-			}
+			return nil
+		}()
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -250,7 +273,10 @@ func (db DynamoDb) WriteJob(jobState manager.JobState) error {
 	}); err != nil {
 		return err
 	} else {
-		_, err = db.client.PutItem(context.Background(), &dynamodb.PutItemInput{
+		ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+		defer cancel()
+
+		_, err = db.client.PutItem(ctx, &dynamodb.PutItemInput{
 			TableName: aws.String(db.jobTable),
 			Item:      attributeValues,
 		})
@@ -259,7 +285,10 @@ func (db DynamoDb) WriteJob(jobState manager.JobState) error {
 }
 
 func (db DynamoDb) UpdateBuildHash(component manager.DeployComponent, sha string) error {
-	_, err := db.client.UpdateItem(context.Background(), &dynamodb.UpdateItemInput{
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	_, err := db.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(db.buildTable),
 		Key: map[string]types.AttributeValue{
 			"key": &types.AttributeValueMemberS{Value: string(component)},
@@ -277,7 +306,10 @@ func (db DynamoDb) UpdateBuildHash(component manager.DeployComponent, sha string
 }
 
 func (db DynamoDb) UpdateDeployHash(component manager.DeployComponent, sha string) error {
-	_, err := db.client.UpdateItem(context.Background(), &dynamodb.UpdateItemInput{
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	_, err := db.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(db.buildTable),
 		Key: map[string]types.AttributeValue{
 			"key": &types.AttributeValueMemberS{Value: string(component)},
@@ -318,8 +350,11 @@ func (db DynamoDb) GetDeployHashes() (map[manager.DeployComponent]string, error)
 }
 
 func (db DynamoDb) getBuildStates() ([]manager.BuildState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
 	// We don't need to paginate since we're only ever going to have a handful of components.
-	if scanOutput, err := db.client.Scan(context.Background(), &dynamodb.ScanInput{
+	if scanOutput, err := db.client.Scan(ctx, &dynamodb.ScanInput{
 		TableName: aws.String(db.buildTable),
 	}); err != nil {
 		return nil, err

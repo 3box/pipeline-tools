@@ -3,13 +3,14 @@ package manager
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 )
 
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
 const DefaultFailureTime = 30 * time.Minute
-const DefaultHttpWaitTime = 5 * time.Second
+const DefaultHttpWaitTime = 10 * time.Second
 
 type JobType string
 
@@ -94,6 +95,16 @@ const (
 )
 
 const (
+	ServiceSuffix_CeramicNode    string = "node"
+	ServiceSuffix_CeramicGateway string = "gateway"
+	ServiceSuffix_IpfsNode       string = "ipfs-nd"
+	ServiceSuffix_IpfsGateway    string = "ipfs-gw"
+	ServiceSuffix_CasApi         string = "api"
+	ServiceSuffix_CasWorker      string = "anchor"
+	ServiceSuffix_CasScheduler   string = "scheduler"
+)
+
+const (
 	E2eTest_PrivatePublic     string = "private-public"
 	E2eTest_LocalClientPublic string = "local_client-public"
 	E2eTest_LocalNodePrivate  string = "local_node-private"
@@ -141,23 +152,23 @@ type BuildState struct {
 // orchestration service (e.g. AWS ECS).
 type Layout struct {
 	Clusters map[string]*Cluster `dynamodbav:"clusters"`
-	Repo     string              `dynamodbav:"repo,omitempty"`
+	Repo     string              `dynamodbav:"repo,omitempty"` // Layout repo
 }
 
 type Cluster struct {
 	ServiceTasks *TaskSet `dynamodbav:"serviceTasks,omitempty"`
 	Tasks        *TaskSet `dynamodbav:"tasks,omitempty"`
-	Repo         string   `dynamodbav:"repo,omitempty"`
+	Repo         string   `dynamodbav:"repo,omitempty"` // Cluster repo override
 }
 
 type TaskSet struct {
 	Tasks map[string]*Task `dynamodbav:"tasks"`
-	Repo  string           `dynamodbav:"repo,omitempty"`
+	Repo  string           `dynamodbav:"repo,omitempty"` // TaskSet repo override
 }
 
 type Task struct {
 	Id   string `dynamodbav:"id"`
-	Repo string `dynamodbav:"repo,omitempty"`
+	Repo string `dynamodbav:"repo,omitempty"` // Task repo override
 	Temp bool   `dynamodbav:"temp,omitempty"` // Whether or not the task is meant to go down once it has completed
 }
 
@@ -288,4 +299,8 @@ func JobName(job JobType) string {
 	default:
 		return ""
 	}
+}
+
+func CeramicEnvPfx() string {
+	return "ceramic-" + os.Getenv("ENV")
 }

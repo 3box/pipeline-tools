@@ -20,8 +20,6 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/server"
 )
 
-// TODO: Add more comments across the code
-
 func main() {
 	if err := godotenv.Load("env/.env"); err != nil {
 		log.Fatal("Error loading .env file")
@@ -82,11 +80,11 @@ func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Man
 	deployment := aws.NewEcs(cfg)
 	apiGw := aws.NewApiGw(cfg)
 	repo := repository.NewRepository()
-	notifs, err := notifs.NewJobNotifs(db)
+	n, err := notifs.NewJobNotifs(db)
 	if err != nil {
 		log.Fatalf("failed to initialize notifications: %q", err)
 	}
-	jobManager, err := jobmanager.NewJobManager(cache, db, deployment, apiGw, repo, notifs)
+	jobManager, err := jobmanager.NewJobManager(cache, db, deployment, apiGw, repo, n)
 	if err != nil {
 		log.Fatalf("failed to create job queue: %q", err)
 	}
