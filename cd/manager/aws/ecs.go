@@ -119,6 +119,7 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	}
 	// Populate the service layout by retrieving the clusters/services from ECS
 	layout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: ecrRepo}
+	casSchedulerFound := false
 	for _, cluster := range []string{privateCluster, publicCluster, casCluster} {
 		if clusterServices, err := e.listEcsServices(cluster); err != nil {
 			log.Printf("populateEnvLayout: list services error: %s, %v", cluster, err)
@@ -132,52 +133,43 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 						layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
 					}
 					layout.Clusters[cluster].ServiceTasks.Tasks[serviceName] = task
+					casSchedulerFound = (component == manager.DeployComponent_Cas) && strings.Contains(serviceName, manager.ServiceSuffix_CasScheduler)
 				}
 			}
 		}
 	}
-	// Add the CASv2 worker to the layout separately since it doesn't get updated through an ECS Service. Make sure the
-	// image is meant for a CASv2 worker before setting it up to be updated since not all environments are on CASv2.
-	if component == manager.DeployComponent_Cas {
-		casWorkerFamilyPfx := casCluster + "-" + manager.ServiceSuffix_CasWorker
-		casV2WorkerRepo := manager.CeramicEnvPfx() + "-cas-runner"
-		if casWorkerTaskDefArn, err := e.getEcsTaskDefinitionArn(casWorkerFamilyPfx); err != nil {
-			log.Printf("populateEnvLayout: get task def arn failed: %s, %v", casWorkerFamilyPfx, err)
-			return nil, err
-		} else if casWorkerTaskDef, err := e.getEcsTaskDefinition(casWorkerTaskDefArn); err != nil {
-			log.Printf("populateEnvLayout: get task def failed: %s, %v", casWorkerFamilyPfx, err)
-			return nil, err
-		} else if strings.Contains(*casWorkerTaskDef.ContainerDefinitions[0].Image, casV2WorkerRepo) {
-			layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
-				casWorkerFamilyPfx: {
-					Repo: casV2WorkerRepo,
-					Temp: true, // Anchor workers do not stay up permanently
-				},
-			}}
-		}
+	// If the CAS Scheduler service was present, add the CASv2 worker to the layout since it doesn't get updated through
+	// an ECS Service.
+	if casSchedulerFound {
+		layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
+			casCluster + "-" + manager.ServiceSuffix_CasWorker: {
+				Repo: manager.CeramicEnvPfx() + "-cas-runner",
+				Temp: true, // Anchor workers do not stay up permanently
+			},
+		}}
 	}
 	return layout, nil
 }
 
-func (e Ecs) componentTask(component manager.DeployComponent, serviceArn string) (*manager.Task, bool) {
+func (e Ecs) componentTask(component manager.DeployComponent, serviceName string) (*manager.Task, bool) {
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		if strings.Contains(serviceArn, manager.ServiceSuffix_CeramicNode) || strings.Contains(serviceArn, manager.ServiceSuffix_CeramicGateway) {
+		if strings.Contains(serviceName, manager.ServiceSuffix_CeramicNode) || strings.Contains(serviceName, manager.ServiceSuffix_CeramicGateway) {
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Ipfs:
-		if strings.Contains(serviceArn, manager.ServiceSuffix_IpfsNode) || strings.Contains(serviceArn, manager.ServiceSuffix_IpfsGateway) {
+		if strings.Contains(serviceName, manager.ServiceSuffix_IpfsNode) || strings.Contains(serviceName, manager.ServiceSuffix_IpfsGateway) {
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Cas:
 		// Until all environments are moved to CASv2, the CAS Scheduler (CASv2) and CAS Worker (CASv1) ECS Services will
 		// exist in some environments and not others. This is ok because only if a service exists in an environment will
 		// we attempt to update it during a deployment.
-		if strings.Contains(serviceArn, manager.ServiceSuffix_CasApi) ||
+		if strings.Contains(serviceName, manager.ServiceSuffix_CasApi) ||
 			// CASv2
-			strings.Contains(serviceArn, manager.ServiceSuffix_CasScheduler) {
+			strings.Contains(serviceName, manager.ServiceSuffix_CasScheduler) {
 			return &manager.Task{}, true
-		} else if strings.Contains(serviceArn, manager.ServiceSuffix_CasWorker) { // CASv1
+		} else if strings.Contains(serviceName, manager.ServiceSuffix_CasWorker) { // CASv1
 			return &manager.Task{
 				Temp: true, // Anchor workers do not stay up permanently
 			}, true
@@ -363,12 +355,6 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		log.Printf("updateEcsService: update task def error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
 		return "", err
 	}
-	// For "temporary" tasks, i.e. tasks that come up, do their work, then exit, the number of running tasks should be
-	// set to 0.
-	var desiredCount int32 = 1
-	if tempTask {
-		desiredCount = 0
-	}
 	// Update the service to use the new task definition
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
@@ -376,7 +362,6 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 	updateSvcInput := &ecs.UpdateServiceInput{
 		Service:              aws.String(service),
 		Cluster:              aws.String(cluster),
-		DesiredCount:         aws.Int32(desiredCount),
 		EnableExecuteCommand: aws.Bool(true),
 		ForceNewDeployment:   false,
 		TaskDefinition:       aws.String(newTaskDefArn),
