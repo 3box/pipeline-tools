@@ -162,6 +162,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 						// skipped won't be picked up again, which is ok.
 						return 0
 					}
+					log.Printf("processDeployJobs: skipped job: %s", manager.PrintJob(jobs[i]))
 				}
 				dequeuedDeploys[deployComponent] = jobs[i]
 			}
@@ -197,11 +198,12 @@ func (m JobManager) processAnchorJobs(jobs []manager.JobState) int {
 				} else {
 					// Skip any pending anchor jobs so that they don't linger in the job queue
 					if err := m.updateJobStage(jobs[i], manager.JobStage_Skipped); err != nil {
-						log.Printf("processNonDeployJobs: failed to update skipped anchor job: %v, %s", err, manager.PrintJob(jobs[i]))
+						log.Printf("processAnchorJobs: failed to update skipped anchor job: %v, %s", err, manager.PrintJob(jobs[i]))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
 						// already skipped won't be picked up again, which is ok.
 						return 0
 					}
+					log.Printf("processAnchorJobs: skipped job: %s", manager.PrintJob(jobs[i]))
 				}
 			}
 		}
@@ -239,6 +241,7 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 						// already skipped won't be picked up again, which is ok.
 						return 0
 					}
+					log.Printf("processTestJobs: skipped job: %s", manager.PrintJob(jobs[i]))
 				}
 				// Replace an existing test job with a newer one, or add a new job (hence a map).
 				dequeuedTests[jobType] = jobs[i]
