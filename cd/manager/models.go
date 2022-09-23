@@ -222,7 +222,8 @@ type Notifs interface {
 
 // Manager represents the job manager, which is the central job orchestrator of this service.
 type Manager interface {
-	NewJob(JobState) error
+	NewJob(JobState) (string, error)
+	CheckJob(string) string
 	ProcessJobs(chan bool)
 }
 

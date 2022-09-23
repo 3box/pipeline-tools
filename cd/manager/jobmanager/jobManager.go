@@ -15,6 +15,8 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/jobs"
 )
 
+var _ manager.Manager = &JobManager{}
+
 type JobManager struct {
 	cache         manager.Cache
 	db            manager.Database
@@ -36,7 +38,7 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 	return JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, new(sync.WaitGroup)}, nil
 }
 
-func (m JobManager) NewJob(jobState manager.JobState) error {
+func (m JobManager) NewJob(jobState manager.JobState) (string, error) {
 	jobState.Stage = manager.JobStage_Queued
 	jobState.Id = uuid.New().String()
 	// Only set the time if it hadn't already been set by the caller.
@@ -46,7 +48,14 @@ func (m JobManager) NewJob(jobState manager.JobState) error {
 	if jobState.Params == nil {
 		jobState.Params = make(map[string]interface{}, 0)
 	}
-	return m.db.QueueJob(jobState)
+	return jobState.Id, m.db.QueueJob(jobState)
+}
+
+func (m JobManager) CheckJob(jobId string) string {
+	if job, found := m.cache.JobById(jobId); found {
+		return string(job.Stage)
+	}
+	return ""
 }
 
 func (m JobManager) ProcessJobs(shutdownCh chan bool) {
@@ -285,7 +294,7 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment to
 			// stabilize.
 			if (newJobState.Type == manager.JobType_Deploy) && (newJobState.Stage == manager.JobStage_Completed) {
-				if err = m.NewJob(manager.JobState{
+				if _, err = m.NewJob(manager.JobState{
 					Ts:   time.Now().Add(5 * time.Minute),
 					Type: manager.JobType_TestSmoke,
 				}); err != nil {

@@ -41,29 +41,34 @@ func timeHandler(format string) http.HandlerFunc {
 
 func jobHandler(m manager.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		headerContentTtype := r.Header.Get("Content-Type")
-		if headerContentTtype != "application/json" {
-			writeJsonResponse(w, "Content Type is not application/json", http.StatusUnsupportedMediaType)
+		headerContentType := r.Header.Get("Content-Type")
+		if headerContentType != "application/json" {
+			writeJsonResponse(w, "content-type is not application/json", http.StatusUnsupportedMediaType)
 			return
 		}
-		jobState := manager.JobState{}
-		var unmarshalErr *json.UnmarshalTypeError
 		status := http.StatusOK
 		message := "Success"
-
 		decoder := json.NewDecoder(r.Body)
+		jobState := manager.JobState{}
 		// Allow unknown fields so that we ignore unneeded params sent by calling services.
 		//decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&jobState); err != nil {
 			status = http.StatusBadRequest
+			var unmarshalErr *json.UnmarshalTypeError
 			if errors.As(err, &unmarshalErr) {
-				message = "jobHandler: wrong type for field " + unmarshalErr.Field
+				message = "wrong type for field " + unmarshalErr.Field
 			} else {
-				message = "jobHandler: bad request: " + err.Error()
+				message = "bad request: " + err.Error()
 			}
-		} else if err = m.NewJob(jobState); err != nil {
-			status = http.StatusBadRequest
-			message = "jobHandler: could not queue job: " + err.Error()
+		} else if r.Method == http.MethodPost {
+			if jobId, err := m.NewJob(jobState); err != nil {
+				status = http.StatusBadRequest
+				message = "could not queue job: " + err.Error()
+			} else {
+				message = jobId
+			}
+		} else if r.Method == http.MethodGet {
+			message = m.CheckJob(jobState.Id)
 		}
 		writeJsonResponse(w, message, status)
 	}
