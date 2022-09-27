@@ -58,7 +58,7 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 			if manual {
 				jobState.Params[manager.JobParam_Manual] = true
 			}
-			if envLayout, err := d.PopulateEnvLayout(c); err != nil {
+			if envLayout, err := d.GenerateEnvLayout(c); err != nil {
 				return nil, err
 			} else {
 				jobState.Params[manager.JobParam_Layout] = *envLayout
@@ -127,8 +127,23 @@ func (d deployJob) updateEnv(commitHash string) error {
 }
 
 func (d deployJob) checkEnv() (bool, error) {
-	if layout, found := d.state.Params[manager.JobParam_Layout].(manager.Layout); found {
-		return d.d.CheckEnv(&layout)
+	if layout, found := d.state.Params[manager.JobParam_Layout].(manager.Layout); !found {
+		return false, fmt.Errorf("checkEnv: missing env layout")
+	} else if deployed, err := d.d.CheckEnv(&layout); err != nil {
+		return false, err
+	} else if !deployed || (d.component != manager.DeployComponent_Ipfs) {
+		return deployed, nil
+	} else
+	// Make sure that after IPFS is deployed, we find Ceramic tasks that have been stable for a few minutes before
+	// marking the job complete.
+	//
+	// In this case, we want to check whether *some* version of Ceramic is stable and not any specific version, like we
+	// normally do when checking for successful deployments, so it's OK to rebuild the Ceramic layout on-the-fly each
+	// time instead of storing it in the database.
+	if ceramicLayout, err := d.d.GenerateEnvLayout(manager.DeployComponent_Ceramic); err != nil {
+		log.Printf("checkEnv: ceramic layout generation failed: %v, %s", err, manager.PrintJob(d.state))
+		return false, err
+	} else {
+		return d.d.CheckEnv(ceramicLayout)
 	}
-	return false, fmt.Errorf("checkEnv: missing env layout")
 }

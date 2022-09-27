@@ -151,7 +151,7 @@ type BuildState struct {
 // Layout (as well as Cluster, TaskSet, and Task) are a generic representation of our service structure within an
 // orchestration service (e.g. AWS ECS).
 type Layout struct {
-	Clusters map[string]*Cluster `dynamodbav:"clusters"`
+	Clusters map[string]*Cluster `dynamodbav:"clusters,omitempty"`
 	Repo     string              `dynamodbav:"repo,omitempty"` // Layout repo
 }
 
@@ -162,12 +162,12 @@ type Cluster struct {
 }
 
 type TaskSet struct {
-	Tasks map[string]*Task `dynamodbav:"tasks"`
+	Tasks map[string]*Task `dynamodbav:"tasks,omitempty"`
 	Repo  string           `dynamodbav:"repo,omitempty"` // TaskSet repo override
 }
 
 type Task struct {
-	Id   string `dynamodbav:"id"`
+	Id   string `dynamodbav:"id,omitempty"`
 	Repo string `dynamodbav:"repo,omitempty"` // Task repo override
 	Temp bool   `dynamodbav:"temp,omitempty"` // Whether or not the task is meant to go down once it has completed
 }
@@ -210,7 +210,7 @@ type Deployment interface {
 	LaunchServiceTask(string, string, string, string, map[string]string) (string, error)
 	LaunchTask(string, string, string, string, map[string]string) (string, error)
 	CheckTask(string, string, bool, bool, ...string) (bool, error)
-	PopulateEnvLayout(DeployComponent) (*Layout, error)
+	GenerateEnvLayout(DeployComponent) (*Layout, error)
 	UpdateEnv(*Layout, string) error
 	CheckEnv(*Layout) (bool, error)
 }
