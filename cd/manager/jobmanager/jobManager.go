@@ -102,7 +102,7 @@ func (m JobManager) processJobs() {
 	// Find all jobs in progress and advance their state before looking for new jobs.
 	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
 	if len(activeJobs) > 0 {
-		log.Printf("processJobs: checking %d jobs in progress...", len(activeJobs))
+		log.Printf("processJobs: checking %d jobs in progress: %s", len(activeJobs), manager.PrintJob(activeJobs...))
 		for _, job := range activeJobs {
 			m.advanceJob(job)
 		}
@@ -117,7 +117,7 @@ func (m JobManager) processJobs() {
 	// complete.
 	dequeuedJobs := m.db.DequeueJobs()
 	if len(dequeuedJobs) > 0 {
-		log.Printf("processJobs: dequeued %d new jobs...", len(dequeuedJobs))
+		log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
 		// Prepare job objects to allow job-specific preprocessing to be performed on dequeued jobs
 		for _, jobState := range dequeuedJobs {
 			if _, err := m.prepareJob(jobState); err != nil {
@@ -145,9 +145,7 @@ func (m JobManager) processJobs() {
 
 func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 	// Check if there are any jobs in progress
-	activeJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return m.isActiveJob(js)
-	})
+	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
 	dequeuedDeploys := make(map[string]manager.JobState, 0)
 	if len(activeJobs) == 0 {
 		// Collapse similar, back-to-back deployments into a single run and kick it off.
