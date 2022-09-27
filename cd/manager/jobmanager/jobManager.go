@@ -159,7 +159,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 			} else if jobType == manager.JobType_Deploy {
 				// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
 				deployComponent := jobs[i].Params[manager.JobParam_Component].(string)
-				// Update the cache and database for every skipped job.
+				// Update the cache and database for every skipped job
 				if skippedJob, found := dequeuedDeploys[deployComponent]; found {
 					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
 						log.Printf("processDeployJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
@@ -167,6 +167,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 						// skipped won't be picked up again, which is ok.
 						return 0
 					}
+					skippedJob.Stage = manager.JobStage_Skipped
 					log.Printf("processDeployJobs: skipped job: %s", manager.PrintJob(jobs[i]))
 				}
 				dequeuedDeploys[deployComponent] = jobs[i]
@@ -208,6 +209,7 @@ func (m JobManager) processAnchorJobs(jobs []manager.JobState) int {
 						// already skipped won't be picked up again, which is ok.
 						return 0
 					}
+					jobs[i].Stage = manager.JobStage_Skipped
 					log.Printf("processAnchorJobs: skipped job: %s", manager.PrintJob(jobs[i]))
 				}
 			}
@@ -246,6 +248,7 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 						// already skipped won't be picked up again, which is ok.
 						return 0
 					}
+					skippedJob.Stage = manager.JobStage_Skipped
 					log.Printf("processTestJobs: skipped job: %s", manager.PrintJob(jobs[i]))
 				}
 				// Replace an existing test job with a newer one, or add a new job (hence a map).
