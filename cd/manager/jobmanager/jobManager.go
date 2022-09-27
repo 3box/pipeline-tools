@@ -108,8 +108,7 @@ func (m JobManager) processJobs() {
 		}
 	}
 	// Try to dequeue multiple jobs and collapse similar ones:
-	// - one deploy at a time (deploys for different services are compatible, i.e. Ceramic, IPFS, CAS can be deployed in
-	//   parallel)
+	// - one deploy at a time
 	// - any number of anchor workers (compatible with with smoke/E2E tests)
 	// - one smoke test at a time (compatible with anchor workers, E2E tests)
 	// - one E2E test at a time (compatible with anchor workers, smoke tests)
@@ -145,15 +144,12 @@ func (m JobManager) processJobs() {
 }
 
 func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
-	// Check if there are any incompatible jobs in progress.
-	firstJob := jobs[0]
-	incompatibleJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		// Match non-deploy jobs, or jobs for the same component (viz. Ceramic, IPFS, or CAS).
-		return m.isActiveJob(js) &&
-			((js.Type != manager.JobType_Deploy) || (js.Params[manager.JobParam_Component] == firstJob.Params[manager.JobParam_Component]))
+	// Check if there are any jobs in progress
+	activeJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+		return m.isActiveJob(js)
 	})
 	dequeuedDeploys := make(map[string]manager.JobState, 0)
-	if len(incompatibleJobs) == 0 {
+	if len(activeJobs) == 0 {
 		// Collapse similar, back-to-back deployments into a single run and kick it off.
 		for i := 0; i < len(jobs); i++ {
 			jobType := jobs[i].Type
@@ -181,7 +177,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 			m.advanceJob(deployJob)
 		}
 	} else {
-		log.Printf("processDeployJobs: deferring deployment because one or more jobs are in progress: %s, %s", manager.PrintJob(firstJob), manager.PrintJob(incompatibleJobs...))
+		log.Printf("processDeployJobs: deferring deployment because one or more jobs are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(activeJobs...))
 	}
 	return len(dequeuedDeploys)
 }

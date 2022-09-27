@@ -108,13 +108,13 @@ func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArn
 	return tasksFound && tasksInState, nil
 }
 
-func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layout, error) {
+func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layout, error) {
 	privateCluster := manager.CeramicEnvPfx()
 	publicCluster := manager.CeramicEnvPfx() + "-ex"
 	casCluster := manager.CeramicEnvPfx() + "-cas"
 	ecrRepo, err := e.componentEcrRepo(component)
 	if err != nil {
-		log.Printf("populateEnvLayout: ecr repo error: %s, %v", component, err)
+		log.Printf("generateEnvLayout: ecr repo error: %s, %v", component, err)
 		return nil, err
 	}
 	// Populate the service layout by retrieving the clusters/services from ECS
@@ -122,18 +122,27 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	casSchedulerFound := false
 	for _, cluster := range []string{privateCluster, publicCluster, casCluster} {
 		if clusterServices, err := e.listEcsServices(cluster); err != nil {
-			log.Printf("populateEnvLayout: list services error: %s, %v", cluster, err)
+			log.Printf("generateEnvLayout: list services error: %s, %v", cluster, err)
 			return nil, err
 		} else {
 			for _, serviceArn := range clusterServices.ServiceArns {
-				serviceName := e.serviceNameFromArn(serviceArn)
-				if task, matched := e.componentTask(component, serviceName); matched {
+				service := e.serviceNameFromArn(serviceArn)
+				if task, matched := e.componentTask(component, service); matched {
 					if _, found := layout.Clusters[cluster]; !found {
 						// We found at least one matching task so we can start populating the cluster layout
 						layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
 					}
-					layout.Clusters[cluster].ServiceTasks.Tasks[serviceName] = task
-					casSchedulerFound = (component == manager.DeployComponent_Cas) && strings.Contains(serviceName, manager.ServiceSuffix_CasScheduler)
+					descSvcOutput, err := e.describeEcsService(cluster, service)
+					if err != nil {
+						log.Printf("generateEnvLayout: describe service error: %s, %s, %v", cluster, service, err)
+						return nil, err
+					}
+					// Set the task definition to the one currently running. For most cases, this will be overwritten by
+					// a new definition, but for some cases, we might want to use a layout with currently running
+					// definitions and not updated ones, e.g. to check if an existing deployment is stable.
+					task.Id = *descSvcOutput.Services[0].TaskDefinition
+					layout.Clusters[cluster].ServiceTasks.Tasks[service] = task
+					casSchedulerFound = (component == manager.DeployComponent_Cas) && strings.Contains(service, manager.ServiceSuffix_CasScheduler)
 				}
 			}
 		}
@@ -151,25 +160,25 @@ func (e Ecs) PopulateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	return layout, nil
 }
 
-func (e Ecs) componentTask(component manager.DeployComponent, serviceName string) (*manager.Task, bool) {
+func (e Ecs) componentTask(component manager.DeployComponent, service string) (*manager.Task, bool) {
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		if strings.Contains(serviceName, manager.ServiceSuffix_CeramicNode) || strings.Contains(serviceName, manager.ServiceSuffix_CeramicGateway) {
+		if strings.Contains(service, manager.ServiceSuffix_CeramicNode) || strings.Contains(service, manager.ServiceSuffix_CeramicGateway) {
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Ipfs:
-		if strings.Contains(serviceName, manager.ServiceSuffix_IpfsNode) || strings.Contains(serviceName, manager.ServiceSuffix_IpfsGateway) {
+		if strings.Contains(service, manager.ServiceSuffix_IpfsNode) || strings.Contains(service, manager.ServiceSuffix_IpfsGateway) {
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Cas:
 		// Until all environments are moved to CASv2, the CAS Scheduler (CASv2) and CAS Worker (CASv1) ECS Services will
 		// exist in some environments and not others. This is ok because only if a service exists in an environment will
 		// we attempt to update it during a deployment.
-		if strings.Contains(serviceName, manager.ServiceSuffix_CasApi) ||
+		if strings.Contains(service, manager.ServiceSuffix_CasApi) ||
 			// CASv2
-			strings.Contains(serviceName, manager.ServiceSuffix_CasScheduler) {
+			strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
 			return &manager.Task{}, true
-		} else if strings.Contains(serviceName, manager.ServiceSuffix_CasWorker) { // CASv1
+		} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
 			return &manager.Task{
 				Temp: true, // Anchor workers do not stay up permanently
 			}, true
