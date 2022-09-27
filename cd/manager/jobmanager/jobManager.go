@@ -178,7 +178,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 			m.advanceJob(deployJob)
 		}
 	} else {
-		log.Printf("processDeployJobs: deferring deployment because one or more jobs are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(activeJobs...))
+		log.Printf("processDeployJobs: non-deploy jobs in progress")
 	}
 	return len(dequeuedDeploys)
 }
@@ -204,7 +204,7 @@ func (m JobManager) processAnchorJobs(jobs []manager.JobState) int {
 				} else {
 					// Skip any pending anchor jobs so that they don't linger in the job queue
 					if err := m.updateJobStage(jobs[i], manager.JobStage_Skipped); err != nil {
-						log.Printf("processAnchorJobs: failed to update skipped anchor job: %v, %s", err, manager.PrintJob(jobs[i]))
+						log.Printf("processAnchorJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(jobs[i]))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
 						// already skipped won't be picked up again, which is ok.
 						return 0
@@ -219,7 +219,7 @@ func (m JobManager) processAnchorJobs(jobs []manager.JobState) int {
 			m.advanceJob(anchorJob)
 		}
 	} else {
-		log.Printf("processAnchorJobs: deferring anchor job because one or more deployments are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(activeDeploys...))
+		log.Printf("processAnchorJobs: deployment in progress")
 	}
 	return len(dequeuedAnchors)
 }
@@ -243,7 +243,7 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 				// Update the cache and database for every skipped job
 				if skippedJob, found := dequeuedTests[jobType]; found {
 					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-						log.Printf("processNonDeployJobs: failed to update skipped test job: %v, %s", err, manager.PrintJob(skippedJob))
+						log.Printf("processTestJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
 						// already skipped won't be picked up again, which is ok.
 						return 0
@@ -259,7 +259,7 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 			m.advanceJob(testJob)
 		}
 	} else {
-		log.Printf("processTestJobs: deferring test job because one or more deployments are in progress: %s, %s", manager.PrintJob(jobs[0]), manager.PrintJob(activeDeploys...))
+		log.Printf("processTestJobs: deployment in progress")
 	}
 	return len(dequeuedTests)
 }
