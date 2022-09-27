@@ -168,7 +168,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 						return 0
 					}
 					skippedJob.Stage = manager.JobStage_Skipped
-					log.Printf("processDeployJobs: skipped job: %s", manager.PrintJob(jobs[i]))
+					log.Printf("processDeployJobs: skipped job: %s", manager.PrintJob(skippedJob))
 				}
 				dequeuedDeploys[deployComponent] = jobs[i]
 			}
@@ -249,7 +249,7 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 						return 0
 					}
 					skippedJob.Stage = manager.JobStage_Skipped
-					log.Printf("processTestJobs: skipped job: %s", manager.PrintJob(jobs[i]))
+					log.Printf("processTestJobs: skipped job: %s", manager.PrintJob(skippedJob))
 				}
 				// Replace an existing test job with a newer one, or add a new job (hence a map).
 				dequeuedTests[jobType] = jobs[i]
