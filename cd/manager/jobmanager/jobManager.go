@@ -176,7 +176,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 			m.advanceJob(deployJob)
 		}
 	} else {
-		log.Printf("processDeployJobs: non-deploy jobs in progress")
+		log.Printf("processDeployJobs: test/deployment in progress")
 	}
 	return len(dequeuedDeploys)
 }

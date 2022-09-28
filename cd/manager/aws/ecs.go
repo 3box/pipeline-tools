@@ -180,6 +180,7 @@ func (e Ecs) componentTask(component manager.DeployComponent, service string) (*
 			return &manager.Task{}, true
 		} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
 			return &manager.Task{
+				Repo: manager.CeramicEnvPfx() + "-cas-runner",
 				Temp: true, // Anchor workers do not stay up permanently
 			}, true
 		}
