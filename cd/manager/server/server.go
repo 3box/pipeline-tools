@@ -17,6 +17,7 @@ func Setup(addr string, m manager.Manager) http.Server {
 	mux.Handle("/healthcheck", healthcheckHandler())
 	mux.Handle("/time", timeHandler(time.RFC1123))
 	mux.Handle("/job", jobHandler(m))
+	mux.Handle("/pause", pauseHandler(m))
 	return http.Server{
 		Addr:     addr,
 		Handler:  logging(logger)(mux),
@@ -27,6 +28,12 @@ func Setup(addr string, m manager.Manager) http.Server {
 func healthcheckHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Alive!\n"))
+	}
+}
+
+func pauseHandler(m manager.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		m.Pause()
 	}
 }
 
@@ -41,18 +48,16 @@ func timeHandler(format string) http.HandlerFunc {
 
 func jobHandler(m manager.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		headerContentType := r.Header.Get("Content-Type")
-		if headerContentType != "application/json" {
-			writeJsonResponse(w, "content-type is not application/json", http.StatusUnsupportedMediaType)
-			return
-		}
 		status := http.StatusOK
 		message := "Success"
 		decoder := json.NewDecoder(r.Body)
-		jobState := manager.JobState{}
-		// Allow unknown fields so that we ignore unneeded params sent by calling services.
+		// Allow unknown fields so that we ignore unneeded params sent by calling services
 		//decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&jobState); err != nil {
+		jobState := manager.JobState{}
+		if r.Header.Get("Content-Type") != "application/json" {
+			status = http.StatusUnsupportedMediaType
+			message = "content-type is not application/json"
+		} else if err := decoder.Decode(&jobState); err != nil {
 			status = http.StatusBadRequest
 			var unmarshalErr *json.UnmarshalTypeError
 			if errors.As(err, &unmarshalErr) {

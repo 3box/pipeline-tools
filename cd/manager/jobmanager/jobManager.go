@@ -25,20 +25,21 @@ type JobManager struct {
 	repo          manager.Repository
 	notifs        manager.Notifs
 	maxAnchorJobs int
+	paused        bool
 	waitGroup     *sync.WaitGroup
 }
 
-func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, apiGw manager.ApiGw, repo manager.Repository, notifs manager.Notifs) (JobManager, error) {
+func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, apiGw manager.ApiGw, repo manager.Repository, notifs manager.Notifs) (manager.Manager, error) {
 	maxAnchorJobs := manager.DefaultCasMaxAnchorWorkers
 	if configMaxAnchorWorkers, found := os.LookupEnv("CAS_MAX_ANCHOR_WORKERS"); found {
 		if parsedMaxAnchorWorkers, err := strconv.ParseInt(configMaxAnchorWorkers, 10, 64); err == nil {
 			maxAnchorJobs = int(parsedMaxAnchorWorkers)
 		}
 	}
-	return JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, new(sync.WaitGroup)}, nil
+	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, false, new(sync.WaitGroup)}, nil
 }
 
-func (m JobManager) NewJob(jobState manager.JobState) (string, error) {
+func (m *JobManager) NewJob(jobState manager.JobState) (string, error) {
 	jobState.Stage = manager.JobStage_Queued
 	jobState.Id = uuid.New().String()
 	// Only set the time if it hadn't already been set by the caller.
@@ -51,14 +52,14 @@ func (m JobManager) NewJob(jobState manager.JobState) (string, error) {
 	return jobState.Id, m.db.QueueJob(jobState)
 }
 
-func (m JobManager) CheckJob(jobId string) string {
+func (m *JobManager) CheckJob(jobId string) string {
 	if job, found := m.cache.JobById(jobId); found {
 		return string(job.Stage)
 	}
 	return ""
 }
 
-func (m JobManager) ProcessJobs(shutdownCh chan bool) {
+func (m *JobManager) ProcessJobs(shutdownCh chan bool) {
 	// Create a ticker to poll the database for new jobs.
 	tick := time.NewTicker(manager.DefaultTick)
 	// Only allow one run token to exist, and start with it available for the processing loop to start running.
@@ -86,7 +87,17 @@ func (m JobManager) ProcessJobs(shutdownCh chan bool) {
 	}
 }
 
-func (m JobManager) processJobs() {
+func (m *JobManager) Pause() {
+	// Toggle paused status
+	m.paused = !m.paused
+	status := "paused"
+	if !m.paused {
+		status = "un" + status
+	}
+	log.Printf("pause: job manager %s", status)
+}
+
+func (m *JobManager) processJobs() {
 	// Age out completed/failed/skipped jobs older than 1 day.
 	oldJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return m.isFinishedJob(js) && time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
@@ -107,34 +118,37 @@ func (m JobManager) processJobs() {
 			m.advanceJob(job)
 		}
 	}
-	// Try to dequeue multiple jobs and collapse similar ones:
-	// - one deploy at a time
-	// - any number of anchor workers (compatible with with smoke/E2E tests)
-	// - one smoke test at a time (compatible with anchor workers, E2E tests)
-	// - one E2E test at a time (compatible with anchor workers, smoke tests)
-	//
-	// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs to
-	// complete.
-	dequeuedJobs := m.db.DequeueJobs()
-	if len(dequeuedJobs) > 0 {
-		log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
-		// Prepare job objects to allow job-specific preprocessing to be performed on dequeued jobs
-		for _, jobState := range dequeuedJobs {
-			if _, err := m.prepareJob(jobState); err != nil {
-				log.Printf("preprocessJobs: job generation failed: %v, %s", err, manager.PrintJob(jobState))
+	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
+	if !m.paused {
+		// Try to dequeue multiple jobs and collapse similar ones:
+		// - one deploy at a time
+		// - any number of anchor workers (compatible with with smoke/E2E tests)
+		// - one smoke test at a time (compatible with anchor workers, E2E tests)
+		// - one E2E test at a time (compatible with anchor workers, smoke tests)
+		//
+		// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs to
+		// complete.
+		dequeuedJobs := m.db.DequeueJobs()
+		if len(dequeuedJobs) > 0 {
+			log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
+			// Prepare job objects to allow job-specific preprocessing to be performed on dequeued jobs
+			for _, jobState := range dequeuedJobs {
+				if _, err := m.prepareJob(jobState); err != nil {
+					log.Printf("preprocessJobs: job generation failed: %v, %s", err, manager.PrintJob(jobState))
+				}
 			}
-		}
-		// Decide how to proceed based on the first job from the list
-		if dequeuedJobs[0].Type == manager.JobType_Deploy {
-			if m.processDeployJobs(dequeuedJobs) == 0 {
-				// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to anchor jobs
-				// queued behind deploys because tests need anchors to run and deploys can't run till tests complete.
+			// Decide how to proceed based on the first job from the list
+			if dequeuedJobs[0].Type == manager.JobType_Deploy {
+				if m.processDeployJobs(dequeuedJobs) == 0 {
+					// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to anchor jobs
+					// queued behind deploys because tests need anchors to run and deploys can't run till tests complete.
+					m.processAnchorJobs(dequeuedJobs)
+				}
+			} else {
+				// Test and anchor jobs can run in parallel
+				m.processTestJobs(dequeuedJobs)
 				m.processAnchorJobs(dequeuedJobs)
 			}
-		} else {
-			// Test and anchor jobs can run in parallel
-			m.processTestJobs(dequeuedJobs)
-			m.processAnchorJobs(dequeuedJobs)
 		}
 	}
 	// Wait for all of this iteration's goroutines to finish so that we're sure that all job advancements have been
@@ -143,20 +157,19 @@ func (m JobManager) processJobs() {
 	m.waitGroup.Wait()
 }
 
-func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
+func (m *JobManager) processDeployJobs(jobs []manager.JobState) int {
 	// Check if there are any jobs in progress
 	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
 	dequeuedDeploys := make(map[string]manager.JobState, 0)
 	if len(activeJobs) == 0 {
 		// Collapse similar, back-to-back deployments into a single run and kick it off.
-		for i := 0; i < len(jobs); i++ {
-			jobType := jobs[i].Type
+		for _, job := range jobs {
 			// Break out of the loop as soon as we find a test job - we don't want to collapse deploys across them.
-			if (jobType == manager.JobType_TestE2E) || (jobType == manager.JobType_TestSmoke) {
+			if (job.Type == manager.JobType_TestE2E) || (job.Type == manager.JobType_TestSmoke) {
 				break
-			} else if jobType == manager.JobType_Deploy {
+			} else if job.Type == manager.JobType_Deploy {
 				// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
-				deployComponent := jobs[i].Params[manager.JobParam_Component].(string)
+				deployComponent := job.Params[manager.JobParam_Component].(string)
 				// Update the cache and database for every skipped job
 				if skippedJob, found := dequeuedDeploys[deployComponent]; found {
 					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
@@ -168,7 +181,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 					skippedJob.Stage = manager.JobStage_Skipped
 					log.Printf("processDeployJobs: skipped job: %s", manager.PrintJob(skippedJob))
 				}
-				dequeuedDeploys[deployComponent] = jobs[i]
+				dequeuedDeploys[deployComponent] = job
 			}
 		}
 		// Now advance all deploy jobs, order doesn't matter.
@@ -181,7 +194,7 @@ func (m JobManager) processDeployJobs(jobs []manager.JobState) int {
 	return len(dequeuedDeploys)
 }
 
-func (m JobManager) processAnchorJobs(jobs []manager.JobState) int {
+func (m *JobManager) processAnchorJobs(jobs []manager.JobState) int {
 	// Check if there are any deploy jobs in progress
 	activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
@@ -192,23 +205,23 @@ func (m JobManager) processAnchorJobs(jobs []manager.JobState) int {
 		activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 			return m.isActiveJob(js) && (js.Type == manager.JobType_Anchor)
 		})
-		for i := 0; i < len(jobs); i++ {
-			if jobs[i].Type == manager.JobType_Anchor {
+		for _, job := range jobs {
+			if job.Type == manager.JobType_Anchor {
 				// Launch a new anchor job (hence a list) if:
 				//  - The maximum number of anchor jobs is -1 (infinity)
 				//  - The number of active anchor jobs + the number of dequeued jobs < the configured maximum
 				if (m.maxAnchorJobs == -1) || (len(activeAnchors)+len(dequeuedAnchors) < m.maxAnchorJobs) {
-					dequeuedAnchors = append(dequeuedAnchors, jobs[i])
+					dequeuedAnchors = append(dequeuedAnchors, job)
 				} else {
 					// Skip any pending anchor jobs so that they don't linger in the job queue
-					if err := m.updateJobStage(jobs[i], manager.JobStage_Skipped); err != nil {
-						log.Printf("processAnchorJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(jobs[i]))
+					if err := m.updateJobStage(job, manager.JobStage_Skipped); err != nil {
+						log.Printf("processAnchorJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(job))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
 						// already skipped won't be picked up again, which is ok.
 						return 0
 					}
-					jobs[i].Stage = manager.JobStage_Skipped
-					log.Printf("processAnchorJobs: skipped job: %s", manager.PrintJob(jobs[i]))
+					job.Stage = manager.JobStage_Skipped
+					log.Printf("processAnchorJobs: skipped job: %s", manager.PrintJob(job))
 				}
 			}
 		}
@@ -222,7 +235,7 @@ func (m JobManager) processAnchorJobs(jobs []manager.JobState) int {
 	return len(dequeuedAnchors)
 }
 
-func (m JobManager) processTestJobs(jobs []manager.JobState) int {
+func (m *JobManager) processTestJobs(jobs []manager.JobState) int {
 	// Check if there are any deploy jobs in progress
 	activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
@@ -231,15 +244,14 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 	if len(activeDeploys) == 0 {
 		// - Collapse all smoke tests between deployments into a single run
 		// - Collapse all E2E tests between deployments into a single run
-		for i := 0; i < len(jobs); i++ {
-			jobType := jobs[i].Type
+		for _, job := range jobs {
 			// Break out of the loop as soon as we find a deploy job. We don't want to collapse test jobs across deploy
 			// jobs.
-			if jobType == manager.JobType_Deploy {
+			if job.Type == manager.JobType_Deploy {
 				break
-			} else if (jobType == manager.JobType_TestE2E) || (jobType == manager.JobType_TestSmoke) {
+			} else if (job.Type == manager.JobType_TestE2E) || (job.Type == manager.JobType_TestSmoke) {
 				// Update the cache and database for every skipped job
-				if skippedJob, found := dequeuedTests[jobType]; found {
+				if skippedJob, found := dequeuedTests[job.Type]; found {
 					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
 						log.Printf("processTestJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
 						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
@@ -250,7 +262,7 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 					log.Printf("processTestJobs: skipped job: %s", manager.PrintJob(skippedJob))
 				}
 				// Replace an existing test job with a newer one, or add a new job (hence a map).
-				dequeuedTests[jobType] = jobs[i]
+				dequeuedTests[job.Type] = job
 			}
 		}
 		for _, testJob := range dequeuedTests {
@@ -262,7 +274,7 @@ func (m JobManager) processTestJobs(jobs []manager.JobState) int {
 	return len(dequeuedTests)
 }
 
-func (m JobManager) advanceJob(jobState manager.JobState) {
+func (m *JobManager) advanceJob(jobState manager.JobState) {
 	m.waitGroup.Add(1)
 	go func() {
 		defer func() {
@@ -302,7 +314,7 @@ func (m JobManager) advanceJob(jobState manager.JobState) {
 	}()
 }
 
-func (m JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) {
+func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) {
 	var job manager.Job
 	var genErr error = nil
 	switch jobState.Type {
@@ -325,15 +337,15 @@ func (m JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) {
 	return job, genErr
 }
 
-func (m JobManager) isFinishedJob(jobState manager.JobState) bool {
+func (m *JobManager) isFinishedJob(jobState manager.JobState) bool {
 	return (jobState.Stage == manager.JobStage_Completed) || (jobState.Stage == manager.JobStage_Failed) || (jobState.Stage == manager.JobStage_Skipped)
 }
 
-func (m JobManager) isActiveJob(jobState manager.JobState) bool {
+func (m *JobManager) isActiveJob(jobState manager.JobState) bool {
 	return (jobState.Stage == manager.JobStage_Started) || (jobState.Stage == manager.JobStage_Waiting) || (jobState.Stage == manager.JobStage_Delayed)
 }
 
-func (m JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
+func (m *JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
 	jobState.Stage = jobStage
 	// Update the job in the database before sending any notification - we should just come back and try again.
 	if err := m.db.AdvanceJob(jobState); err != nil {

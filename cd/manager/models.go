@@ -225,6 +225,7 @@ type Manager interface {
 	NewJob(JobState) (string, error)
 	CheckJob(string) string
 	ProcessJobs(chan bool)
+	Pause()
 }
 
 // Repository represents a git service hosting our repositories (e.g. GitHub)
