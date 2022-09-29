@@ -37,6 +37,7 @@ const (
 	JobStage_Waiting   JobStage = "waiting"
 	JobStage_Delayed   JobStage = "delayed"
 	JobStage_Failed    JobStage = "failed"
+	JobStage_Canceled  JobStage = "canceled"
 	JobStage_Completed JobStage = "completed"
 )
 
@@ -69,6 +70,7 @@ const (
 	JobParam_Error     string = "error"
 	JobParam_Layout    string = "layout"
 	JobParam_Manual    string = "manual"
+	JobParam_Force     string = "force"
 )
 
 type DeployComponent string

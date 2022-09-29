@@ -137,17 +137,21 @@ func (m *JobManager) processJobs() {
 					log.Printf("preprocessJobs: job generation failed: %v, %s", err, manager.PrintJob(jobState))
 				}
 			}
-			// Decide how to proceed based on the first job from the list
-			if dequeuedJobs[0].Type == manager.JobType_Deploy {
-				if m.processDeployJobs(dequeuedJobs) == 0 {
-					// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to anchor jobs
-					// queued behind deploys because tests need anchors to run and deploys can't run till tests complete.
+			// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked-off.
+			if !m.processForceDeployJobs(dequeuedJobs) {
+				// Decide how to proceed based on the first job from the list
+				if dequeuedJobs[0].Type == manager.JobType_Deploy {
+					if !m.processDeployJobs(dequeuedJobs) {
+						// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to
+						// anchor jobs queued behind deploys because tests need anchors to run, and deploys can't run
+						// till tests complete.
+						m.processAnchorJobs(dequeuedJobs)
+					}
+				} else {
+					// Test and anchor jobs can run in parallel
+					m.processTestJobs(dequeuedJobs)
 					m.processAnchorJobs(dequeuedJobs)
 				}
-			} else {
-				// Test and anchor jobs can run in parallel
-				m.processTestJobs(dequeuedJobs)
-				m.processAnchorJobs(dequeuedJobs)
 			}
 		}
 	}
@@ -157,71 +161,107 @@ func (m *JobManager) processJobs() {
 	m.waitGroup.Wait()
 }
 
-func (m *JobManager) processDeployJobs(jobs []manager.JobState) int {
-	// Check if there are any jobs in progress
-	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
-	dequeuedDeploys := make(map[string]manager.JobState, 0)
-	if len(activeJobs) == 0 {
-		// Collapse similar, back-to-back deployments into a single run and kick it off.
-		for _, job := range jobs {
-			// Break out of the loop as soon as we find a test job - we don't want to collapse deploys across them.
-			if (job.Type == manager.JobType_TestE2E) || (job.Type == manager.JobType_TestSmoke) {
-				break
-			} else if job.Type == manager.JobType_Deploy {
-				// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
-				deployComponent := job.Params[manager.JobParam_Component].(string)
-				// Update the cache and database for every skipped job
-				if skippedJob, found := dequeuedDeploys[deployComponent]; found {
-					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-						log.Printf("processDeployJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
-						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs already
-						// skipped won't be picked up again, which is ok.
-						return 0
-					}
-					skippedJob.Stage = manager.JobStage_Skipped
-					log.Printf("processDeployJobs: skipped job: %s", manager.PrintJob(skippedJob))
-				}
-				dequeuedDeploys[deployComponent] = job
+func (m *JobManager) processForceDeployJobs(dequeuedJobs []manager.JobState) bool {
+	// Collapse all force deploys for the same component
+	forceDeploys := make(map[string]manager.JobState, 0)
+	for _, dequeuedJob := range dequeuedJobs {
+		if dequeuedJob.Type == manager.JobType_Deploy {
+			if dequeuedJobForce, _ := dequeuedJob.Params[manager.JobParam_Force].(bool); dequeuedJobForce {
+				// Replace an existing job with a newer one, or add a new job (hence a map).
+				forceDeploys[dequeuedJob.Params[manager.JobParam_Component].(string)] = dequeuedJob
 			}
 		}
-		// Now advance all deploy jobs, order doesn't matter.
-		for _, deployJob := range dequeuedDeploys {
+	}
+	if len(forceDeploys) > 0 {
+		// Skip any dequeued jobs for components being force deployed
+		for _, dequeuedJob := range dequeuedJobs {
+			if dequeuedJob.Type == manager.JobType_Deploy {
+				if forceDeploy, found := forceDeploys[dequeuedJob.Params[manager.JobParam_Component].(string)]; found && (dequeuedJob.Id != forceDeploy.Id) {
+					if err := m.updateJobStage(dequeuedJob, manager.JobStage_Skipped); err != nil {
+						// Return `true` from here so that no state is changed and the loop can restart cleanly. Any
+						// jobs already skipped won't be picked up again, which is ok.
+						return true
+					}
+				}
+			}
+		}
+		// Cancel any running jobs for components being force deployed
+		activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+			return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
+		})
+		for _, activeDeploy := range activeDeploys {
+			if _, found := forceDeploys[activeDeploy.Params[manager.JobParam_Component].(string)]; found {
+				if err := m.updateJobStage(activeDeploy, manager.JobStage_Canceled); err != nil {
+					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any jobs
+					// already skipped won't be picked up again, which is ok.
+					return true
+				}
+			}
+		}
+		// Now advance all force deploy jobs, order doesn't matter.
+		for _, deployJob := range forceDeploys {
 			m.advanceJob(deployJob)
 		}
+		return true
+	}
+	return false
+}
+
+func (m *JobManager) processDeployJobs(dequeuedJobs []manager.JobState) bool {
+	// Check if there are any jobs in progress
+	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
+	if len(activeJobs) == 0 {
+		// We know the first job is a deploy, so pick out the component for that job, collapse as many back-to-back jobs
+		// as possible for that component, then run the final job.
+		deployJob := dequeuedJobs[0]
+		deployComponent := deployJob.Params[manager.JobParam_Component].(string)
+		// Collapse similar, back-to-back deployments into a single run and kick it off.
+		for i := 1; i < len(dequeuedJobs); i++ {
+			dequeuedJob := dequeuedJobs[i]
+			// Break out of the loop as soon as we find a test job - we don't want to collapse deploys across them.
+			if (dequeuedJob.Type == manager.JobType_TestE2E) || (dequeuedJob.Type == manager.JobType_TestSmoke) {
+				break
+			} else if (dequeuedJob.Type == manager.JobType_Deploy) && (dequeuedJob.Params[manager.JobParam_Component].(string) == deployComponent) {
+				// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
+				// Update the cache and database for every skipped job
+				if err := m.updateJobStage(deployJob, manager.JobStage_Skipped); err != nil {
+					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any
+					// jobs already skipped won't be picked up again, which is ok.
+					return true
+				}
+			}
+			deployJob = dequeuedJob
+		}
+		m.advanceJob(deployJob)
+		return true
 	} else {
 		log.Printf("processDeployJobs: other jobs in progress")
 	}
-	return len(dequeuedDeploys)
+	return false
 }
 
-func (m *JobManager) processAnchorJobs(jobs []manager.JobState) int {
+func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 	// Check if there are any deploy jobs in progress
 	activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
-	dequeuedAnchors := make([]manager.JobState, 0, 0)
 	if len(activeDeploys) == 0 {
 		// Lookup any anchor jobs in progress
 		activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 			return m.isActiveJob(js) && (js.Type == manager.JobType_Anchor)
 		})
-		for _, job := range jobs {
-			if job.Type == manager.JobType_Anchor {
+		dequeuedAnchors := make([]manager.JobState, 0, 0)
+		for _, dequeuedJob := range dequeuedJobs {
+			if dequeuedJob.Type == manager.JobType_Anchor {
 				// Launch a new anchor job (hence a list) if:
 				//  - The maximum number of anchor jobs is -1 (infinity)
 				//  - The number of active anchor jobs + the number of dequeued jobs < the configured maximum
 				if (m.maxAnchorJobs == -1) || (len(activeAnchors)+len(dequeuedAnchors) < m.maxAnchorJobs) {
-					dequeuedAnchors = append(dequeuedAnchors, job)
-				} else {
-					// Skip any pending anchor jobs so that they don't linger in the job queue
-					if err := m.updateJobStage(job, manager.JobStage_Skipped); err != nil {
-						log.Printf("processAnchorJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(job))
-						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
-						// already skipped won't be picked up again, which is ok.
-						return 0
-					}
-					job.Stage = manager.JobStage_Skipped
-					log.Printf("processAnchorJobs: skipped job: %s", manager.PrintJob(job))
+					dequeuedAnchors = append(dequeuedAnchors, dequeuedJob)
+				} else if err := m.updateJobStage(dequeuedJob, manager.JobStage_Skipped); err != nil { // Skip any pending anchor jobs so that they don't linger in the job queue
+					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any jobs
+					// already skipped won't be picked up again, which is ok.
+					return true
 				}
 			}
 		}
@@ -229,49 +269,48 @@ func (m *JobManager) processAnchorJobs(jobs []manager.JobState) int {
 		for _, anchorJob := range dequeuedAnchors {
 			m.advanceJob(anchorJob)
 		}
+		return len(dequeuedAnchors) > 0
 	} else {
 		log.Printf("processAnchorJobs: deployment in progress")
 	}
-	return len(dequeuedAnchors)
+	return false
 }
 
-func (m *JobManager) processTestJobs(jobs []manager.JobState) int {
+func (m *JobManager) processTestJobs(dequeuedJobs []manager.JobState) bool {
 	// Check if there are any deploy jobs in progress
 	activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
-	dequeuedTests := make(map[manager.JobType]manager.JobState, 0)
 	if len(activeDeploys) == 0 {
 		// - Collapse all smoke tests between deployments into a single run
 		// - Collapse all E2E tests between deployments into a single run
-		for _, job := range jobs {
+		dequeuedTests := make(map[manager.JobType]manager.JobState, 0)
+		for _, dequeuedJob := range dequeuedJobs {
 			// Break out of the loop as soon as we find a deploy job. We don't want to collapse test jobs across deploy
 			// jobs.
-			if job.Type == manager.JobType_Deploy {
+			if dequeuedJob.Type == manager.JobType_Deploy {
 				break
-			} else if (job.Type == manager.JobType_TestE2E) || (job.Type == manager.JobType_TestSmoke) {
+			} else if (dequeuedJob.Type == manager.JobType_TestE2E) || (dequeuedJob.Type == manager.JobType_TestSmoke) {
 				// Update the cache and database for every skipped job
-				if skippedJob, found := dequeuedTests[job.Type]; found {
-					if err := m.updateJobStage(skippedJob, manager.JobStage_Skipped); err != nil {
-						log.Printf("processTestJobs: failed to update skipped job: %v, %s", err, manager.PrintJob(skippedJob))
-						// Return from here so that no state is changed and the loop can restart cleanly. Any jobs
-						// already skipped won't be picked up again, which is ok.
-						return 0
+				if jobToSkip, found := dequeuedTests[dequeuedJob.Type]; found {
+					if err := m.updateJobStage(jobToSkip, manager.JobStage_Skipped); err != nil {
+						// Return `true` from here so that no state is changed and the loop can restart cleanly. Any
+						// jobs already skipped won't be picked up again, which is ok.
+						return true
 					}
-					skippedJob.Stage = manager.JobStage_Skipped
-					log.Printf("processTestJobs: skipped job: %s", manager.PrintJob(skippedJob))
 				}
 				// Replace an existing test job with a newer one, or add a new job (hence a map).
-				dequeuedTests[job.Type] = job
+				dequeuedTests[dequeuedJob.Type] = dequeuedJob
 			}
 		}
 		for _, testJob := range dequeuedTests {
 			m.advanceJob(testJob)
 		}
+		return len(dequeuedTests) > 0
 	} else {
 		log.Printf("processTestJobs: deployment in progress")
 	}
-	return len(dequeuedTests)
+	return false
 }
 
 func (m *JobManager) advanceJob(jobState manager.JobState) {
@@ -338,7 +377,7 @@ func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) 
 }
 
 func (m *JobManager) isFinishedJob(jobState manager.JobState) bool {
-	return (jobState.Stage == manager.JobStage_Completed) || (jobState.Stage == manager.JobStage_Failed) || (jobState.Stage == manager.JobStage_Skipped)
+	return (jobState.Stage == manager.JobStage_Skipped) || (jobState.Stage == manager.JobStage_Canceled) || (jobState.Stage == manager.JobStage_Failed) || (jobState.Stage == manager.JobStage_Completed)
 }
 
 func (m *JobManager) isActiveJob(jobState manager.JobState) bool {
@@ -349,8 +388,10 @@ func (m *JobManager) updateJobStage(jobState manager.JobState, jobStage manager.
 	jobState.Stage = jobStage
 	// Update the job in the database before sending any notification - we should just come back and try again.
 	if err := m.db.AdvanceJob(jobState); err != nil {
+		log.Printf("updateJobStage: failed to update %s job: %v, %s", jobStage, err, manager.PrintJob(jobState))
 		return err
 	}
+	log.Printf("updateJobStage: %s job: %s", jobStage, manager.PrintJob(jobState))
 	m.notifs.NotifyJob(jobState)
 	return nil
 }

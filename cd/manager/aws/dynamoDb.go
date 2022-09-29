@@ -123,6 +123,8 @@ func (db DynamoDb) InitializeJobs() error {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Failed); err != nil {
 		return err
+	} else if err = db.loadJobs(manager.JobStage_Canceled); err != nil {
+		return err
 	} else if err = db.loadJobs(manager.JobStage_Delayed); err != nil {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Waiting); err != nil {
