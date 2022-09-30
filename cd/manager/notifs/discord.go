@@ -162,6 +162,8 @@ func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 		return DiscordColor_Warning
 	case manager.JobStage_Failed:
 		return DiscordColor_Alert
+	case manager.JobStage_Canceled:
+		return DiscordColor_Warning
 	case manager.JobStage_Completed:
 		return DiscordColor_Ok
 	default:
