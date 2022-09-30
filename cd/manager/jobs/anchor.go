@@ -17,15 +17,15 @@ const StartTimeParam = "start"
 var _ manager.Job = &anchorJob{}
 
 type anchorJob struct {
-	state manager.JobState
-	db    manager.Database
-	d     manager.Deployment
-	n     manager.Notifs
-	env   string
+	state  manager.JobState
+	db     manager.Database
+	d      manager.Deployment
+	notifs manager.Notifs
+	env    string
 }
 
-func AnchorJob(db manager.Database, d manager.Deployment, n manager.Notifs, jobState manager.JobState) manager.Job {
-	return &anchorJob{jobState, db, d, n, os.Getenv("ENV")}
+func AnchorJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) manager.Job {
+	return &anchorJob{jobState, db, d, notifs, os.Getenv("ENV")}
 }
 
 func (a anchorJob) AdvanceJob() (manager.JobState, error) {
@@ -91,6 +91,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return a.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
+	a.notifs.NotifyJob(a.state)
 	return a.state, a.db.AdvanceJob(a.state)
 }
 

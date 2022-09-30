@@ -120,6 +120,10 @@ const (
 	NotifField_CommitHashes string = "Commit Hashes"
 	NotifField_JobId        string = "Job ID"
 	NotifField_Time         string = "Time"
+	NotifField_Deploy       string = "Deployment(s)"
+	NotifField_Anchor       string = "Anchor Worker(s)"
+	NotifField_TestE2E      string = "E2E Tests"
+	NotifField_TestSmoke    string = "Smoke Tests"
 )
 
 // Repository
@@ -305,6 +309,29 @@ func JobName(job JobType) string {
 	}
 }
 
+func NotifField(job JobType) string {
+	switch job {
+	case JobType_Deploy:
+		return NotifField_Deploy
+	case JobType_Anchor:
+		return NotifField_Anchor
+	case JobType_TestE2E:
+		return NotifField_TestE2E
+	case JobType_TestSmoke:
+		return NotifField_TestSmoke
+	default:
+		return ""
+	}
+}
+
 func CeramicEnvPfx() string {
 	return "ceramic-" + os.Getenv("ENV")
+}
+
+func IsFinishedJob(jobState JobState) bool {
+	return (jobState.Stage == JobStage_Skipped) || (jobState.Stage == JobStage_Canceled) || (jobState.Stage == JobStage_Failed) || (jobState.Stage == JobStage_Completed)
+}
+
+func IsActiveJob(jobState JobState) bool {
+	return (jobState.Stage == JobStage_Started) || (jobState.Stage == JobStage_Waiting) || (jobState.Stage == JobStage_Delayed)
 }

@@ -66,6 +66,7 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return e.state, fmt.Errorf("e2eJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
+	e.notifs.NotifyJob(e.state)
 	return e.state, e.db.AdvanceJob(e.state)
 }
 

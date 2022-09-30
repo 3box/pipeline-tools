@@ -33,13 +33,14 @@ var _ manager.Notifs = &JobNotifs{}
 
 type JobNotifs struct {
 	db                 manager.Database
+	cache              manager.Cache
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
 	testWebhook        webhook.Client
 	env                manager.EnvType
 }
 
-func NewJobNotifs(db manager.Database) (manager.Notifs, error) {
+func NewJobNotifs(db manager.Database, cache manager.Cache) (manager.Notifs, error) {
 	if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
@@ -47,7 +48,7 @@ func NewJobNotifs(db manager.Database) (manager.Notifs, error) {
 	} else if t, err := parseDiscordWebhookUrl("DISCORD_TEST_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &JobNotifs{db, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &JobNotifs{db, cache, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
@@ -145,6 +146,10 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 		Name:  manager.NotifField_Time,
 		Value: time.Now().Format(time.RFC1123), // "Mon, 02 Jan 2006 15:04:05 MST"
 	})
+	// Add the list of jobs in progress
+	if activeJobs := n.getActiveJobs(jobState); len(activeJobs) > 0 {
+		fields = append(fields, activeJobs...)
+	}
 	return fields
 }
 
@@ -194,4 +199,38 @@ func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 func (n JobNotifs) getComponentMsg(component manager.DeployComponent, sha string) string {
 	repo := manager.ComponentRepo(component)
 	return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, sha[:12], manager.GitHubOrg, repo, sha)
+}
+
+func (n JobNotifs) getActiveJobs(jobState manager.JobState) []discord.EmbedField {
+	fields := make([]discord.EmbedField, 0, 0)
+	if field, found := n.getActiveJobsByType(jobState, manager.JobType_Deploy); found {
+		fields = append(fields, field)
+	}
+	if field, found := n.getActiveJobsByType(jobState, manager.JobType_Anchor); found {
+		fields = append(fields, field)
+	}
+	if field, found := n.getActiveJobsByType(jobState, manager.JobType_TestE2E); found {
+		fields = append(fields, field)
+	}
+	if field, found := n.getActiveJobsByType(jobState, manager.JobType_TestSmoke); found {
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func (n JobNotifs) getActiveJobsByType(jobState manager.JobState, jobType manager.JobType) (discord.EmbedField, bool) {
+	activeJobs := n.cache.JobsByMatcher(func(js manager.JobState) bool {
+		return manager.IsActiveJob(js) && (js.Type == jobType)
+	})
+	message := ""
+	for _, activeJob := range activeJobs {
+		// Exclude job for which this notification is being generated
+		if activeJob.Id != jobState.Id {
+			message += fmt.Sprintf("%s (%s)\n", activeJob.Id, activeJob.Stage)
+		}
+	}
+	return discord.EmbedField{
+		Name:  manager.NotifField(jobType) + ":",
+		Value: message,
+	}, len(message) > 0
 }

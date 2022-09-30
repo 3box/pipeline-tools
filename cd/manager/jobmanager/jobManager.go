@@ -100,7 +100,7 @@ func (m *JobManager) Pause() {
 func (m *JobManager) processJobs() {
 	// Age out completed/failed/skipped jobs older than 1 day.
 	oldJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return m.isFinishedJob(js) && time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
+		return manager.IsFinishedJob(js) && time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
 	})
 	if len(oldJobs) > 0 {
 		log.Printf("processJobs: aging out %d jobs...", len(oldJobs))
@@ -111,7 +111,7 @@ func (m *JobManager) processJobs() {
 		}
 	}
 	// Find all jobs in progress and advance their state before looking for new jobs.
-	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
+	activeJobs := m.cache.JobsByMatcher(manager.IsActiveJob)
 	if len(activeJobs) > 0 {
 		log.Printf("processJobs: checking %d jobs in progress: %s", len(activeJobs), manager.PrintJob(activeJobs...))
 		for _, job := range activeJobs {
@@ -187,7 +187,7 @@ func (m *JobManager) processForceDeployJobs(dequeuedJobs []manager.JobState) boo
 		}
 		// Cancel any running jobs for components being force deployed
 		activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-			return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
+			return manager.IsActiveJob(js) && (js.Type == manager.JobType_Deploy)
 		})
 		for _, activeDeploy := range activeDeploys {
 			if _, found := forceDeploys[activeDeploy.Params[manager.JobParam_Component].(string)]; found {
@@ -209,7 +209,7 @@ func (m *JobManager) processForceDeployJobs(dequeuedJobs []manager.JobState) boo
 
 func (m *JobManager) processDeployJobs(dequeuedJobs []manager.JobState) bool {
 	// Check if there are any jobs in progress
-	activeJobs := m.cache.JobsByMatcher(m.isActiveJob)
+	activeJobs := m.cache.JobsByMatcher(manager.IsActiveJob)
 	if len(activeJobs) == 0 {
 		// We know the first job is a deploy, so pick out the component for that job, collapse as many back-to-back jobs
 		// as possible for that component, then run the final job.
@@ -243,12 +243,12 @@ func (m *JobManager) processDeployJobs(dequeuedJobs []manager.JobState) bool {
 func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 	// Check if there are any deploy jobs in progress
 	activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
+		return manager.IsActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
 	if len(activeDeploys) == 0 {
 		// Lookup any anchor jobs in progress
 		activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-			return m.isActiveJob(js) && (js.Type == manager.JobType_Anchor)
+			return manager.IsActiveJob(js) && (js.Type == manager.JobType_Anchor)
 		})
 		dequeuedAnchors := make([]manager.JobState, 0, 0)
 		for _, dequeuedJob := range dequeuedJobs {
@@ -279,7 +279,7 @@ func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 func (m *JobManager) processTestJobs(dequeuedJobs []manager.JobState) bool {
 	// Check if there are any deploy jobs in progress
 	activeDeploys := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return m.isActiveJob(js) && (js.Type == manager.JobType_Deploy)
+		return manager.IsActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
 	if len(activeDeploys) == 0 {
 		// - Collapse all smoke tests between deployments into a single run
@@ -374,14 +374,6 @@ func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) 
 		}
 	}
 	return job, genErr
-}
-
-func (m *JobManager) isFinishedJob(jobState manager.JobState) bool {
-	return (jobState.Stage == manager.JobStage_Skipped) || (jobState.Stage == manager.JobStage_Canceled) || (jobState.Stage == manager.JobStage_Failed) || (jobState.Stage == manager.JobStage_Completed)
-}
-
-func (m *JobManager) isActiveJob(jobState manager.JobState) bool {
-	return (jobState.Stage == manager.JobStage_Started) || (jobState.Stage == manager.JobStage_Waiting) || (jobState.Stage == manager.JobStage_Delayed)
 }
 
 func (m *JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {

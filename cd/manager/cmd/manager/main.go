@@ -80,7 +80,7 @@ func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Man
 	deployment := aws.NewEcs(cfg)
 	apiGw := aws.NewApiGw(cfg)
 	repo := repository.NewRepository()
-	n, err := notifs.NewJobNotifs(db)
+	n, err := notifs.NewJobNotifs(db, cache)
 	if err != nil {
 		log.Fatalf("failed to initialize notifications: %q", err)
 	}
