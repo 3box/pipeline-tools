@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/disgo/webhook"
@@ -121,9 +124,12 @@ func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 		component := jobState.Params[manager.JobParam_Component].(string)
 		jobTitlePfx = fmt.Sprintf("3Box Labs `%s` %s ", manager.EnvName(n.env), strings.ToUpper(component))
 	}
+	// A "force" job is necessarily also a "manual" job, so no need to show both.
 	jobName := manager.JobName(jobState.Type)
-	if manual, found := jobState.Params[manager.JobParam_Manual].(bool); found && manual {
-		jobName = fmt.Sprintf("%s %s", manager.JobParam_Manual, jobName)
+	if force, found := jobState.Params[manager.JobParam_Force].(bool); found && force {
+		jobName = fmt.Sprintf("%s %s", cases.Title(language.English).String(manager.JobParam_Force), jobName)
+	} else if manual, found := jobState.Params[manager.JobParam_Manual].(bool); found && manual {
+		jobName = fmt.Sprintf("%s %s", cases.Title(language.English).String(manager.JobParam_Manual), jobName)
 	}
 	return fmt.Sprintf("%s%s %s", jobTitlePfx, jobName, strings.ToUpper(string(jobState.Stage)))
 }
