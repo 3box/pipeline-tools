@@ -11,6 +11,7 @@ const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
 const DefaultFailureTime = 30 * time.Minute
 const DefaultHttpWaitTime = 10 * time.Second
+const DefaultTaskStartupTime = 5 * time.Minute
 
 type JobType string
 
@@ -71,6 +72,7 @@ const (
 	JobParam_Layout    string = "layout"
 	JobParam_Manual    string = "manual"
 	JobParam_Force     string = "force"
+	JobParam_Start     string = "start"
 )
 
 type DeployComponent string
@@ -334,4 +336,13 @@ func IsFinishedJob(jobState JobState) bool {
 
 func IsActiveJob(jobState JobState) bool {
 	return (jobState.Stage == JobStage_Started) || (jobState.Stage == JobStage_Waiting) || (jobState.Stage == JobStage_Delayed)
+}
+
+func IsTimedOut(jobState JobState, delay time.Duration) bool {
+	// If no timestamp was stored, use the timestamp from the last update.
+	startTime := jobState.Ts
+	if s, found := jobState.Params[JobParam_Start].(float64); found {
+		startTime = time.UnixMilli(int64(s))
+	}
+	return time.Now().Add(-delay).After(startTime)
 }

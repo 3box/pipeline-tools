@@ -81,16 +81,17 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("deployJob: error updating service: %v, %s", err, manager.PrintJob(d.state))
 		} else {
 			d.state.Stage = manager.JobStage_Started
+			d.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
 			// For started deployments update the build commit hash in the DB.
 			if err = d.db.UpdateBuildHash(d.component, d.sha); err != nil {
 				// This isn't an error big enough to fail the job, just report and move on.
 				log.Printf("deployJob: failed to update build hash: %v, %s", err, manager.PrintJob(d.state))
 			}
 		}
-	} else if time.Now().Add(-manager.DefaultFailureTime).After(d.state.Ts) {
+	} else if manager.IsTimedOut(d.state, manager.DefaultFailureTime) {
 		d.state.Stage = manager.JobStage_Failed
 		d.state.Params[manager.JobParam_Error] = manager.Error_Timeout
-		log.Printf("deployJob: job timed out: %s", manager.PrintJob(d.state))
+		log.Printf("deployJob: job run timed out: %s", manager.PrintJob(d.state))
 	} else if d.state.Stage == manager.JobStage_Started {
 		// Check if all service updates completed
 		if running, err := d.checkEnv(); err != nil {

@@ -10,7 +10,7 @@ import (
 )
 
 // Allow up to 4 hours for E2E tests to run
-const FailureTime = 4 * time.Hour
+const E2eFailureTime = 4 * time.Hour
 
 var _ manager.Job = &e2eTestJob{}
 
@@ -33,11 +33,12 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("e2eTestJob: error starting tests: %v, %s", err, manager.PrintJob(e.state))
 		} else {
 			e.state.Stage = manager.JobStage_Started
+			e.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
 		}
-	} else if time.Now().Add(-FailureTime).After(e.state.Ts) {
+	} else if manager.IsTimedOut(e.state, E2eFailureTime) { // Tests did not finish in time
 		e.state.Stage = manager.JobStage_Failed
 		e.state.Params[manager.JobParam_Error] = manager.Error_Timeout
-		log.Printf("e2eTestJob: job timed out: %s", manager.PrintJob(e.state))
+		log.Printf("e2eTestJob: job run timed out: %s", manager.PrintJob(e.state))
 	} else if e.state.Stage == manager.JobStage_Started {
 		// Check if all suites started successfully
 		if running, err := e.checkE2eTests(true); err != nil {
@@ -46,6 +47,10 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("e2eTestJob: error checking tests running status: %v, %s", err, manager.PrintJob(e.state))
 		} else if running {
 			e.state.Stage = manager.JobStage_Waiting
+		} else if manager.IsTimedOut(e.state, manager.DefaultTaskStartupTime) { // Tests did not start running in time
+			e.state.Stage = manager.JobStage_Failed
+			e.state.Params[manager.JobParam_Error] = manager.Error_Timeout
+			log.Printf("e2eTestJob: job startup timed out: %s", manager.PrintJob(e.state))
 		} else {
 			// Return so we come back again to check
 			return e.state, nil

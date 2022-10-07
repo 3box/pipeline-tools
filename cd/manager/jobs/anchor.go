@@ -12,7 +12,6 @@ import (
 // Allow up to 3 hours for anchor workers to run
 const AnchorFailureTime = 3 * time.Hour
 const TaskIdParam = "id"
-const StartTimeParam = "start"
 
 var _ manager.Job = &anchorJob{}
 
@@ -44,12 +43,12 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			// Update the job stage and spawned task identifier
 			a.state.Stage = manager.JobStage_Started
 			a.state.Params[TaskIdParam] = id
-			a.state.Params[StartTimeParam] = time.Now().UnixMilli()
+			a.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
 		}
-	} else if a.isTimedOut(AnchorFailureTime) {
+	} else if manager.IsTimedOut(a.state, AnchorFailureTime) { // Anchor worker did not finish in time
 		a.state.Stage = manager.JobStage_Failed
 		a.state.Params[manager.JobParam_Error] = manager.Error_Timeout
-		log.Printf("anchorJob: job timed out: %s", manager.PrintJob(a.state))
+		log.Printf("anchorJob: job run timed out: %s", manager.PrintJob(a.state))
 	} else if a.state.Stage == manager.JobStage_Started {
 		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[TaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
@@ -57,6 +56,10 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("anchorJob: error checking task running status: %v, %s", err, manager.PrintJob(a.state))
 		} else if running {
 			a.state.Stage = manager.JobStage_Waiting
+		} else if manager.IsTimedOut(a.state, manager.DefaultTaskStartupTime) { // Anchor worker did not start running in time
+			a.state.Stage = manager.JobStage_Failed
+			a.state.Params[manager.JobParam_Error] = manager.Error_Timeout
+			log.Printf("anchorJob: job startup timed out: %s", manager.PrintJob(a.state))
 		} else {
 			// Return so we come back again to check
 			return a.state, nil
@@ -68,7 +71,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
 		} else if stopped {
 			a.state.Stage = manager.JobStage_Completed
-		} else if a.isTimedOut(AnchorFailureTime / 2) {
+		} else if manager.IsTimedOut(a.state, AnchorFailureTime/2) {
 			// If the job has been running for 1.5 hours, mark it "delayed".
 			a.state.Stage = manager.JobStage_Delayed
 			log.Printf("anchorJob: job delayed: %s", manager.PrintJob(a.state))
@@ -93,13 +96,4 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 	}
 	a.notifs.NotifyJob(a.state)
 	return a.state, a.db.AdvanceJob(a.state)
-}
-
-func (a anchorJob) isTimedOut(delay time.Duration) bool {
-	// If no timestamp was stored, use the timestamp from the last update.
-	startTime := a.state.Ts
-	if s, found := a.state.Params[StartTimeParam].(float64); found {
-		startTime = time.UnixMilli(int64(s))
-	}
-	return time.Now().Add(-delay).After(startTime)
 }
