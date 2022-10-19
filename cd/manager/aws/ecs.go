@@ -373,7 +373,7 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		Service:              aws.String(service),
 		Cluster:              aws.String(cluster),
 		EnableExecuteCommand: aws.Bool(true),
-		ForceNewDeployment:   false,
+		ForceNewDeployment:   true, // enable this so that the deployment circuit breaker can kick-in
 		TaskDefinition:       aws.String(newTaskDefArn),
 	}
 	if _, err = e.ecsClient.UpdateService(ctx, updateSvcInput); err != nil {
