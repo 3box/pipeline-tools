@@ -138,15 +138,17 @@ func (db DynamoDb) InitializeJobs() error {
 
 func (db DynamoDb) loadJobs(stage manager.JobStage) error {
 	return db.iterateJobs(stage, func(jobState manager.JobState) bool {
+		// Write loaded jobs to the cache
 		db.cache.WriteJob(jobState)
-		// Return true so that we keep on iterating.
+		// Return true so that we keep on iterating
 		return true
 	})
 }
 
 func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 	// Only write this job to the database since that's where our de/queueing is expected to happen from. The cache is
-	// just a hash-map from job IDs to job state.
+	// just a hash-map from job IDs to job state for active jobs. Queued-but-not-started jobs are not added to the cache
+	// until they are in progress.
 	return db.WriteJob(jobState)
 }
 

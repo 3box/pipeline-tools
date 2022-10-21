@@ -73,6 +73,7 @@ const (
 	JobParam_Manual    string = "manual"
 	JobParam_Force     string = "force"
 	JobParam_Start     string = "start"
+	JobParam_Rollback  string = "rollback"
 )
 
 type DeployComponent string

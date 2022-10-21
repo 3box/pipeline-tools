@@ -60,7 +60,7 @@ func (m *JobManager) CheckJob(jobId string) string {
 }
 
 func (m *JobManager) ProcessJobs(shutdownCh chan bool) {
-	// Create a ticker to poll the database for new jobs.
+	// Create a ticker to poll the database for new jobs
 	tick := time.NewTicker(manager.DefaultTick)
 	// Only allow one run token to exist, and start with it available for the processing loop to start running.
 	runToken := make(chan bool, 1)
@@ -72,7 +72,7 @@ func (m *JobManager) ProcessJobs(shutdownCh chan bool) {
 			case <-shutdownCh:
 				log.Println("manager: stop processing jobs...")
 				tick.Stop()
-				// Attempt to acquire the run token to ensure that no jobs are being processed while shutting down.
+				// Attempt to acquire the run token to ensure that no jobs are being processed while shutting down
 				<-runToken
 				return
 			case <-tick.C:
@@ -98,7 +98,7 @@ func (m *JobManager) Pause() {
 }
 
 func (m *JobManager) processJobs() {
-	// Age out completed/failed/skipped jobs older than 1 day.
+	// Age out completed/failed/skipped jobs older than 1 day
 	oldJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
 		return manager.IsFinishedJob(js) && time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
 	})
@@ -110,7 +110,7 @@ func (m *JobManager) processJobs() {
 			m.cache.DeleteJob(job.Id)
 		}
 	}
-	// Find all jobs in progress and advance their state before looking for new jobs.
+	// Find all jobs in progress and advance their state before looking for new jobs
 	activeJobs := m.cache.JobsByMatcher(manager.IsActiveJob)
 	if len(activeJobs) > 0 {
 		log.Printf("processJobs: checking %d jobs in progress: %s", len(activeJobs), manager.PrintJob(activeJobs...))
@@ -323,7 +323,7 @@ func (m *JobManager) advanceJob(jobState manager.JobState) {
 				fmt.Println("Stack Trace:")
 				debug.PrintStack()
 
-				// Update the job stage and send a Discord notification.
+				// Update the job stage and send a Discord notification
 				jobState.Params[manager.JobParam_Error] = string(debug.Stack())[:1024]
 				if err := m.updateJobStage(jobState, manager.JobStage_Failed); err != nil {
 					log.Printf("advanceJob: job update failed after panic: %v, %s", err, manager.PrintJob(jobState))
@@ -335,18 +335,38 @@ func (m *JobManager) advanceJob(jobState manager.JobState) {
 		if job, err := m.prepareJob(jobState); err != nil {
 			log.Printf("advanceJob: job generation failed: %v, %s", err, manager.PrintJob(jobState))
 		} else if newJobState, err := job.AdvanceJob(); err != nil {
-			// Advancing should automatically update the cache and database in case of failures.
+			// Advancing should automatically update the cache and database in case of failures
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
 		} else if newJobState.Stage != currentJobStage {
 			log.Printf("advanceJob: next job state: %s", manager.PrintJob(newJobState))
-			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment to
-			// stabilize.
-			if (newJobState.Type == manager.JobType_Deploy) && (newJobState.Stage == manager.JobStage_Completed) {
-				if _, err = m.NewJob(manager.JobState{
-					Ts:   time.Now().Add(5 * time.Minute),
-					Type: manager.JobType_TestSmoke,
-				}); err != nil {
-					log.Printf("advanceJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(newJobState))
+			if newJobState.Type == manager.JobType_Deploy {
+				// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment
+				// to stabilize.
+				if newJobState.Stage == manager.JobStage_Completed {
+					if _, err = m.NewJob(manager.JobState{
+						Ts:   time.Now().Add(5 * time.Minute),
+						Type: manager.JobType_TestSmoke,
+					}); err != nil {
+						log.Printf("advanceJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(newJobState))
+					}
+				} else if newJobState.Stage == manager.JobStage_Failed {
+					// Only rollback if this wasn't already a rollback attempt that failed
+					if rollback, _ := newJobState.Params[manager.JobParam_Rollback].(bool); !rollback {
+						// For failed deployments, rollback to the previously deployed commit hash.
+						if _, err = m.NewJob(manager.JobState{
+							Type: manager.JobType_Deploy,
+							Params: map[string]interface{}{
+								manager.JobParam_Component: newJobState.Params[manager.JobParam_Component],
+								manager.JobParam_Rollback:  true,
+								// Make the job lookup the last successfully deployed commit hash from the database
+								manager.JobParam_Sha: ".",
+								// No point in waiting for other jobs to complete before redeploying a working image
+								manager.JobParam_Force: true,
+							},
+						}); err != nil {
+							log.Printf("advanceJob: failed to queue rollback after failed deploy: %v, %s", err, manager.PrintJob(newJobState))
+						}
+					}
 				}
 			}
 		}

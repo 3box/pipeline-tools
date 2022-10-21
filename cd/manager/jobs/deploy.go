@@ -48,11 +48,20 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 					manual = false
 				}
 			} else if isValidSha, err := regexp.MatchString(manager.CommitHashRegex, sha); (err != nil) || !isValidSha {
-				if buildHashes, err := db.GetBuildHashes(); err != nil {
+				var commitHashes map[manager.DeployComponent]string
+				if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
+					// Get the latest successfully deployed commit hash when rolling back
+					if commitHashes, err = db.GetDeployHashes(); err != nil {
+						return nil, err
+					}
+					// Not a manual deploy if this is an automated rollback to a previous commit hash
+					manual = false
+				} else
+				// Get the latest build commit hash when making a fresh deployment
+				if commitHashes, err = db.GetBuildHashes(); err != nil {
 					return nil, err
-				} else {
-					sha = buildHashes[c]
 				}
+				sha = commitHashes[c]
 			}
 			jobState.Params[manager.JobParam_Sha] = sha
 			if manual {

@@ -119,19 +119,27 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 }
 
 func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
-	var jobTitlePfx string
+	notifTitlePfx := manager.JobName(jobState.Type)
 	if jobState.Type == manager.JobType_Deploy {
 		component := jobState.Params[manager.JobParam_Component].(string)
-		jobTitlePfx = fmt.Sprintf("3Box Labs `%s` %s ", manager.EnvName(n.env), strings.ToUpper(component))
+		qualifier := ""
+		// A rollback is always a force job, while a non-rollback force job is always manual, so we can optimize.
+		if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
+			qualifier = manager.JobParam_Rollback
+		} else if force, _ := jobState.Params[manager.JobParam_Force].(bool); force {
+			qualifier = manager.JobParam_Force
+		} else if manual, _ := jobState.Params[manager.JobParam_Manual].(bool); manual {
+			qualifier = manager.JobParam_Manual
+		}
+		notifTitlePfx = fmt.Sprintf(
+			"3Box Labs `%s` %s %s %s",
+			manager.EnvName(n.env),
+			strings.ToUpper(component),
+			cases.Title(language.English).String(qualifier),
+			notifTitlePfx,
+		)
 	}
-	// A "force" job is necessarily also a "manual" job, so no need to show both.
-	jobName := manager.JobName(jobState.Type)
-	if force, found := jobState.Params[manager.JobParam_Force].(bool); found && force {
-		jobName = fmt.Sprintf("%s %s", cases.Title(language.English).String(manager.JobParam_Force), jobName)
-	} else if manual, found := jobState.Params[manager.JobParam_Manual].(bool); found && manual {
-		jobName = fmt.Sprintf("%s %s", cases.Title(language.English).String(manager.JobParam_Manual), jobName)
-	}
-	return fmt.Sprintf("%s%s %s", jobTitlePfx, jobName, strings.ToUpper(string(jobState.Stage)))
+	return fmt.Sprintf("%s %s", notifTitlePfx, strings.ToUpper(string(jobState.Stage)))
 }
 
 func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedField {
