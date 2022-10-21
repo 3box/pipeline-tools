@@ -236,7 +236,7 @@ func (n JobNotifs) getActiveJobsByType(jobState manager.JobState, jobType manage
 		}
 	}
 	return discord.EmbedField{
-		Name:  manager.NotifField(jobType) + ":",
+		Name:  manager.NotifField(jobType) + " In Progress:",
 		Value: message,
 	}, len(message) > 0
 }
