@@ -17,6 +17,11 @@ import (
 
 var _ manager.Manager = &JobManager{}
 
+// Today starts in the past so that even in the unlikely event that the CD manager restarts right as the day changes,
+// daily jobs WILL get scheduled. It's ok if the same jobs are scheduled more than once since the events are
+// deterministic and immutable.
+var Today = time.Now().AddDate(0, 0, -1)
+
 type JobManager struct {
 	cache         manager.Cache
 	db            manager.Database
@@ -32,8 +37,8 @@ type JobManager struct {
 func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, apiGw manager.ApiGw, repo manager.Repository, notifs manager.Notifs) (manager.Manager, error) {
 	maxAnchorJobs := manager.DefaultCasMaxAnchorWorkers
 	if configMaxAnchorWorkers, found := os.LookupEnv("CAS_MAX_ANCHOR_WORKERS"); found {
-		if parsedMaxAnchorWorkers, err := strconv.ParseInt(configMaxAnchorWorkers, 10, 64); err == nil {
-			maxAnchorJobs = int(parsedMaxAnchorWorkers)
+		if parsedMaxAnchorWorkers, err := strconv.Atoi(configMaxAnchorWorkers); err == nil {
+			maxAnchorJobs = parsedMaxAnchorWorkers
 		}
 	}
 	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, false, new(sync.WaitGroup)}, nil
@@ -41,8 +46,10 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 
 func (m *JobManager) NewJob(jobState manager.JobState) (string, error) {
 	jobState.Stage = manager.JobStage_Queued
-	jobState.Id = uuid.New().String()
-	// Only set the time if it hadn't already been set by the caller.
+	// Only set the job ID/time if not already set by the caller
+	if len(jobState.Id) == 0 {
+		jobState.Id = uuid.New().String()
+	}
 	if jobState.Ts.IsZero() {
 		jobState.Ts = time.Now()
 	}
@@ -98,9 +105,10 @@ func (m *JobManager) Pause() {
 }
 
 func (m *JobManager) processJobs() {
+	now := time.Now()
 	// Age out completed/failed/skipped jobs older than 1 day
 	oldJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return manager.IsFinishedJob(js) && time.Now().AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
+		return manager.IsFinishedJob(js) && now.AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts)
 	})
 	if len(oldJobs) > 0 {
 		log.Printf("processJobs: aging out %d jobs...", len(oldJobs))
@@ -116,6 +124,17 @@ func (m *JobManager) processJobs() {
 		log.Printf("processJobs: checking %d jobs in progress: %s", len(activeJobs), manager.PrintJob(activeJobs...))
 		for _, job := range activeJobs {
 			m.advanceJob(job)
+		}
+	}
+	// Schedule daily tests when the day changes
+	if Today.Day() != now.Day() {
+		if err := m.scheduleDailyTests(manager.JobType_TestE2E, "E2E_TEST_INTERVAL_HR"); err != nil {
+			log.Printf("processJobs: failed to queue e2e tests: %v", err)
+		} else if err = m.scheduleDailyTests(manager.JobType_TestSmoke, "SMOKE_TEST_INTERVAL_HR"); err != nil {
+			log.Printf("processJobs: failed to queue smoke tests: %v", err)
+		} else if err == nil {
+			// Only advance `Today` if there were no errors scheduling tests
+			Today = now
 		}
 	}
 	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
@@ -159,6 +178,38 @@ func (m *JobManager) processJobs() {
 	// completed before we iterate again. The ticker will automatically drop ticks then pick back up later if a round of
 	// processing takes longer than 1 tick.
 	m.waitGroup.Wait()
+}
+
+func (m *JobManager) scheduleDailyTests(testType manager.JobType, intervalHrEnv string) error {
+	if intervalHr, found := os.LookupEnv(intervalHrEnv); found {
+		if parsedIntervalHr, err := strconv.Atoi(intervalHr); err != nil {
+			log.Printf("scheduleDailyTests: failed to parse interval: %s, %s, %v", testType, intervalHr, err)
+			// Don't return an error from here because this leg will fail everytime, causing this function to get called
+			// repeatedly.
+		} else {
+			now := time.Now()
+			midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+			// Schedule all jobs for the day (assuming the interval cleanly divides 24 hours)
+			for i := 1; i <= 24/parsedIntervalHr; i++ {
+				newJobTime := midnight.Add(time.Duration(i*parsedIntervalHr) * time.Hour)
+				newJob := manager.JobState{
+					Ts: newJobTime,
+					// Deterministic ID in case the same job gets queued more than once (e.g. if the service restarts).
+					Id:   fmt.Sprintf("%s_%s", testType, newJobTime.Format(time.RFC3339)),
+					Type: testType,
+				}
+				if _, err = m.NewJob(newJob); err != nil {
+					log.Printf("scheduleDailyTests: failed to queue test: %v, %s, %s, %s", err, testType, intervalHr, manager.PrintJob(newJob))
+					// Returning the (likely DB-related) error from here will cause this function to get called again
+					// and the job scheduling re-attempted, which we want so that test jobs get reliably scheduled.
+					return err
+				} else {
+					log.Printf("scheduleDailyTests: scheduled test: %s", manager.PrintJob(newJob))
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (m *JobManager) processForceDeployJobs(dequeuedJobs []manager.JobState) bool {
@@ -339,24 +390,36 @@ func (m *JobManager) advanceJob(jobState manager.JobState) {
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
 		} else if newJobState.Stage != currentJobStage {
 			log.Printf("advanceJob: next job state: %s", manager.PrintJob(newJobState))
-			if newJobState.Type == manager.JobType_Deploy {
-				// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment
-				// to stabilize.
-				if newJobState.Stage == manager.JobStage_Completed {
-					if _, err = m.NewJob(manager.JobState{
+			m.postProcessJob(newJobState)
+		}
+	}()
+}
+
+func (m *JobManager) postProcessJob(jobState manager.JobState) {
+	switch jobState.Type {
+	case manager.JobType_Deploy:
+		{
+			switch jobState.Stage {
+			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the
+			// deployment to stabilize.
+			case manager.JobStage_Completed:
+				{
+					if _, err := m.NewJob(manager.JobState{
 						Ts:   time.Now().Add(5 * time.Minute),
 						Type: manager.JobType_TestSmoke,
 					}); err != nil {
-						log.Printf("advanceJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(newJobState))
+						log.Printf("postProcessJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(jobState))
 					}
-				} else if newJobState.Stage == manager.JobStage_Failed {
+				}
+			// For failed deployments, rollback to the previously deployed commit hash.
+			case manager.JobStage_Failed:
+				{
 					// Only rollback if this wasn't already a rollback attempt that failed
-					if rollback, _ := newJobState.Params[manager.JobParam_Rollback].(bool); !rollback {
-						// For failed deployments, rollback to the previously deployed commit hash.
-						if _, err = m.NewJob(manager.JobState{
+					if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); !rollback {
+						if _, err := m.NewJob(manager.JobState{
 							Type: manager.JobType_Deploy,
 							Params: map[string]interface{}{
-								manager.JobParam_Component: newJobState.Params[manager.JobParam_Component],
+								manager.JobParam_Component: jobState.Params[manager.JobParam_Component],
 								manager.JobParam_Rollback:  true,
 								// Make the job lookup the last successfully deployed commit hash from the database
 								manager.JobParam_Sha: ".",
@@ -364,13 +427,13 @@ func (m *JobManager) advanceJob(jobState manager.JobState) {
 								manager.JobParam_Force: true,
 							},
 						}); err != nil {
-							log.Printf("advanceJob: failed to queue rollback after failed deploy: %v, %s", err, manager.PrintJob(newJobState))
+							log.Printf("postProcessJob: failed to queue rollback after failed deploy: %v, %s", err, manager.PrintJob(jobState))
 						}
 					}
 				}
 			}
 		}
-	}()
+	}
 }
 
 func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) {

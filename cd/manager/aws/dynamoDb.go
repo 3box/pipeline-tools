@@ -245,17 +245,20 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 }
 
 func (db DynamoDb) AdvanceJob(jobState manager.JobState) error {
-	// We might decide dequeue multiple, compatible jobs from the queue during processing, and if we set the timestamp
-	// cursor to the timestamp of the last unprocessed job to be dequeued then decided not to process these jobs
-	// (e.g. if a deployment was in progress), then the cursor could potentially miss one or more earlier jobs out of
-	// the set of eligible jobs the next time we iterate.
+	// We might dequeue multiple, compatible jobs from the queue during processing, and if we set the timestamp cursor
+	// to the timestamp of the last unprocessed job to be dequeued then decided not to process these jobs (e.g. if a
+	// deployment was in progress), then the cursor could potentially miss one or more earlier jobs out of the set of
+	// eligible jobs the next time we iterate.
 	//
 	// Instead we'll set the cursor to the timestamp of the last job to enter processing so that we *know* that any
 	// subsequent jobs haven't yet been processed since we'll always process jobs in order, even if multiple are
 	// processed simultaneously. Jobs that are entering processing will not be present in the cache before this point.
 	if _, found := db.cache.JobById(jobState.Id); !found {
 		// Since this function can be called from multiple goroutines simultaneously (for compatible jobs being
-		// processed in parallel), make sure that the cursor is only moved forward.
+		// processed in parallel), make sure that the cursor generally moves forward. It's possible for a race condition
+		// here to move the cursor slightly backwards if two jobs reach this code exactly right, but that's ok. The
+		// purpose of the cursor isn't to be precise, it's to limit a potentially large number of entries (including
+		// processed ones) from being looked up. A few extra entries will not make a huge difference.
 		if jobState.Ts.After(db.tsCursor) {
 			db.tsCursor = jobState.Ts
 		}
