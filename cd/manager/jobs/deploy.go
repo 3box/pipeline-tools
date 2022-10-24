@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"regexp"
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
@@ -20,48 +19,51 @@ type deployJob struct {
 	notifs    manager.Notifs
 	component manager.DeployComponent
 	sha       string
+	manual    bool
 }
 
 func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repository, notifs manager.Notifs, jobState manager.JobState) (manager.Job, error) {
-	if component, compFound := jobState.Params[manager.JobParam_Component].(string); !compFound {
+	if component, found := jobState.Params[manager.JobParam_Component].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
-	} else if sha, shaFound := jobState.Params[manager.JobParam_Sha].(string); !shaFound {
+	} else if sha, found := jobState.Params[manager.JobParam_Sha].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
 		c := manager.DeployComponent(component)
+		manual := false
 		// If "layout" is absent, this job has been dequeued for the first time and we need to do some preprocessing.
 		if _, found := jobState.Params[manager.JobParam_Layout]; !found {
+			if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
+				// Use the latest successfully deployed commit hash when rolling back
+				deployHashes, err := db.GetDeployHashes()
+				if err != nil {
+					return nil, err
+				}
+				sha = deployHashes[c]
+			} else
 			// - If the specified commit hash is "latest", fetch the latest branch commit hash from GitHub.
 			// - Else if it's a valid hash, use it.
 			// - Else use the latest build hash from the database.
 			//
 			// The last two cases will only happen when redeploying manually, so we can note that in the notification.
-			manual := true
 			if sha == manager.BuildHashLatest {
-				if latestSha, err := repo.GetLatestCommitHash(
+				latestSha, err := repo.GetLatestCommitHash(
 					manager.ComponentRepo(c),
 					manager.EnvBranch(manager.EnvType(os.Getenv("ENV"))),
-				); err != nil {
+				)
+				if err != nil {
 					return nil, err
-				} else {
-					sha = latestSha
-					manual = false
 				}
-			} else if isValidSha, err := regexp.MatchString(manager.CommitHashRegex, sha); (err != nil) || !isValidSha {
-				var commitHashes map[manager.DeployComponent]string
-				if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
-					// Get the latest successfully deployed commit hash when rolling back
-					if commitHashes, err = db.GetDeployHashes(); err != nil {
+				sha = latestSha
+			} else {
+				if !manager.IsValidSha(sha) {
+					// Get the latest build commit hash from the database when making a fresh deployment
+					buildHashes, err := db.GetBuildHashes()
+					if err != nil {
 						return nil, err
 					}
-					// Not a manual deploy if this is an automated rollback to a previous commit hash
-					manual = false
-				} else
-				// Get the latest build commit hash when making a fresh deployment
-				if commitHashes, err = db.GetBuildHashes(); err != nil {
-					return nil, err
+					sha = buildHashes[c]
 				}
-				sha = commitHashes[c]
+				manual = true
 			}
 			jobState.Params[manager.JobParam_Sha] = sha
 			if manual {
@@ -78,13 +80,22 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 			// Send notification for job dequeued for the first time
 			notifs.NotifyJob(jobState)
 		}
-		return &deployJob{jobState, db, d, repo, notifs, c, sha}, nil
+		return &deployJob{jobState, db, d, repo, notifs, c, sha, manual}, nil
 	}
 }
 
 func (d deployJob) AdvanceJob() (manager.JobState, error) {
 	if d.state.Stage == manager.JobStage_Queued {
-		if err := d.updateEnv(d.sha); err != nil {
+		if deployHashes, err := d.db.GetDeployHashes(); err != nil {
+			d.state.Stage = manager.JobStage_Failed
+			d.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("deployJob: error fetching deploy hashes: %v, %s", err, manager.PrintJob(d.state))
+		} else if !d.manual && (d.sha == deployHashes[d.component]) {
+			// Skip automated jobs if the commit hash being deployed is the same as the commit hash already deployed. We
+			// don't do this for manual jobs because deploying an already deployed hash might be intentional.
+			d.state.Stage = manager.JobStage_Skipped
+			log.Printf("deployJob: commit hash same as deployed hash: %s", manager.PrintJob(d.state))
+		} else if err := d.updateEnv(d.sha); err != nil {
 			d.state.Stage = manager.JobStage_Failed
 			d.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("deployJob: error updating service: %v, %s", err, manager.PrintJob(d.state))
@@ -122,8 +133,7 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return d.state, fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
 	}
-	// Only send started/completed/failed notifications.
-	if (d.state.Stage == manager.JobStage_Started) || (d.state.Stage == manager.JobStage_Failed) || (d.state.Stage == manager.JobStage_Completed) {
+	if (d.state.Stage == manager.JobStage_Skipped) || (d.state.Stage == manager.JobStage_Started) || (d.state.Stage == manager.JobStage_Failed) || (d.state.Stage == manager.JobStage_Completed) {
 		d.notifs.NotifyJob(d.state)
 	}
 	return d.state, d.db.AdvanceJob(d.state)

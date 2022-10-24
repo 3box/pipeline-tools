@@ -273,8 +273,7 @@ func (m *JobManager) processDeployJobs(dequeuedJobs []manager.JobState) bool {
 			if (dequeuedJob.Type == manager.JobType_TestE2E) || (dequeuedJob.Type == manager.JobType_TestSmoke) {
 				break
 			} else if (dequeuedJob.Type == manager.JobType_Deploy) && (dequeuedJob.Params[manager.JobParam_Component].(string) == deployComponent) {
-				// Replace an existing deploy job for a component with a newer one, or add a new job (hence a map).
-				// Update the cache and database for every skipped job
+				// Replace the existing deploy job with a newer one, and update the cache and database.
 				if err := m.updateJobStage(deployJob, manager.JobStage_Skipped); err != nil {
 					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any
 					// jobs already skipped won't be picked up again, which is ok.

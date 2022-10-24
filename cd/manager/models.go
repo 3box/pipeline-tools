@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 )
 
@@ -346,4 +347,9 @@ func IsTimedOut(jobState JobState, delay time.Duration) bool {
 		startTime = time.UnixMilli(int64(s))
 	}
 	return time.Now().Add(-delay).After(startTime)
+}
+
+func IsValidSha(sha string) bool {
+	isValidSha, err := regexp.MatchString(CommitHashRegex, sha)
+	return err == nil && isValidSha
 }
