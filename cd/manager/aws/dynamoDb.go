@@ -26,7 +26,7 @@ type DynamoDb struct {
 	jobTable   string
 	buildTable string
 	cache      manager.Cache
-	tsCursor   time.Time
+	cursor     time.Time
 }
 
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
@@ -147,36 +147,53 @@ func (db DynamoDb) loadJobs(stage manager.JobStage) error {
 
 func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 	// Only write this job to the database since that's where our de/queueing is expected to happen from. The cache is
-	// just a hash-map from job IDs to job state for active jobs. Queued-but-not-started jobs are not added to the cache
-	// until they are in progress.
-	return db.WriteJob(jobState)
+	// just a hash-map from job IDs to job state for ACTIVE jobs (jobs are not added to the cache until they are in
+	// progress). This also means that we don't need to write jobs to the database if they're already in the cache.
+	if _, found := db.cache.JobById(jobState.Id); !found {
+		return db.WriteJob(jobState)
+	}
+	return nil
 }
 
 func (db DynamoDb) DequeueJobs() []manager.JobState {
 	jobs := make([]manager.JobState, 0, 0)
+	cursorSet := false
 	if err := db.iterateJobs(manager.JobStage_Queued, func(jobState manager.JobState) bool {
 		// If a job is not already in the cache, append it since it hasn't been dequeued yet.
 		if _, found := db.cache.JobById(jobState.Id); !found {
 			jobs = append(jobs, jobState)
+			// Set the cursor to the timestamp of the first job that is not already in processing (see `iterateJobs` for
+			// explanation why).
+			if !cursorSet {
+				db.cursor = jobState.Ts
+				cursorSet = true
+			}
 		}
 		// Return true so that we keep on iterating.
 		return true
 	}); err != nil {
 		log.Printf("dequeueJobs: failed iteration through jobs: %v", err)
 	}
+	// If the cursor is still unset, then we found no jobs that weren't already in processing or done. In that case, set
+	// the cursor to "now" so we know to search from this point in time onwards. There's no point looking up jobs from
+	// the past that we know no longer need any processing.
+	if !cursorSet {
+		db.cursor = time.Now()
+	}
 	return jobs
 }
 
 func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobState) bool) error {
-	// If available, use the timestamp of the latest job to enter processing as the start of the database search. We
-	// *know* that any subsequent jobs haven't yet been processed since we'll always process jobs in order, even if
-	// multiple are processed simultaneously. Otherwise, look for jobs queued at most 1 day in the past.
-	var rangeTs time.Time
-	ttlTs := time.Now().AddDate(0, 0, -manager.DefaultTtlDays)
-	if db.tsCursor.After(ttlTs) {
-		rangeTs = db.tsCursor
+	// If available, use the timestamp of the previously found first job not already in processing as the start of the
+	// current database search. We can't know for sure that all subsequent jobs are unprocessed (e.g. force deploys or
+	// anchors could mess up that assumption), but what we can say for sure is that all prior jobs have at least entered
+	// processing, and so we haven't missed any jobs. Otherwise, look for jobs queued at most 1 day in the past.
+	var cursor time.Time
+	ttlCursor := time.Now().AddDate(0, 0, -manager.DefaultTtlDays)
+	if db.cursor.After(ttlCursor) {
+		cursor = db.cursor
 	} else {
-		rangeTs = ttlTs
+		cursor = ttlCursor
 	}
 	// Only look for jobs up till the current time. This allows us to schedule jobs in the future (e.g. smoke tests to
 	// start a few minutes after a deployment is complete).
@@ -185,7 +202,7 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 		KeyConditionExpression: aws.String("#stage = :stage and #ts between :ts and :now"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":stage": &types.AttributeValueMemberS{Value: string(jobStage)},
-			":ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(rangeTs.UnixMilli(), 10)},
+			":ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(cursor.UnixMilli(), 10)},
 			":now":   &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().UnixMilli(), 10)},
 		},
 		ExpressionAttributeNames: map[string]string{
@@ -245,24 +262,6 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 }
 
 func (db DynamoDb) AdvanceJob(jobState manager.JobState) error {
-	// We might dequeue multiple, compatible jobs from the queue during processing, and if we set the timestamp cursor
-	// to the timestamp of the last unprocessed job to be dequeued then decided not to process these jobs (e.g. if a
-	// deployment was in progress), then the cursor could potentially miss one or more earlier jobs out of the set of
-	// eligible jobs the next time we iterate.
-	//
-	// Instead we'll set the cursor to the timestamp of the last job to enter processing so that we *know* that any
-	// subsequent jobs haven't yet been processed since we'll always process jobs in order, even if multiple are
-	// processed simultaneously. Jobs that are entering processing will not be present in the cache before this point.
-	if _, found := db.cache.JobById(jobState.Id); !found {
-		// Since this function can be called from multiple goroutines simultaneously (for compatible jobs being
-		// processed in parallel), make sure that the cursor generally moves forward. It's possible for a race condition
-		// here to move the cursor slightly backwards if two jobs reach this code exactly right, but that's ok. The
-		// purpose of the cursor isn't to be precise, it's to limit a potentially large number of entries (including
-		// processed ones) from being looked up. A few extra entries will not make a huge difference.
-		if jobState.Ts.After(db.tsCursor) {
-			db.tsCursor = jobState.Ts
-		}
-	}
 	// Update the timestamp
 	jobState.Ts = time.Now()
 	if err := db.WriteJob(jobState); err != nil {
