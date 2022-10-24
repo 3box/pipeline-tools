@@ -31,6 +31,7 @@ type JobManager struct {
 	notifs        manager.Notifs
 	maxAnchorJobs int
 	paused        bool
+	env           manager.EnvType
 	waitGroup     *sync.WaitGroup
 }
 
@@ -41,7 +42,7 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 			maxAnchorJobs = parsedMaxAnchorWorkers
 		}
 	}
-	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, false, new(sync.WaitGroup)}, nil
+	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, false, manager.EnvType(os.Getenv("ENV")), new(sync.WaitGroup)}, nil
 }
 
 func (m *JobManager) NewJob(jobState manager.JobState) (string, error) {
@@ -128,11 +129,15 @@ func (m *JobManager) processJobs() {
 	}
 	// Schedule daily tests when the day changes
 	if Today.Day() != now.Day() {
-		if err := m.scheduleDailyTests(manager.JobType_TestE2E, "E2E_TEST_INTERVAL_HR"); err != nil {
-			log.Printf("processJobs: failed to queue e2e tests: %v", err)
-		} else if err = m.scheduleDailyTests(manager.JobType_TestSmoke, "SMOKE_TEST_INTERVAL_HR"); err != nil {
+		var err error
+		if err = m.scheduleDailyTests(manager.JobType_TestSmoke, "SMOKE_TEST_INTERVAL_HR"); err != nil {
 			log.Printf("processJobs: failed to queue smoke tests: %v", err)
-		} else if err == nil {
+		} else if m.env == manager.EnvType_Qa { // Only schedule E2E tests in QA
+			if err = m.scheduleDailyTests(manager.JobType_TestE2E, "E2E_TEST_INTERVAL_HR"); err != nil {
+				log.Printf("processJobs: failed to queue e2e tests: %v", err)
+			}
+		}
+		if err == nil {
 			// Only advance `Today` if there were no errors scheduling tests
 			Today = now
 		}
