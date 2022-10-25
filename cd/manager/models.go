@@ -12,7 +12,7 @@ const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
 const DefaultFailureTime = 30 * time.Minute
 const DefaultHttpWaitTime = 10 * time.Second
-const DefaultTaskStartupTime = 5 * time.Minute
+const DefaultWaitTime = 5 * time.Minute
 
 type JobType string
 
@@ -135,6 +135,13 @@ const CommitHashRegex = "[0-9a-f]{40}"
 const BuildHashTag = "sha_tag"
 const BuildHashLatest = "latest"
 const GitHubOrg = "ceramicnetwork"
+const ImageVerificationStatusCheck = "ci/image: verify"
+
+const (
+	CommitStatus_Failure string = "failure"
+	CommitStatus_Pending string = "pending"
+	CommitStatus_Success string = "success"
+)
 
 // Miscellaneous
 const ResourceTag = "Ceramic"

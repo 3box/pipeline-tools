@@ -47,7 +47,7 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("e2eTestJob: error checking tests running status: %v, %s", err, manager.PrintJob(e.state))
 		} else if running {
 			e.state.Stage = manager.JobStage_Waiting
-		} else if manager.IsTimedOut(e.state, manager.DefaultTaskStartupTime) { // Tests did not start running in time
+		} else if manager.IsTimedOut(e.state, manager.DefaultWaitTime) { // Tests did not start running in time
 			e.state.Stage = manager.JobStage_Failed
 			e.state.Params[manager.JobParam_Error] = manager.Error_Timeout
 			log.Printf("e2eTestJob: job startup timed out: %s", manager.PrintJob(e.state))

@@ -17,8 +17,6 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-const EcsTaskStabilityTime = 5 * time.Minute
-
 var _ manager.Deployment = &Ecs{}
 
 type Ecs struct {
@@ -99,7 +97,7 @@ func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArn
 			if (len(taskDefArn) == 0) || (*task.TaskDefinitionArn == taskDefArn) {
 				tasksFound = true
 				if (*task.LastStatus != string(checkStatus)) ||
-					(running && stable && time.Now().Add(-EcsTaskStabilityTime).Before(*task.StartedAt)) {
+					(running && stable && time.Now().Add(-manager.DefaultWaitTime).Before(*task.StartedAt)) {
 					tasksInState = false
 				}
 			}

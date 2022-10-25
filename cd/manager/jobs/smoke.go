@@ -9,9 +9,6 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-// Allow up to 5 minutes for smoke tests to run
-const SmokeTestsWaitTime = 5 * time.Minute
-
 var _ manager.Job = &smokeTestJob{}
 
 type smokeTestJob struct {
@@ -37,7 +34,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 			s.state.Stage = manager.JobStage_Started
 		}
 	} else if s.state.Stage == manager.JobStage_Started {
-		if time.Now().Add(-SmokeTestsWaitTime).After(s.state.Ts) {
+		if time.Now().Add(-manager.DefaultWaitTime).After(s.state.Ts) {
 			// Since we're not monitoring for smoke test completion, give the tests some time to complete.
 			s.state.Stage = manager.JobStage_Completed
 		} else {

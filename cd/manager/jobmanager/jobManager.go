@@ -127,6 +127,8 @@ func (m *JobManager) processJobs() {
 			m.advanceJob(job)
 		}
 	}
+	// Wait for any running job advancement goroutines to finish before kicking off more jobs
+	m.waitGroup.Wait()
 	// Schedule daily tests when the day changes
 	if Today.Day() != now.Day() {
 		var err error
@@ -179,9 +181,8 @@ func (m *JobManager) processJobs() {
 			}
 		}
 	}
-	// Wait for all of this iteration's goroutines to finish so that we're sure that all job advancements have been
-	// completed before we iterate again. The ticker will automatically drop ticks then pick back up later if a round of
-	// processing takes longer than 1 tick.
+	// Wait for all of this iteration's job advancement goroutines to finish before we iterate again. The ticker will
+	// automatically drop ticks then pick back up later if a round of processing takes longer than 1 tick.
 	m.waitGroup.Wait()
 }
 
@@ -404,12 +405,12 @@ func (m *JobManager) postProcessJob(jobState manager.JobState) {
 	case manager.JobType_Deploy:
 		{
 			switch jobState.Stage {
-			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the
-			// deployment to stabilize.
+			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment to
+			// stabilize.
 			case manager.JobStage_Completed:
 				{
 					if _, err := m.NewJob(manager.JobState{
-						Ts:   time.Now().Add(5 * time.Minute),
+						Ts:   time.Now().Add(manager.DefaultWaitTime),
 						Type: manager.JobType_TestSmoke,
 					}); err != nil {
 						log.Printf("postProcessJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(jobState))

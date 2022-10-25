@@ -56,7 +56,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("anchorJob: error checking task running status: %v, %s", err, manager.PrintJob(a.state))
 		} else if running {
 			a.state.Stage = manager.JobStage_Waiting
-		} else if manager.IsTimedOut(a.state, manager.DefaultTaskStartupTime) { // Anchor worker did not start running in time
+		} else if manager.IsTimedOut(a.state, manager.DefaultWaitTime) { // Anchor worker did not start running in time
 			a.state.Stage = manager.JobStage_Failed
 			a.state.Params[manager.JobParam_Error] = manager.Error_Timeout
 			log.Printf("anchorJob: job startup timed out: %s", manager.PrintJob(a.state))
