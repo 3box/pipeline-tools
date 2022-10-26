@@ -48,7 +48,7 @@ dagger.#Plan & {
 					AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 					AWS_ECR_SECRET: client.commands.aws.stdout
 					AWS_REGION:     Region
-					REPO:           "ceramic-qa-tests-smoke_tests"
+					REPO:           "ceramic-qa-tests-smoke"
 					TAGS: ["\(Sha)", "\(ShaTag)", "latest"]
 				}
 			}
