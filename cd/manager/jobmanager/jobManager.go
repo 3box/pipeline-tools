@@ -157,26 +157,34 @@ func (m *JobManager) processJobs() {
 		dequeuedJobs := m.db.DequeueJobs()
 		if len(dequeuedJobs) > 0 {
 			log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
-			// Prepare job objects to allow job-specific preprocessing to be performed on dequeued jobs
+			// Preprocess dequeued jobs, and filter successfully prepared ones.
+			// Ref: https://github.com/golang/go/wiki/SliceTricks#filtering-without-allocating
+			tempSlice := dequeuedJobs[:0]
 			for _, jobState := range dequeuedJobs {
 				if _, err := m.prepareJob(jobState); err != nil {
-					log.Printf("preprocessJobs: job generation failed: %v, %s", err, manager.PrintJob(jobState))
+					log.Printf("processJobs: job generation failed: %v, %s", err, manager.PrintJob(jobState))
+				} else {
+					tempSlice = append(tempSlice, jobState)
 				}
 			}
-			// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked-off.
-			if !m.processForceDeployJobs(dequeuedJobs) {
-				// Decide how to proceed based on the first job from the list
-				if dequeuedJobs[0].Type == manager.JobType_Deploy {
-					if !m.processDeployJobs(dequeuedJobs) {
-						// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to
-						// anchor jobs queued behind deploys because tests need anchors to run, and deploys can't run
-						// till tests complete.
+			dequeuedJobs = tempSlice
+			// Recheck the length of `dequeuedJobs` in case any job(s) failed preprocessing and got filtered out
+			if len(dequeuedJobs) > 0 {
+				// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked-off.
+				if !m.processForceDeployJobs(dequeuedJobs) {
+					// Decide how to proceed based on the first job from the list
+					if dequeuedJobs[0].Type == manager.JobType_Deploy {
+						if !m.processDeployJobs(dequeuedJobs) {
+							// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to
+							// anchor jobs queued behind deploys because tests need anchors to run, and deploys can't run
+							// till tests complete.
+							m.processAnchorJobs(dequeuedJobs)
+						}
+					} else {
+						// Test and anchor jobs can run in parallel
+						m.processTestJobs(dequeuedJobs)
 						m.processAnchorJobs(dequeuedJobs)
 					}
-				} else {
-					// Test and anchor jobs can run in parallel
-					m.processTestJobs(dequeuedJobs)
-					m.processAnchorJobs(dequeuedJobs)
 				}
 			}
 		}
@@ -457,6 +465,7 @@ func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) 
 		genErr = fmt.Errorf("prepareJob: unknown job type: %s", manager.PrintJob(jobState))
 	}
 	if genErr != nil {
+		jobState.Params[manager.JobParam_Error] = genErr
 		if updErr := m.updateJobStage(jobState, manager.JobStage_Failed); updErr != nil {
 			log.Printf("prepareJob: job update failed: %v, %s", updErr, manager.PrintJob(jobState))
 		}

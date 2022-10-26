@@ -3,9 +3,12 @@ package repository
 import (
 	"context"
 	"log"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/go-github/github"
+	"golang.org/x/oauth2"
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
@@ -17,14 +20,21 @@ type Github struct {
 }
 
 func NewRepository() manager.Repository {
-	return &Github{github.NewClient(nil)}
+	var httpClient *http.Client = nil
+	if accessToken, found := os.LookupEnv("GITHUB_ACCESS_TOKEN"); found {
+		ts := oauth2.StaticTokenSource(
+			&oauth2.Token{AccessToken: accessToken},
+		)
+		httpClient = oauth2.NewClient(context.Background(), ts)
+	}
+	return &Github{github.NewClient(httpClient)}
 }
 
 func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
-	if commits, _, err := g.client.Repositories.ListCommits(ctx, manager.GitHubOrg, string(repo), &github.CommitsListOptions{
+	if commits, resp, err := g.client.Repositories.ListCommits(ctx, manager.GitHubOrg, string(repo), &github.CommitsListOptions{
 		SHA: branch,
 		// We want to find the newest commit with all passed status checks so that we don't use a commit that doesn't
 		// already have a corresponding Docker image in ECR, and we might as well request the maximum number of commits.
@@ -34,6 +44,7 @@ func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch string) (str
 	}); err != nil {
 		return "", err
 	} else {
+		log.Printf("getLatestCommitHash: list commits rate limit=%d, remaining=%d, resetAt=%s: ", resp.Limit, resp.Remaining, resp.Reset)
 		for _, commit := range commits {
 			sha := *commit.SHA
 			if checksPassed, err := g.checkRefStatus(repo, sha); err != nil {
@@ -53,7 +64,8 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 		ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 		defer cancel()
 
-		status, _, err := g.client.Repositories.GetCombinedStatus(ctx, manager.GitHubOrg, string(repo), ref, &github.ListOptions{PerPage: 100})
+		status, resp, err := g.client.Repositories.GetCombinedStatus(ctx, manager.GitHubOrg, string(repo), ref, &github.ListOptions{PerPage: 100})
+		log.Printf("checkRefStatus: get combined status rate limit=%d, remaining=%d, resetAt=%s: ", resp.Limit, resp.Remaining, resp.Reset)
 		return status, err
 	}
 	// Wait a few minutes for the status to finalize if it is currently "pending"
@@ -77,8 +89,8 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 			}
 			log.Printf("checkRefStatus: commit status is pending: %s", status.String())
 		}
-		// Wait 1 second so we don't get rate limited
-		time.Sleep(1 * time.Second)
+		// Sleep for a few seconds so we don't get rate limited
+		time.Sleep(manager.DefaultTick)
 	}
 	return false, nil
 }
