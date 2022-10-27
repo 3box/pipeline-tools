@@ -20,6 +20,7 @@ type deployJob struct {
 	component manager.DeployComponent
 	sha       string
 	manual    bool
+	rollback  bool
 }
 
 func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repository, notifs manager.Notifs, jobState manager.JobState) (manager.Job, error) {
@@ -29,10 +30,11 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
 		c := manager.DeployComponent(component)
-		manual := false
+		manual, _ := jobState.Params[manager.JobParam_Manual].(bool)
+		rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool)
 		// If "layout" is absent, this job has been dequeued for the first time and we need to do some preprocessing.
 		if _, found := jobState.Params[manager.JobParam_Layout]; !found {
-			if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
+			if rollback {
 				// Use the latest successfully deployed commit hash when rolling back
 				deployHashes, err := db.GetDeployHashes()
 				if err != nil {
@@ -80,7 +82,7 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 			// Send notification for job dequeued for the first time
 			notifs.NotifyJob(jobState)
 		}
-		return &deployJob{jobState, db, d, repo, notifs, c, sha, manual}, nil
+		return &deployJob{jobState, db, d, repo, notifs, c, sha, manual, rollback}, nil
 	}
 }
 
@@ -90,9 +92,10 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 			d.state.Stage = manager.JobStage_Failed
 			d.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("deployJob: error fetching deploy hashes: %v, %s", err, manager.PrintJob(d.state))
-		} else if !d.manual && (d.sha == deployHashes[d.component]) {
+		} else if !d.manual && !d.rollback && (d.sha == deployHashes[d.component]) {
 			// Skip automated jobs if the commit hash being deployed is the same as the commit hash already deployed. We
-			// don't do this for manual jobs because deploying an already deployed hash might be intentional.
+			// don't do this for manual jobs because deploying an already deployed hash might be intentional, or for
+			// rollbacks because we WANT to redeploy the last successfully deployed hash.
 			d.state.Stage = manager.JobStage_Skipped
 			log.Printf("deployJob: commit hash same as deployed hash: %s", manager.PrintJob(d.state))
 		} else if err := d.updateEnv(d.sha); err != nil {
