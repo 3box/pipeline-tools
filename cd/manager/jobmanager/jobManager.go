@@ -265,6 +265,7 @@ func (m *JobManager) processForceDeployJobs(dequeuedJobs []manager.JobState) boo
 		}
 		// Now advance all force deploy jobs, order doesn't matter.
 		for _, deployJob := range forceDeploys {
+			log.Printf("processForceDeployJobs: starting force deploy job: %s", manager.PrintJob(deployJob))
 			m.advanceJob(deployJob)
 		}
 		return true
@@ -296,6 +297,7 @@ func (m *JobManager) processDeployJobs(dequeuedJobs []manager.JobState) bool {
 			}
 			deployJob = dequeuedJob
 		}
+		log.Printf("processDeployJobs: starting deploy job: %s", manager.PrintJob(deployJob))
 		m.advanceJob(deployJob)
 		return true
 	} else {
@@ -331,6 +333,7 @@ func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 		}
 		// Now advance all anchor/test jobs, order doesn't matter.
 		for _, anchorJob := range dequeuedAnchors {
+			log.Printf("processAnchorJobs: starting anchor job: %s", manager.PrintJob(anchorJob))
 			m.advanceJob(anchorJob)
 		}
 		return len(dequeuedAnchors) > 0
@@ -368,6 +371,7 @@ func (m *JobManager) processTestJobs(dequeuedJobs []manager.JobState) bool {
 			}
 		}
 		for _, testJob := range dequeuedTests {
+			log.Printf("processTestJobs: starting test job: %s", manager.PrintJob(testJob))
 			m.advanceJob(testJob)
 		}
 		return len(dequeuedTests) > 0
