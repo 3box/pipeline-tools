@@ -464,7 +464,7 @@ func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) 
 	case manager.JobType_TestE2E:
 		job = jobs.E2eTestJob(m.db, m.d, m.notifs, jobState)
 	case manager.JobType_TestSmoke:
-		job = jobs.SmokeTestJob(m.db, m.apiGw, m.notifs, jobState)
+		job = jobs.SmokeTestJob(m.db, m.d, m.notifs, jobState)
 	default:
 		genErr = fmt.Errorf("prepareJob: unknown job type: %s", manager.PrintJob(jobState))
 	}
