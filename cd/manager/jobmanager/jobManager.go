@@ -2,6 +2,7 @@ package jobmanager
 
 import (
 	"fmt"
+	"github.com/3box/pipeline-tools/cd/manager/notifs"
 	"log"
 	"os"
 	"runtime/debug"
@@ -16,10 +17,6 @@ import (
 )
 
 var _ manager.Manager = &JobManager{}
-
-// LastAnchorNotifTime is the time at which the last notification was sent indicating that an anchor job was not started
-// in a timely manner.
-var LastAnchorNotifTime = time.UnixMilli(0)
 
 type JobManager struct {
 	cache         manager.Cache
@@ -217,12 +214,7 @@ func (m *JobManager) scheduleTests() error {
 func (m *JobManager) checkAnchorInterval() error {
 	// Check time since the last anchor job was completed
 	return m.checkJobInterval(manager.JobType_Anchor, manager.JobStage_Completed, "CAS_MAX_ANCHOR_INTERVAL", func(ts time.Time) error {
-		now := time.Now()
-		// Don't send alerts too frequently
-		if now.Add(-manager.DefaultFailureTime).After(LastAnchorNotifTime) {
-			m.notifs.SendAlert("CAS anchor task not started", fmt.Sprintf("Since %s", ts.Format(time.RFC1123)))
-			LastAnchorNotifTime = now
-		}
+		notifs.NewAnchorIntervalNotif(m.notifs).SendAlert(ts)
 		return nil
 	})
 }
@@ -240,9 +232,6 @@ func (m *JobManager) checkJobInterval(jobType manager.JobType, jobStage manager.
 				if js.Stage == jobStage {
 					lastJob = &js
 					// Stop iterating, we found the job we were looking for.
-					return false
-				} else if now.AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts) {
-					// Stop iterating, we've gone too far into the past.
 					return false
 				}
 				// Keep iterating till we find the most recent job
