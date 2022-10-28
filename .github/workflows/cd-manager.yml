@@ -2,7 +2,7 @@ name: CD Manager
 
 on:
   push:
-    branches: [ develop, tnet, main ]
+    branches: [ develop, qa, tnet, main ]
     paths:
       - 'cd/manager/**'
   pull_request: # pull requests
@@ -11,11 +11,12 @@ on:
       environment:
         description: 'Environment name (one of: dev, qa, tnet, prod)'
         required: true
-        default: 'qa'
+        default: 'dev'
 
 env:
   # Dagger
   DAGGER_PLAN: ci/plans/cd-manager.cue
+  STATUS_PLAN: ci/plans/status.cue
   DAGGER_LOG_FORMAT: "plain"
   PIPELINE_TOOLS_VER: "0.2.0"
   # Secrets
@@ -27,7 +28,7 @@ env:
   # GitHub
   RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   STATUS_URL: "https://api.github.com/repos/3box/pipeline-tools/statuses/${{ github.sha }}"
-  BRANCH: ${{ github.ref_name }}
+  BRANCH: ${{ github.head_ref || github.ref_name }}
   SHA: ${{ github.sha }}
 
 jobs:
@@ -37,6 +38,8 @@ jobs:
       -
         name: Check out the repo
         uses: actions/checkout@v2
+        with:
+          ref: ${{ env.BRANCH }}
       -
         name: Set sha tag
         run: |
@@ -53,6 +56,11 @@ jobs:
         run: |
           echo "ENV_TAG=tnet" >> $GITHUB_ENV
       -
+        name: Set qa branch tag
+        if: ${{ env.BRANCH == 'qa' }}
+        run: |
+          echo "ENV_TAG=qa" >> $GITHUB_ENV
+      -
         name: Set develop branch tag
         if: ${{ env.BRANCH == 'develop' || env.ENV_TAG == '' }}
         run: |
@@ -62,19 +70,6 @@ jobs:
         if: ${{ github.event.inputs.environment != '' }}
         run: |
           echo "ENV_TAG=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
-      -
-        name: Set commit status "pending"
-        run: |
-          res=$(curl \
-            -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ env.GH_TOKEN }}" \
-            ${{ env.STATUS_URL }} \
-            -d '{"state":"pending","target_url":"${{ env.RUN_URL }}","description":"Image verification started","context":"ci/image: verify"}') || exit 1
-          echo $res
-          if [[ $res != *"pending"* ]]; then
-            exit 1
-          fi
       -
         name: Install Dagger
         uses: dagger/dagger-for-github@v3
@@ -87,49 +82,29 @@ jobs:
             dagger project update
             dagger project update "github.com/3box/pipeline-tools/ci@v${{ env.PIPELINE_TOOLS_VER }}"
       -
+        name: Set commit status "pending"
+        run: dagger do pending -p ${{ env.STATUS_PLAN }}
+      -
         name: Verify Docker image
         run: dagger do verify -p ../../${{ env.DAGGER_PLAN }}
         working-directory: cd/manager
       -
         name: Push Docker image
-        if: ${{ env.BRANCH == 'main' || env.BRANCH == 'tnet' || env.BRANCH == 'develop' }}
+        if: ${{ env.BRANCH == 'main' || env.BRANCH == 'tnet' || env.BRANCH == 'qa' || env.BRANCH == 'develop' }}
         run: dagger do push -w "actions:push:\"${{ env.AWS_REGION }}\":\"${{ env.ENV_TAG }}\":\"${{ env.BRANCH }}\":\"${{ env.SHA }}\":\"${{ env.SHA_TAG }}\":_" -p ../../${{ env.DAGGER_PLAN }}
         working-directory: cd/manager
       -
         name: Restart service
-        if: ${{ env.BRANCH == 'main' || env.BRANCH == 'tnet' || env.BRANCH == 'develop' }}
+        if: ${{ env.BRANCH == 'main' || env.BRANCH == 'tnet' || env.BRANCH == 'qa' || env.BRANCH == 'develop' }}
         shell: bash
         run: |
           cd .github/workflows/scripts
           chmod +x stopTasks.sh
           ./stopTasks.sh "ceramic-${{ env.ENV_TAG }}-ops" "ceramic-${{ env.ENV_TAG }}-ops-cd-manager"
-          if [[ ${{ env.ENV_TAG == 'dev' }} ]]; then
-            ./stopTasks.sh "ceramic-qa-ops" "ceramic-qa-ops-cd-manager"
-          fi
       -
         name: Set commit status "success"
-        run: |
-          res=$(curl \
-            -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ env.GH_TOKEN }}" \
-            ${{ env.STATUS_URL }} \
-            -d '{"state":"success","target_url":"${{ env.RUN_URL }}","description":"Image verification successful","context":"ci/image: verify"}') || exit 1
-          echo $res
-          if [[ $res != *"success"* ]]; then
-            exit 1
-          fi
+        run: dagger do success -p ${{ env.STATUS_PLAN }}
       -
         name: Set commit status "failure"
         if: ${{ failure() }}
-        run: |
-          res=$(curl \
-            -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ env.GH_TOKEN }}" \
-            ${{ env.STATUS_URL }} \
-            -d '{"state":"failure","target_url":"${{ env.RUN_URL }}","description":"Image verification failed","context":"ci/image: verify"}') || exit 1
-          echo $res
-          if [[ $res != *"failure"* ]]; then
-            exit 1
-          fi
+        run: dagger do failure -p ${{ env.STATUS_PLAN }}
