@@ -11,7 +11,7 @@ import (
 
 // Allow up to 3 hours for anchor workers to run
 const AnchorFailureTime = 3 * time.Hour
-const TaskIdParam = "id"
+const AnchorTaskIdParam = "id"
 
 var _ manager.Job = &anchorJob{}
 
@@ -42,7 +42,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		} else {
 			// Update the job stage and spawned task identifier
 			a.state.Stage = manager.JobStage_Started
-			a.state.Params[TaskIdParam] = id
+			a.state.Params[AnchorTaskIdParam] = id
 			a.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
 		}
 	} else if manager.IsTimedOut(a.state, AnchorFailureTime) { // Anchor worker did not finish in time
@@ -50,7 +50,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		a.state.Params[manager.JobParam_Error] = manager.Error_Timeout
 		log.Printf("anchorJob: job run timed out: %s", manager.PrintJob(a.state))
 	} else if a.state.Stage == manager.JobStage_Started {
-		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[TaskIdParam].(string)); err != nil {
+		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[AnchorTaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 			a.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("anchorJob: error checking task running status: %v, %s", err, manager.PrintJob(a.state))
@@ -65,7 +65,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			return a.state, nil
 		}
 	} else if a.state.Stage == manager.JobStage_Waiting {
-		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[TaskIdParam].(string)); err != nil {
+		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[AnchorTaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 			a.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
@@ -80,7 +80,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			return a.state, nil
 		}
 	} else if a.state.Stage == manager.JobStage_Delayed {
-		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[TaskIdParam].(string)); err != nil {
+		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[AnchorTaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 			a.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
