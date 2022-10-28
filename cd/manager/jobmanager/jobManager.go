@@ -17,10 +17,9 @@ import (
 
 var _ manager.Manager = &JobManager{}
 
-// Today starts in the past so that even in the unlikely event that the CD manager restarts right as the day changes,
-// daily jobs WILL get scheduled. It's ok if the same jobs are scheduled more than once since the events are
-// deterministic and immutable.
-var Today = time.Now().AddDate(0, 0, -1)
+// LastAnchorNotifTime is the time at which the last notification was sent indicating that an anchor job was not started
+// in a timely manner.
+var LastAnchorNotifTime = time.UnixMilli(0)
 
 type JobManager struct {
 	cache         manager.Cache
@@ -129,20 +128,12 @@ func (m *JobManager) processJobs() {
 	}
 	// Wait for any running job advancement goroutines to finish before kicking off more jobs
 	m.waitGroup.Wait()
-	// Schedule daily tests when the day changes
-	if Today.Day() != now.Day() {
-		var err error
-		if err = m.scheduleDailyTests(manager.JobType_TestSmoke, "SMOKE_TEST_INTERVAL_HR"); err != nil {
-			log.Printf("processJobs: failed to queue smoke tests: %v", err)
-		} else if m.env == manager.EnvType_Qa { // Only schedule E2E tests in QA
-			if err = m.scheduleDailyTests(manager.JobType_TestE2E, "E2E_TEST_INTERVAL_HR"); err != nil {
-				log.Printf("processJobs: failed to queue e2e tests: %v", err)
-			}
-		}
-		if err == nil {
-			// Only advance `Today` if there were no errors scheduling tests
-			Today = now
-		}
+	// Schedule tests and check anchor job interval
+	if err := m.scheduleTests(); err != nil {
+		log.Printf("processJobs: error scheduling tests: %v", err)
+	}
+	if err := m.checkAnchorInterval(); err != nil {
+		log.Printf("processJobs: error checking anchor job interval: %v", err)
 	}
 	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
 	if !m.paused {
@@ -194,32 +185,75 @@ func (m *JobManager) processJobs() {
 	m.waitGroup.Wait()
 }
 
-func (m *JobManager) scheduleDailyTests(testType manager.JobType, intervalHrEnv string) error {
-	if intervalHr, found := os.LookupEnv(intervalHrEnv); found {
-		if parsedIntervalHr, err := strconv.Atoi(intervalHr); err != nil {
-			log.Printf("scheduleDailyTests: failed to parse interval: %s, %s, %v", testType, intervalHr, err)
-			// Don't return an error from here because this leg will fail everytime, causing this function to get called
-			// repeatedly.
+func (m *JobManager) scheduleTests() error {
+	scheduleTest := func(testType manager.JobType) error {
+		newJob := manager.JobState{
+			Ts:   time.Now(),
+			Type: testType,
+		}
+		if _, err := m.NewJob(newJob); err != nil {
+			log.Printf("scheduleTest: failed to queue test: %v, %s, %s", err, testType, manager.PrintJob(newJob))
+			return err
+		}
+		log.Printf("scheduleTest: scheduled test: %s", manager.PrintJob(newJob))
+		return nil
+	}
+	if err := m.checkJobInterval(manager.JobType_TestSmoke, manager.JobStage_Queued, "SMOKE_TEST_INTERVAL", func(time.Time) error {
+		return scheduleTest(manager.JobType_TestSmoke)
+	}); err != nil {
+		log.Printf("scheduleTests: failed to queue smoke tests: %v", err)
+		return err
+	} else if m.env == manager.EnvType_Qa { // Only schedule E2E tests in QA
+		if err = m.checkJobInterval(manager.JobType_TestE2E, manager.JobStage_Queued, "E2E_TEST_INTERVAL", func(time.Time) error {
+			return scheduleTest(manager.JobType_TestE2E)
+		}); err != nil {
+			log.Printf("scheduleTests: failed to queue e2e tests: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *JobManager) checkAnchorInterval() error {
+	// Check time since the last anchor job was completed
+	return m.checkJobInterval(manager.JobType_Anchor, manager.JobStage_Completed, "CAS_MAX_ANCHOR_INTERVAL", func(ts time.Time) error {
+		now := time.Now()
+		// Don't send alerts too frequently
+		if now.Add(-manager.DefaultFailureTime).After(LastAnchorNotifTime) {
+			m.notifs.SendAlert("CAS anchor task not started", fmt.Sprintf("Since %s", ts.Format(time.RFC1123)))
+			LastAnchorNotifTime = now
+		}
+		return nil
+	})
+}
+
+func (m *JobManager) checkJobInterval(jobType manager.JobType, jobStage manager.JobStage, intervalEnv string, processFn func(time.Time) error) error {
+	if interval, found := os.LookupEnv(intervalEnv); found {
+		if parsedInterval, err := time.ParseDuration(interval); err != nil {
+			log.Printf("checkJobInterval: failed to parse interval: %s, %s, %v", jobType, intervalEnv, err)
+			return err
 		} else {
 			now := time.Now()
-			midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-			// Schedule all jobs for the day (assuming the interval cleanly divides 24 hours)
-			for i := 1; i <= 24/parsedIntervalHr; i++ {
-				newJobTime := midnight.Add(time.Duration(i*parsedIntervalHr) * time.Hour)
-				newJob := manager.JobState{
-					Ts: newJobTime,
-					// Deterministic ID in case the same job gets queued more than once (e.g. if the service restarts).
-					Id:   fmt.Sprintf("%s_%s", testType, newJobTime.Format(time.RFC3339)),
-					Type: testType,
+			var lastJob *manager.JobState = nil
+			// Iterate the DB in descending order of timestamp
+			if err = m.db.IterateByType(jobType, false, func(js manager.JobState) bool {
+				if js.Stage == jobStage {
+					lastJob = &js
+					// Stop iterating, we found the job we were looking for.
+					return false
+				} else if now.AddDate(0, 0, -manager.DefaultTtlDays).After(js.Ts) {
+					// Stop iterating, we've gone too far into the past.
+					return false
 				}
-				if _, err = m.NewJob(newJob); err != nil {
-					log.Printf("scheduleDailyTests: failed to queue test: %v, %s, %s, %s", err, testType, intervalHr, manager.PrintJob(newJob))
-					// Returning the (likely DB-related) error from here will cause this function to get called again
-					// and the job scheduling re-attempted, which we want so that test jobs get reliably scheduled.
-					return err
-				} else {
-					log.Printf("scheduleDailyTests: scheduled test: %s", manager.PrintJob(newJob))
-				}
+				// Keep iterating till we find the most recent job
+				return true
+			}); err != nil {
+				log.Printf("checkJobInterval: error iterating over %s: %v", jobType, err)
+				return err
+			}
+			// Only call `processFn` if we found an appropriate job
+			if (lastJob != nil) && now.Add(-parsedInterval).After(lastJob.Ts) {
+				return processFn(lastJob.Ts)
 			}
 		}
 	}

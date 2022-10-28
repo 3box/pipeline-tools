@@ -37,6 +37,7 @@ var _ manager.Notifs = &JobNotifs{}
 type JobNotifs struct {
 	db                 manager.Database
 	cache              manager.Cache
+	alertWebhook       webhook.Client
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
 	testWebhook        webhook.Client
@@ -44,14 +45,16 @@ type JobNotifs struct {
 }
 
 func NewJobNotifs(db manager.Database, cache manager.Cache) (manager.Notifs, error) {
-	if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
+	if a, err := parseDiscordWebhookUrl("DISCORD_ALERT_WEBHOOK"); err != nil {
+		return nil, err
+	} else if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
 	} else if t, err := parseDiscordWebhookUrl("DISCORD_TEST_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &JobNotifs{db, cache, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &JobNotifs{db, cache, a, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
@@ -83,6 +86,25 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 					channel,
 				)
 			}
+		}
+	}
+}
+
+func (n JobNotifs) SendAlert(title, desc string) {
+	if n.alertWebhook != nil {
+		messageEmbed := discord.Embed{
+			Title:       title,
+			Description: desc,
+			Type:        discord.EmbedTypeRich,
+			Color:       DiscordColor_Alert,
+		}
+		if _, err := n.alertWebhook.CreateMessage(discord.NewWebhookMessageCreateBuilder().
+			SetEmbeds(messageEmbed).
+			SetUsername(manager.ServiceName).
+			Build(),
+			rest.WithDelay(DiscordPacing),
+		); err != nil {
+			log.Printf("sendAlert: error sending discord notification: %v, %s", err, desc)
 		}
 	}
 }

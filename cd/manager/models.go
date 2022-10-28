@@ -208,6 +208,7 @@ type Database interface {
 	DequeueJobs() []JobState
 	AdvanceJob(JobState) error
 	WriteJob(JobState) error
+	IterateByType(JobType, bool, func(JobState) bool) error
 	UpdateBuildHash(DeployComponent, string) error
 	UpdateDeployHash(DeployComponent, string) error
 	GetBuildHashes() (map[DeployComponent]string, error)
@@ -235,6 +236,7 @@ type Deployment interface {
 // Notifs represents a notification service (e.g. Discord)
 type Notifs interface {
 	NotifyJob(...JobState)
+	SendAlert(string, string)
 }
 
 // Manager represents the job manager, which is the central job orchestrator of this service.

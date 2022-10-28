@@ -18,6 +18,8 @@ import (
 
 const TableCreationRetries = 3
 const TableCreationWait = 3 * time.Second
+const TypeTsIndex = "type-ts-index"
+const IdTsIndex = "id-ts-index"
 
 var _ manager.Database = &DynamoDb{}
 
@@ -73,6 +75,14 @@ func (db DynamoDb) createTable() error {
 					AttributeName: aws.String("ts"),
 					AttributeType: "N",
 				},
+				{
+					AttributeName: aws.String("id"),
+					AttributeType: "S",
+				},
+				{
+					AttributeName: aws.String("type"),
+					AttributeType: "S",
+				},
 			},
 			KeySchema: []types.KeySchemaElement{
 				{
@@ -88,6 +98,48 @@ func (db DynamoDb) createTable() error {
 			ProvisionedThroughput: &types.ProvisionedThroughput{
 				ReadCapacityUnits:  aws.Int64(1),
 				WriteCapacityUnits: aws.Int64(1),
+			},
+			GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+				{
+					IndexName: aws.String(TypeTsIndex),
+					KeySchema: []types.KeySchemaElement{
+						{
+							AttributeName: aws.String("type"),
+							KeyType:       "HASH",
+						},
+						{
+							AttributeName: aws.String("ts"),
+							KeyType:       "RANGE",
+						},
+					},
+					Projection: &types.Projection{
+						ProjectionType: types.ProjectionTypeAll,
+					},
+					ProvisionedThroughput: &types.ProvisionedThroughput{
+						ReadCapacityUnits:  aws.Int64(1),
+						WriteCapacityUnits: aws.Int64(1),
+					},
+				},
+				{
+					IndexName: aws.String(IdTsIndex),
+					KeySchema: []types.KeySchemaElement{
+						{
+							AttributeName: aws.String("id"),
+							KeyType:       "HASH",
+						},
+						{
+							AttributeName: aws.String("ts"),
+							KeyType:       "RANGE",
+						},
+					},
+					Projection: &types.Projection{
+						ProjectionType: types.ProjectionTypeAll,
+					},
+					ProvisionedThroughput: &types.ProvisionedThroughput{
+						ReadCapacityUnits:  aws.Int64(1),
+						WriteCapacityUnits: aws.Int64(1),
+					},
+				},
 			},
 		}
 		if _, err = db.client.CreateTable(ctx, &createTableInput); err != nil {
@@ -117,27 +169,28 @@ func (db DynamoDb) tableExists(table string) (bool, error) {
 }
 
 func (db DynamoDb) InitializeJobs() error {
+	ttlCursor := time.Now().AddDate(0, 0, -manager.DefaultTtlDays)
 	// Load all jobs in an advanced stage of processing (completed, failed, delayed, waiting, started, skipped), so that
 	// we know which jobs have already been dequeued.
-	if err := db.loadJobs(manager.JobStage_Completed); err != nil {
+	if err := db.loadJobs(manager.JobStage_Completed, ttlCursor); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Failed); err != nil {
+	} else if err = db.loadJobs(manager.JobStage_Failed, ttlCursor); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Canceled); err != nil {
+	} else if err = db.loadJobs(manager.JobStage_Canceled, ttlCursor); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Delayed); err != nil {
+	} else if err = db.loadJobs(manager.JobStage_Delayed, ttlCursor); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Waiting); err != nil {
+	} else if err = db.loadJobs(manager.JobStage_Waiting, ttlCursor); err != nil {
 		return err
-	} else if err = db.loadJobs(manager.JobStage_Started); err != nil {
+	} else if err = db.loadJobs(manager.JobStage_Started, ttlCursor); err != nil {
 		return err
 	} else {
-		return db.loadJobs(manager.JobStage_Skipped)
+		return db.loadJobs(manager.JobStage_Skipped, ttlCursor)
 	}
 }
 
-func (db DynamoDb) loadJobs(stage manager.JobStage) error {
-	return db.iterateJobs(stage, func(jobState manager.JobState) bool {
+func (db DynamoDb) loadJobs(stage manager.JobStage, cursor time.Time) error {
+	return db.iterateByStage(stage, cursor, true, func(jobState manager.JobState) bool {
 		// Write loaded jobs to the cache
 		db.cache.WriteJob(jobState)
 		// Return true so that we keep on iterating
@@ -156,14 +209,25 @@ func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 }
 
 func (db DynamoDb) DequeueJobs() []manager.JobState {
+	// If available, use the timestamp of the previously found first job not already in processing as the start of the
+	// current database search. We can't know for sure that all subsequent jobs are unprocessed (e.g. force deploys or
+	// anchors could mess up that assumption), but what we can say for sure is that all prior jobs have at least entered
+	// processing, and so we haven't missed any jobs. Otherwise, look for jobs queued at most 1 day in the past.
+	var cursor time.Time
+	ttlCursor := time.Now().AddDate(0, 0, -manager.DefaultTtlDays)
+	if db.cursor.After(ttlCursor) {
+		cursor = db.cursor
+	} else {
+		cursor = ttlCursor
+	}
 	jobs := make([]manager.JobState, 0, 0)
 	cursorSet := false
-	if err := db.iterateJobs(manager.JobStage_Queued, func(jobState manager.JobState) bool {
+	if err := db.iterateByStage(manager.JobStage_Queued, cursor, true, func(jobState manager.JobState) bool {
 		// If a job is not already in the cache, append it since it hasn't been dequeued yet.
 		if _, found := db.cache.JobById(jobState.Id); !found {
 			jobs = append(jobs, jobState)
-			// Set the cursor to the timestamp of the first job that is not already in processing (see `iterateJobs` for
-			// explanation why).
+			// Set the cursor to the timestamp of the first job that is not already in processing (see `iterateByStage`
+			// for explanation why).
 			if !cursorSet {
 				db.cursor = jobState.Ts
 				cursorSet = true
@@ -183,21 +247,14 @@ func (db DynamoDb) DequeueJobs() []manager.JobState {
 	return jobs
 }
 
-func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobState) bool) error {
-	// If available, use the timestamp of the previously found first job not already in processing as the start of the
-	// current database search. We can't know for sure that all subsequent jobs are unprocessed (e.g. force deploys or
-	// anchors could mess up that assumption), but what we can say for sure is that all prior jobs have at least entered
-	// processing, and so we haven't missed any jobs. Otherwise, look for jobs queued at most 1 day in the past.
-	var cursor time.Time
-	ttlCursor := time.Now().AddDate(0, 0, -manager.DefaultTtlDays)
-	if db.cursor.After(ttlCursor) {
-		cursor = db.cursor
-	} else {
-		cursor = ttlCursor
-	}
+func (db DynamoDb) IterateByType(jobType manager.JobType, asc bool, iter func(manager.JobState) bool) error {
+	return db.iterateByType(jobType, time.Now().AddDate(0, 0, -manager.DefaultTtlDays), asc, iter)
+}
+
+func (db DynamoDb) iterateByStage(jobStage manager.JobStage, cursor time.Time, asc bool, iter func(manager.JobState) bool) error {
 	// Only look for jobs up till the current time. This allows us to schedule jobs in the future (e.g. smoke tests to
 	// start a few minutes after a deployment is complete).
-	p := dynamodb.NewQueryPaginator(db.client, &dynamodb.QueryInput{
+	return db.iterateEvents(&dynamodb.QueryInput{
 		TableName:              aws.String(db.jobTable),
 		KeyConditionExpression: aws.String("#stage = :stage and #ts between :ts and :now"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -209,7 +266,32 @@ func (db DynamoDb) iterateJobs(jobStage manager.JobStage, iter func(manager.JobS
 			"#stage": "stage",
 			"#ts":    "ts",
 		},
-	})
+		ScanIndexForward: aws.Bool(asc),
+	}, iter)
+}
+
+func (db DynamoDb) iterateByType(jobType manager.JobType, cursor time.Time, asc bool, iter func(manager.JobState) bool) error {
+	// Only look for jobs up till the current time. This allows us to schedule jobs in the future (e.g. smoke tests to
+	// start a few minutes after a deployment is complete).
+	return db.iterateEvents(&dynamodb.QueryInput{
+		TableName:              aws.String(db.jobTable),
+		IndexName:              aws.String(TypeTsIndex),
+		KeyConditionExpression: aws.String("#type = :type and #ts between :ts and :now"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":type": &types.AttributeValueMemberS{Value: string(jobType)},
+			":ts":   &types.AttributeValueMemberN{Value: strconv.FormatInt(cursor.UnixMilli(), 10)},
+			":now":  &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().UnixMilli(), 10)},
+		},
+		ExpressionAttributeNames: map[string]string{
+			"#type": "type",
+			"#ts":   "ts",
+		},
+		ScanIndexForward: aws.Bool(asc),
+	}, iter)
+}
+
+func (db DynamoDb) iterateEvents(queryInput *dynamodb.QueryInput, iter func(manager.JobState) bool) error {
+	p := dynamodb.NewQueryPaginator(db.client, queryInput)
 	for p.HasMorePages() {
 		err := func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
