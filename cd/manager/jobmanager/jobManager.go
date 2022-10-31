@@ -38,7 +38,8 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 			maxAnchorJobs = parsedMaxAnchorWorkers
 		}
 	}
-	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, false, manager.EnvType(os.Getenv("ENV")), new(sync.WaitGroup)}, nil
+	paused, _ := strconv.ParseBool(os.Getenv("PAUSED"))
+	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, paused, manager.EnvType(os.Getenv("ENV")), new(sync.WaitGroup)}, nil
 }
 
 func (m *JobManager) NewJob(jobState manager.JobState) (string, error) {
