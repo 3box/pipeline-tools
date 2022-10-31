@@ -136,9 +136,7 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return d.state, fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
 	}
-	if (d.state.Stage == manager.JobStage_Skipped) || (d.state.Stage == manager.JobStage_Started) || (d.state.Stage == manager.JobStage_Failed) || (d.state.Stage == manager.JobStage_Completed) {
-		d.notifs.NotifyJob(d.state)
-	}
+	d.notifs.NotifyJob(d.state)
 	return d.state, d.db.AdvanceJob(d.state)
 }
 

@@ -38,6 +38,7 @@ type JobNotifs struct {
 	db                 manager.Database
 	cache              manager.Cache
 	alertWebhook       webhook.Client
+	warningWebhook     webhook.Client
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
 	testWebhook        webhook.Client
@@ -47,6 +48,8 @@ type JobNotifs struct {
 func NewJobNotifs(db manager.Database, cache manager.Cache) (manager.Notifs, error) {
 	if a, err := parseDiscordWebhookUrl("DISCORD_ALERT_WEBHOOK"); err != nil {
 		return nil, err
+	} else if w, err := parseDiscordWebhookUrl("DISCORD_WARNING_WEBHOOK"); err != nil {
+		return nil, err
 	} else if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
@@ -54,7 +57,7 @@ func NewJobNotifs(db manager.Database, cache manager.Cache) (manager.Notifs, err
 	} else if t, err := parseDiscordWebhookUrl("DISCORD_TEST_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &JobNotifs{db, cache, a, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &JobNotifs{db, cache, a, w, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
@@ -128,14 +131,25 @@ func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color Di
 
 func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client {
 	webhooks := make([]webhook.Client, 0, 1)
-	if jobState.Type == manager.JobType_Deploy {
-		webhooks = append(webhooks, n.deploymentsWebhook)
-		// Don't send Dev/QA notifications to the community channel.
-		if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) {
-			webhooks = append(webhooks, n.communityWebhook)
+	switch jobState.Type {
+	case manager.JobType_Deploy:
+		{
+			webhooks = append(webhooks, n.deploymentsWebhook)
+			// Don't send Dev/QA notifications to the community channel.
+			if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) {
+				webhooks = append(webhooks, n.communityWebhook)
+			}
+		}
+	case manager.JobType_Anchor:
+		{
+			// We only care about "delayed" notifications from the CD manager for the time being. Other notifications
+			// are sent directly from the anchor worker.
+			if jobState.Stage == manager.JobStage_Delayed {
+				webhooks = append(webhooks, n.warningWebhook)
+			}
 		}
 	}
-	// Send all notifications to the test webhook.
+	// Send all notifications to the test webhook
 	webhooks = append(webhooks, n.testWebhook)
 	return webhooks
 }
