@@ -148,6 +148,7 @@ const (
 const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
 const DefaultCasMaxAnchorWorkers = 1
+const DefaultCasMinAnchorWorkers = 0
 
 // JobState represents the state of a job in the database
 type JobState struct {
