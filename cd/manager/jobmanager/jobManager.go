@@ -2,7 +2,6 @@ package jobmanager
 
 import (
 	"fmt"
-	"github.com/3box/pipeline-tools/cd/manager/notifs"
 	"log"
 	"os"
 	"runtime/debug"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/jobs"
+	"github.com/3box/pipeline-tools/cd/manager/notifs"
 )
 
 var _ manager.Manager = &JobManager{}
@@ -45,9 +45,8 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 			minAnchorJobs = parsedMinAnchorWorkers
 		}
 	}
-	// Sanity check the counts
 	if minAnchorJobs > maxAnchorJobs {
-		minAnchorJobs = maxAnchorJobs
+		return nil, fmt.Errorf("newJobManager: invalid anchor worker config: %d, %d", minAnchorJobs, maxAnchorJobs)
 	}
 	paused, _ := strconv.ParseBool(os.Getenv("PAUSED"))
 	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, minAnchorJobs, paused, manager.EnvType(os.Getenv("ENV")), new(sync.WaitGroup)}, nil
@@ -190,7 +189,7 @@ func (m *JobManager) processJobs() {
 		// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to anchor jobs queued
 		// behind deploys because tests need anchors to run, and deploys can't run till tests complete.
 		//
-		// Test and anchor jobs can run in parallel.
+		// Test and anchor jobs can run in parallel, so process pending anchor jobs even if tests were started above.
 		if processAnchorJobs {
 			m.processAnchorJobs(dequeuedJobs)
 		}
