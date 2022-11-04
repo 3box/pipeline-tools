@@ -142,10 +142,14 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 		}
 	case manager.JobType_Anchor:
 		{
-			// We only care about "delayed" notifications from the CD manager for the time being. Other notifications
+			// We only care about "waiting" notifications from the CD manager for the time being. Other notifications
 			// are sent directly from the anchor worker.
-			if jobState.Stage == manager.JobStage_Delayed {
-				webhooks = append(webhooks, n.warningWebhook)
+			if jobState.Stage == manager.JobStage_Waiting {
+				if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+					webhooks = append(webhooks, n.alertWebhook)
+				} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+					webhooks = append(webhooks, n.warningWebhook)
+				}
 			}
 		}
 	}
@@ -156,26 +160,39 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 
 func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 	notifTitlePfx := manager.JobName(jobState.Type)
-	if jobState.Type == manager.JobType_Deploy {
-		component := jobState.Params[manager.JobParam_Component].(string)
-		qualifier := ""
-		// A rollback is always a force job, while a non-rollback force job is always manual, so we can optimize.
-		if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
-			qualifier = manager.JobParam_Rollback
-		} else if force, _ := jobState.Params[manager.JobParam_Force].(bool); force {
-			qualifier = manager.JobParam_Force
-		} else if manual, _ := jobState.Params[manager.JobParam_Manual].(bool); manual {
-			qualifier = manager.JobParam_Manual
+	jobStageRepr := string(jobState.Stage)
+	switch jobState.Type {
+	case manager.JobType_Deploy:
+		{
+			component := jobState.Params[manager.JobParam_Component].(string)
+			qualifier := ""
+			// A rollback is always a force job, while a non-rollback force job is always manual, so we can optimize.
+			if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
+				qualifier = manager.JobParam_Rollback
+			} else if force, _ := jobState.Params[manager.JobParam_Force].(bool); force {
+				qualifier = manager.JobParam_Force
+			} else if manual, _ := jobState.Params[manager.JobParam_Manual].(bool); manual {
+				qualifier = manager.JobParam_Manual
+			}
+			notifTitlePfx = fmt.Sprintf(
+				"3Box Labs `%s` %s %s %s",
+				manager.EnvName(n.env),
+				strings.ToUpper(component),
+				cases.Title(language.English).String(qualifier),
+				notifTitlePfx,
+			)
 		}
-		notifTitlePfx = fmt.Sprintf(
-			"3Box Labs `%s` %s %s %s",
-			manager.EnvName(n.env),
-			strings.ToUpper(component),
-			cases.Title(language.English).String(qualifier),
-			notifTitlePfx,
-		)
+	case manager.JobType_Anchor:
+		// If "waiting", update the job stage representation to qualify the severity of the delay, if applicable.
+		if jobState.Stage == manager.JobStage_Waiting {
+			if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+				jobStageRepr = manager.JobParam_Stalled
+			} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+				jobStageRepr = manager.JobParam_Delayed
+			}
+		}
 	}
-	return fmt.Sprintf("%s %s", notifTitlePfx, strings.ToUpper(string(jobState.Stage)))
+	return fmt.Sprintf("%s %s", notifTitlePfx, strings.ToUpper(jobStageRepr))
 }
 
 func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedField {
@@ -212,9 +229,13 @@ func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 	case manager.JobStage_Started:
 		return DiscordColor_None
 	case manager.JobStage_Waiting:
-		return DiscordColor_Info
-	case manager.JobStage_Delayed:
-		return DiscordColor_Warning
+		if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+			return DiscordColor_Alert
+		} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+			return DiscordColor_Warning
+		} else {
+			return DiscordColor_Info
+		}
 	case manager.JobStage_Failed:
 		return DiscordColor_Alert
 	case manager.JobStage_Canceled:
