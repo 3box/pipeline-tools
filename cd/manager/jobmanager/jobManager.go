@@ -204,6 +204,9 @@ func (m *JobManager) scheduleTests() error {
 		newJob := manager.JobState{
 			Ts:   time.Now(),
 			Type: testType,
+			Params: map[string]interface{}{
+				manager.JobParam_Source: manager.ServiceName,
+			},
 		}
 		if _, err := m.NewJob(newJob); err != nil {
 			log.Printf("scheduleTest: failed to queue test: %v, %s, %s", err, testType, manager.PrintJob(newJob))
@@ -376,13 +379,21 @@ func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 			log.Printf("processAnchorJobs: starting anchor job: %s", manager.PrintJob(anchorJob))
 			m.advanceJob(anchorJob)
 		}
-		// If not enough anchor jobs were queued by the scheduler to meet the configured minimum number of workers, add
-		// jobs to the queue to make up the difference. These jobs should get picked up in a subsequent job manager
-		// iteration, properly coordinated with other jobs in the queue. It's ok if we ultimately end up with more jobs
-		// than the configured maximum number of workers - the actual number of jobs run will be capped correctly.
+		// If not enough anchor jobs were running to satisfy the configured minimum number of workers, add jobs to the
+		// queue to make up the difference. These jobs should get picked up in a subsequent job manager iteration,
+		// properly coordinated with other jobs in the queue. It's ok if we ultimately end up with more jobs queued than
+		// the configured maximum number of workers - the actual number of jobs run will be capped correctly.
+		//
+		// This mode is enforced via configuration to only be enabled when the scheduler is not running so that there is
+		// a single source for new anchor jobs.
 		numJobs := len(dequeuedAnchors)
 		for i := 0; i < m.minAnchorJobs-numJobs; i++ {
-			if _, err := m.NewJob(manager.JobState{Type: manager.JobType_Anchor}); err != nil {
+			if _, err := m.NewJob(manager.JobState{
+				Type: manager.JobType_Anchor,
+				Params: map[string]interface{}{
+					manager.JobParam_Source: manager.ServiceName,
+				},
+			}); err != nil {
 				log.Printf("processAnchorJobs: failed to queue additional anchor job: %v", err)
 			}
 		}
@@ -474,6 +485,9 @@ func (m *JobManager) postProcessJob(jobState manager.JobState) {
 					if _, err := m.NewJob(manager.JobState{
 						Ts:   time.Now().Add(manager.DefaultWaitTime),
 						Type: manager.JobType_TestSmoke,
+						Params: map[string]interface{}{
+							manager.JobParam_Source: manager.ServiceName,
+						},
 					}); err != nil {
 						log.Printf("postProcessJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(jobState))
 					}
@@ -491,7 +505,8 @@ func (m *JobManager) postProcessJob(jobState manager.JobState) {
 								// Make the job lookup the last successfully deployed commit hash from the database
 								manager.JobParam_Sha: ".",
 								// No point in waiting for other jobs to complete before redeploying a working image
-								manager.JobParam_Force: true,
+								manager.JobParam_Force:  true,
+								manager.JobParam_Source: manager.ServiceName,
 							},
 						}); err != nil {
 							log.Printf("postProcessJob: failed to queue rollback after failed deploy: %v, %s", err, manager.PrintJob(jobState))

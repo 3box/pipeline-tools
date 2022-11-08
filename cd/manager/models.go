@@ -76,6 +76,7 @@ const (
 	JobParam_Rollback  string = "rollback"
 	JobParam_Delayed   string = "delayed"
 	JobParam_Stalled   string = "stalled"
+	JobParam_Source    string = "source"
 )
 
 type DeployComponent string
