@@ -76,6 +76,7 @@ const (
 	JobParam_Rollback  string = "rollback"
 	JobParam_Delayed   string = "delayed"
 	JobParam_Stalled   string = "stalled"
+	JobParam_Source    string = "source"
 )
 
 type DeployComponent string
@@ -148,6 +149,7 @@ const (
 const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
 const DefaultCasMaxAnchorWorkers = 1
+const DefaultCasMinAnchorWorkers = 0
 
 // JobState represents the state of a job in the database
 type JobState struct {

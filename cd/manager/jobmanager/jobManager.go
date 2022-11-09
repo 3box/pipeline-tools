@@ -2,7 +2,6 @@ package jobmanager
 
 import (
 	"fmt"
-	"github.com/3box/pipeline-tools/cd/manager/notifs"
 	"log"
 	"os"
 	"runtime/debug"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/jobs"
+	"github.com/3box/pipeline-tools/cd/manager/notifs"
 )
 
 var _ manager.Manager = &JobManager{}
@@ -26,6 +26,7 @@ type JobManager struct {
 	repo          manager.Repository
 	notifs        manager.Notifs
 	maxAnchorJobs int
+	minAnchorJobs int
 	paused        bool
 	env           manager.EnvType
 	waitGroup     *sync.WaitGroup
@@ -38,8 +39,17 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 			maxAnchorJobs = parsedMaxAnchorWorkers
 		}
 	}
+	minAnchorJobs := manager.DefaultCasMinAnchorWorkers
+	if configMinAnchorWorkers, found := os.LookupEnv("CAS_MIN_ANCHOR_WORKERS"); found {
+		if parsedMinAnchorWorkers, err := strconv.Atoi(configMinAnchorWorkers); err == nil {
+			minAnchorJobs = parsedMinAnchorWorkers
+		}
+	}
+	if minAnchorJobs > maxAnchorJobs {
+		return nil, fmt.Errorf("newJobManager: invalid anchor worker config: %d, %d", minAnchorJobs, maxAnchorJobs)
+	}
 	paused, _ := strconv.ParseBool(os.Getenv("PAUSED"))
-	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, paused, manager.EnvType(os.Getenv("ENV")), new(sync.WaitGroup)}, nil
+	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, minAnchorJobs, paused, manager.EnvType(os.Getenv("ENV")), new(sync.WaitGroup)}, nil
 }
 
 func (m *JobManager) NewJob(jobState manager.JobState) (string, error) {
@@ -135,6 +145,10 @@ func (m *JobManager) processJobs() {
 	}
 	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
 	if !m.paused {
+		// Always check if we have anchor jobs, even if none were dequeued. This is because we might have a minimum
+		// number of jobs to run configured. The only time we don't want to run anchor jobs is when a deployment is
+		// kicked off.
+		processAnchorJobs := true
 		// Try to dequeue multiple jobs and collapse similar ones:
 		// - one deploy at a time
 		// - any number of anchor workers (compatible with with smoke/E2E tests)
@@ -159,23 +173,25 @@ func (m *JobManager) processJobs() {
 			dequeuedJobs = tempSlice
 			// Recheck the length of `dequeuedJobs` in case any job(s) failed preprocessing and got filtered out
 			if len(dequeuedJobs) > 0 {
-				// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked-off.
-				if !m.processForceDeployJobs(dequeuedJobs) {
-					// Decide how to proceed based on the first job from the list
-					if dequeuedJobs[0].Type == manager.JobType_Deploy {
-						if !m.processDeployJobs(dequeuedJobs) {
-							// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to
-							// anchor jobs queued behind deploys because tests need anchors to run, and deploys can't run
-							// till tests complete.
-							m.processAnchorJobs(dequeuedJobs)
-						}
-					} else {
-						// Test and anchor jobs can run in parallel
-						m.processTestJobs(dequeuedJobs)
-						m.processAnchorJobs(dequeuedJobs)
-					}
+				// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked
+				// off.
+				if m.processForceDeployJobs(dequeuedJobs) {
+					processAnchorJobs = false
+				} else
+				// Decide how to proceed based on the first job from the list
+				if dequeuedJobs[0].Type == manager.JobType_Deploy {
+					processAnchorJobs = !m.processDeployJobs(dequeuedJobs)
+				} else {
+					m.processTestJobs(dequeuedJobs)
 				}
 			}
+		}
+		// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to anchor jobs queued
+		// behind deploys because tests need anchors to run, and deploys can't run till tests complete.
+		//
+		// Test and anchor jobs can run in parallel, so process pending anchor jobs even if tests were started above.
+		if processAnchorJobs {
+			m.processAnchorJobs(dequeuedJobs)
 		}
 	}
 	// Wait for all of this iteration's job advancement goroutines to finish before we iterate again. The ticker will
@@ -188,6 +204,9 @@ func (m *JobManager) scheduleTests() error {
 		newJob := manager.JobState{
 			Ts:   time.Now(),
 			Type: testType,
+			Params: map[string]interface{}{
+				manager.JobParam_Source: manager.ServiceName,
+			},
 		}
 		if _, err := m.NewJob(newJob); err != nil {
 			log.Printf("scheduleTest: failed to queue test: %v, %s, %s", err, testType, manager.PrintJob(newJob))
@@ -360,7 +379,25 @@ func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 			log.Printf("processAnchorJobs: starting anchor job: %s", manager.PrintJob(anchorJob))
 			m.advanceJob(anchorJob)
 		}
-		return len(dequeuedAnchors) > 0
+		// If not enough anchor jobs were running to satisfy the configured minimum number of workers, add jobs to the
+		// queue to make up the difference. These jobs should get picked up in a subsequent job manager iteration,
+		// properly coordinated with other jobs in the queue. It's ok if we ultimately end up with more jobs queued than
+		// the configured maximum number of workers - the actual number of jobs run will be capped correctly.
+		//
+		// This mode is enforced via configuration to only be enabled when the scheduler is not running so that there is
+		// a single source for new anchor jobs.
+		numJobs := len(dequeuedAnchors)
+		for i := 0; i < m.minAnchorJobs-numJobs; i++ {
+			if _, err := m.NewJob(manager.JobState{
+				Type: manager.JobType_Anchor,
+				Params: map[string]interface{}{
+					manager.JobParam_Source: manager.ServiceName,
+				},
+			}); err != nil {
+				log.Printf("processAnchorJobs: failed to queue additional anchor job: %v", err)
+			}
+		}
+		return numJobs > 0
 	} else {
 		log.Printf("processAnchorJobs: deployment in progress")
 	}
@@ -448,6 +485,9 @@ func (m *JobManager) postProcessJob(jobState manager.JobState) {
 					if _, err := m.NewJob(manager.JobState{
 						Ts:   time.Now().Add(manager.DefaultWaitTime),
 						Type: manager.JobType_TestSmoke,
+						Params: map[string]interface{}{
+							manager.JobParam_Source: manager.ServiceName,
+						},
 					}); err != nil {
 						log.Printf("postProcessJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(jobState))
 					}
@@ -465,7 +505,8 @@ func (m *JobManager) postProcessJob(jobState manager.JobState) {
 								// Make the job lookup the last successfully deployed commit hash from the database
 								manager.JobParam_Sha: ".",
 								// No point in waiting for other jobs to complete before redeploying a working image
-								manager.JobParam_Force: true,
+								manager.JobParam_Force:  true,
+								manager.JobParam_Source: manager.ServiceName,
 							},
 						}); err != nil {
 							log.Printf("postProcessJob: failed to queue rollback after failed deploy: %v, %s", err, manager.PrintJob(jobState))
