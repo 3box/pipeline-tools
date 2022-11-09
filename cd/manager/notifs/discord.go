@@ -37,6 +37,8 @@ var _ manager.Notifs = &JobNotifs{}
 type JobNotifs struct {
 	db                 manager.Database
 	cache              manager.Cache
+	alertWebhook       webhook.Client
+	warningWebhook     webhook.Client
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
 	testWebhook        webhook.Client
@@ -44,14 +46,18 @@ type JobNotifs struct {
 }
 
 func NewJobNotifs(db manager.Database, cache manager.Cache) (manager.Notifs, error) {
-	if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
+	if a, err := parseDiscordWebhookUrl("DISCORD_ALERT_WEBHOOK"); err != nil {
+		return nil, err
+	} else if w, err := parseDiscordWebhookUrl("DISCORD_WARNING_WEBHOOK"); err != nil {
+		return nil, err
+	} else if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
 	} else if t, err := parseDiscordWebhookUrl("DISCORD_TEST_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &JobNotifs{db, cache, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &JobNotifs{db, cache, a, w, d, c, t, manager.EnvType(os.Getenv("ENV"))}, nil
 	}
 }
 
@@ -87,6 +93,25 @@ func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
 	}
 }
 
+func (n JobNotifs) SendAlert(title, desc string) {
+	if n.alertWebhook != nil {
+		messageEmbed := discord.Embed{
+			Title:       title,
+			Description: desc,
+			Type:        discord.EmbedTypeRich,
+			Color:       DiscordColor_Alert,
+		}
+		if _, err := n.alertWebhook.CreateMessage(discord.NewWebhookMessageCreateBuilder().
+			SetEmbeds(messageEmbed).
+			SetUsername(manager.ServiceName).
+			Build(),
+			rest.WithDelay(DiscordPacing),
+		); err != nil {
+			log.Printf("sendAlert: error sending discord notification: %v, %s", err, desc)
+		}
+	}
+}
+
 func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color DiscordColor, channel webhook.Client) {
 	messageEmbed := discord.Embed{
 		Title:  title,
@@ -106,40 +131,68 @@ func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color Di
 
 func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client {
 	webhooks := make([]webhook.Client, 0, 1)
-	if jobState.Type == manager.JobType_Deploy {
-		webhooks = append(webhooks, n.deploymentsWebhook)
-		// Don't send Dev/QA notifications to the community channel.
-		if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) {
-			webhooks = append(webhooks, n.communityWebhook)
+	switch jobState.Type {
+	case manager.JobType_Deploy:
+		{
+			webhooks = append(webhooks, n.deploymentsWebhook)
+			// Don't send Dev/QA notifications to the community channel.
+			if (n.env != manager.EnvType_Dev) && (n.env != manager.EnvType_Qa) {
+				webhooks = append(webhooks, n.communityWebhook)
+			}
+		}
+	case manager.JobType_Anchor:
+		{
+			// We only care about "waiting" notifications from the CD manager for the time being. Other notifications
+			// are sent directly from the anchor worker.
+			if jobState.Stage == manager.JobStage_Waiting {
+				if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+					webhooks = append(webhooks, n.alertWebhook)
+				} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+					webhooks = append(webhooks, n.warningWebhook)
+				}
+			}
 		}
 	}
-	// Send all notifications to the test webhook.
+	// Send all notifications to the test webhook
 	webhooks = append(webhooks, n.testWebhook)
 	return webhooks
 }
 
 func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 	notifTitlePfx := manager.JobName(jobState.Type)
-	if jobState.Type == manager.JobType_Deploy {
-		component := jobState.Params[manager.JobParam_Component].(string)
-		qualifier := ""
-		// A rollback is always a force job, while a non-rollback force job is always manual, so we can optimize.
-		if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
-			qualifier = manager.JobParam_Rollback
-		} else if force, _ := jobState.Params[manager.JobParam_Force].(bool); force {
-			qualifier = manager.JobParam_Force
-		} else if manual, _ := jobState.Params[manager.JobParam_Manual].(bool); manual {
-			qualifier = manager.JobParam_Manual
+	jobStageRepr := string(jobState.Stage)
+	switch jobState.Type {
+	case manager.JobType_Deploy:
+		{
+			component := jobState.Params[manager.JobParam_Component].(string)
+			qualifier := ""
+			// A rollback is always a force job, while a non-rollback force job is always manual, so we can optimize.
+			if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
+				qualifier = manager.JobParam_Rollback
+			} else if force, _ := jobState.Params[manager.JobParam_Force].(bool); force {
+				qualifier = manager.JobParam_Force
+			} else if manual, _ := jobState.Params[manager.JobParam_Manual].(bool); manual {
+				qualifier = manager.JobParam_Manual
+			}
+			notifTitlePfx = fmt.Sprintf(
+				"3Box Labs `%s` %s %s %s",
+				manager.EnvName(n.env),
+				strings.ToUpper(component),
+				cases.Title(language.English).String(qualifier),
+				notifTitlePfx,
+			)
 		}
-		notifTitlePfx = fmt.Sprintf(
-			"3Box Labs `%s` %s %s %s",
-			manager.EnvName(n.env),
-			strings.ToUpper(component),
-			cases.Title(language.English).String(qualifier),
-			notifTitlePfx,
-		)
+	case manager.JobType_Anchor:
+		// If "waiting", update the job stage representation to qualify the severity of the delay, if applicable.
+		if jobState.Stage == manager.JobStage_Waiting {
+			if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+				jobStageRepr = manager.JobParam_Stalled
+			} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+				jobStageRepr = manager.JobParam_Delayed
+			}
+		}
 	}
-	return fmt.Sprintf("%s %s", notifTitlePfx, strings.ToUpper(string(jobState.Stage)))
+	return fmt.Sprintf("%s %s", notifTitlePfx, strings.ToUpper(jobStageRepr))
 }
 
 func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedField {
@@ -176,9 +229,13 @@ func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 	case manager.JobStage_Started:
 		return DiscordColor_None
 	case manager.JobStage_Waiting:
-		return DiscordColor_Info
-	case manager.JobStage_Delayed:
-		return DiscordColor_Warning
+		if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+			return DiscordColor_Alert
+		} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+			return DiscordColor_Warning
+		} else {
+			return DiscordColor_Info
+		}
 	case manager.JobStage_Failed:
 		return DiscordColor_Alert
 	case manager.JobStage_Canceled:

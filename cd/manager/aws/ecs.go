@@ -140,7 +140,8 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 					// definitions and not updated ones, e.g. to check if an existing deployment is stable.
 					task.Id = *descSvcOutput.Services[0].TaskDefinition
 					layout.Clusters[cluster].ServiceTasks.Tasks[service] = task
-					casSchedulerFound = (component == manager.DeployComponent_Cas) && strings.Contains(service, manager.ServiceSuffix_CasScheduler)
+					casSchedulerFound = casSchedulerFound ||
+						((component == manager.DeployComponent_Cas) && strings.Contains(service, manager.ServiceSuffix_CasScheduler))
 				}
 			}
 		}

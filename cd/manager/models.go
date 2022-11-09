@@ -37,7 +37,6 @@ const (
 	JobStage_Skipped   JobStage = "skipped"
 	JobStage_Started   JobStage = "started"
 	JobStage_Waiting   JobStage = "waiting"
-	JobStage_Delayed   JobStage = "delayed"
 	JobStage_Failed    JobStage = "failed"
 	JobStage_Canceled  JobStage = "canceled"
 	JobStage_Completed JobStage = "completed"
@@ -75,6 +74,8 @@ const (
 	JobParam_Force     string = "force"
 	JobParam_Start     string = "start"
 	JobParam_Rollback  string = "rollback"
+	JobParam_Delayed   string = "delayed"
+	JobParam_Stalled   string = "stalled"
 )
 
 type DeployComponent string
@@ -208,6 +209,7 @@ type Database interface {
 	DequeueJobs() []JobState
 	AdvanceJob(JobState) error
 	WriteJob(JobState) error
+	IterateByType(JobType, bool, func(JobState) bool) error
 	UpdateBuildHash(DeployComponent, string) error
 	UpdateDeployHash(DeployComponent, string) error
 	GetBuildHashes() (map[DeployComponent]string, error)
@@ -235,6 +237,7 @@ type Deployment interface {
 // Notifs represents a notification service (e.g. Discord)
 type Notifs interface {
 	NotifyJob(...JobState)
+	SendAlert(string, string)
 }
 
 // Manager represents the job manager, which is the central job orchestrator of this service.
@@ -344,7 +347,7 @@ func IsFinishedJob(jobState JobState) bool {
 }
 
 func IsActiveJob(jobState JobState) bool {
-	return (jobState.Stage == JobStage_Started) || (jobState.Stage == JobStage_Waiting) || (jobState.Stage == JobStage_Delayed)
+	return (jobState.Stage == JobStage_Started) || (jobState.Stage == JobStage_Waiting)
 }
 
 func IsTimedOut(jobState JobState, delay time.Duration) bool {

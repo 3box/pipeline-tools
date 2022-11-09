@@ -10,7 +10,7 @@ import (
 )
 
 // Allow up to 3 hours for anchor workers to run
-const AnchorFailureTime = 3 * time.Hour
+const AnchorStalledTime = 3 * time.Hour
 const AnchorTaskIdParam = "id"
 
 var _ manager.Job = &anchorJob{}
@@ -45,10 +45,6 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			a.state.Params[AnchorTaskIdParam] = id
 			a.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
 		}
-	} else if manager.IsTimedOut(a.state, AnchorFailureTime) { // Anchor worker did not finish in time
-		a.state.Stage = manager.JobStage_Failed
-		a.state.Params[manager.JobParam_Error] = manager.Error_Timeout
-		log.Printf("anchorJob: job run timed out: %s", manager.PrintJob(a.state))
 	} else if a.state.Stage == manager.JobStage_Started {
 		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[AnchorTaskIdParam].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
@@ -71,21 +67,14 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
 		} else if stopped {
 			a.state.Stage = manager.JobStage_Completed
-		} else if manager.IsTimedOut(a.state, AnchorFailureTime/2) {
-			// If the job has been running for 1.5 hours, mark it "delayed".
-			a.state.Stage = manager.JobStage_Delayed
+		} else if delayed, _ := a.state.Params[manager.JobParam_Delayed].(bool); !delayed && manager.IsTimedOut(a.state, AnchorStalledTime/2) {
+			// If the job has been running for > 1.5 hours, mark it "delayed".
+			a.state.Params[manager.JobParam_Delayed] = true
 			log.Printf("anchorJob: job delayed: %s", manager.PrintJob(a.state))
-		} else {
-			// Return so we come back again to check
-			return a.state, nil
-		}
-	} else if a.state.Stage == manager.JobStage_Delayed {
-		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[AnchorTaskIdParam].(string)); err != nil {
-			a.state.Stage = manager.JobStage_Failed
-			a.state.Params[manager.JobParam_Error] = err.Error()
-			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
-		} else if stopped {
-			a.state.Stage = manager.JobStage_Completed
+		} else if stalled, _ := a.state.Params[manager.JobParam_Stalled].(bool); !stalled && manager.IsTimedOut(a.state, AnchorStalledTime) {
+			// If the job has been running for > 3 hours, mark it "stalled".
+			a.state.Params[manager.JobParam_Stalled] = true
+			log.Printf("anchorJob: job stalled: %s", manager.PrintJob(a.state))
 		} else {
 			// Return so we come back again to check
 			return a.state, nil

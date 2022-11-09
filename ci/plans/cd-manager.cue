@@ -9,7 +9,7 @@ import (
 	"github.com/3box/pipeline-tools/ci/utils"
 )
 
-#Branch: "develop" | "tnet" | "main"
+#Branch: "develop" | "qa" | "tnet" | "main"
 #EnvTag: "dev" | "qa" | "tnet" | "prod"
 #Sha:    =~"[0-9a-f]{40}"
 #ShaTag: =~"[0-9a-f]{12}"
@@ -64,32 +64,14 @@ dagger.#Plan & {
 			} | {
 				_tags: _baseTags
 			}
-			ecr: {
-				if "\(EnvTag)" == "dev" {
-					qaImage: docker.#Dockerfile & {
-						buildArg: "ENV_TAG": "qa"
-						source: client.filesystem.source.read.contents
-					}
-					qa: utils.#ECR & {
-						img: qaImage.output
-						env: {
-							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
-							AWS_ECR_SECRET: client.commands.aws.stdout
-							AWS_REGION:     Region
-							REPO:           "ceramic-qa-ops-cd-manager"
-							TAGS:           _baseTags + ["qa"]
-						}
-					}
-				}
-				utils.#ECR & {
-					img: image.output
-					env: {
-						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
-						AWS_ECR_SECRET: client.commands.aws.stdout
-						AWS_REGION:     Region
-						REPO:           "ceramic-\(EnvTag)-ops-cd-manager"
-						TAGS:           _tags
-					}
+			ecr: utils.#ECR & {
+				img: image.output
+				env: {
+					AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+					AWS_ECR_SECRET: client.commands.aws.stdout
+					AWS_REGION:     Region
+					REPO:           "ceramic-\(EnvTag)-ops-cd-manager"
+					TAGS:           _tags
 				}
 			}
 		}
