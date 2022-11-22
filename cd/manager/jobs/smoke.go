@@ -47,7 +47,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 		} else {
 			// Update the job stage and spawned task identifier
 			s.state.Stage = manager.JobStage_Started
-			s.state.Params[SmokeTaskIdParam] = id
+			s.state.Params[manager.JobParam_Id] = id
 			s.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
 		}
 	} else if manager.IsTimedOut(s.state, SmokeTestFailureTime) { // Smoke test did not finish in time
@@ -55,7 +55,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 		s.state.Params[manager.JobParam_Error] = manager.Error_Timeout
 		log.Printf("smokeTestJob: job run timed out: %s", manager.PrintJob(s.state))
 	} else if s.state.Stage == manager.JobStage_Started {
-		if running, err := s.d.CheckTask(ECSCluster, "", true, false, s.state.Params[SmokeTaskIdParam].(string)); err != nil {
+		if running, err := s.d.CheckTask(ECSCluster, "", true, false, s.state.Params[manager.JobParam_Id].(string)); err != nil {
 			s.state.Stage = manager.JobStage_Failed
 			s.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("smokeTestJob: error checking task running status: %v, %s", err, manager.PrintJob(s.state))
@@ -70,7 +70,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 			return s.state, nil
 		}
 	} else if s.state.Stage == manager.JobStage_Waiting {
-		if stopped, err := s.d.CheckTask(ECSCluster, "", false, false, s.state.Params[SmokeTaskIdParam].(string)); err != nil {
+		if stopped, err := s.d.CheckTask(ECSCluster, "", false, false, s.state.Params[manager.JobParam_Id].(string)); err != nil {
 			s.state.Stage = manager.JobStage_Failed
 			s.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("smokeTestJob: error checking task stopped status: %v, %s", err, manager.PrintJob(s.state))
