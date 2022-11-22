@@ -9,9 +9,8 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-// Allow up to 1 hours for smoke tests to run
-const SmokeTestFailureTime = 1 * time.Hour
-const SmokeTaskIdParam = "id"
+// Allow up to 15 minutes for smoke tests to run
+const SmokeTestFailureTime = 15 * time.Minute
 
 const ECSCluster = "ceramic-qa-tests"
 const ECSFamilyPrefix = "ceramic-qa-tests-smoke"
