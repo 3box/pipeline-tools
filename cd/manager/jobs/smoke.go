@@ -13,7 +13,7 @@ import (
 const SmokeTestFailureTime = 15 * time.Minute
 
 const ECSCluster = "ceramic-qa-tests"
-const ECSFamilyPrefix = "ceramic-qa-tests-smoke"
+const ECSFamilyPrefix = "ceramic-qa-tests-smoke--"
 const ECSContainerName = "ceramic-qa-tests-smoke"
 const ECSNetworkConfigurationParameter = "/ceramic-qa-tests-smoke/network_configuration"
 
