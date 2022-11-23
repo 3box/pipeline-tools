@@ -9,8 +9,8 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
+// Allow up to 3 hours for anchor workers to run
 const AnchorStalledTime = 3 * time.Hour
-const TaskIdParam = "id"
 
 var _ manager.Job = &anchorJob{}
 
@@ -41,11 +41,11 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		} else {
 			// Update the job stage and spawned task identifier
 			a.state.Stage = manager.JobStage_Started
-			a.state.Params[TaskIdParam] = id
+			a.state.Params[manager.JobParam_Id] = id
 			a.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
 		}
 	} else if a.state.Stage == manager.JobStage_Started {
-		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[TaskIdParam].(string)); err != nil {
+		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[manager.JobParam_Id].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 			a.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("anchorJob: error checking task running status: %v, %s", err, manager.PrintJob(a.state))
@@ -60,7 +60,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			return a.state, nil
 		}
 	} else if a.state.Stage == manager.JobStage_Waiting {
-		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[TaskIdParam].(string)); err != nil {
+		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[manager.JobParam_Id].(string)); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 			a.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))

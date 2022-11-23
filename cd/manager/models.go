@@ -67,6 +67,7 @@ const (
 
 const (
 	JobParam_Component string = "component"
+	JobParam_Id        string = "id"
 	JobParam_Sha       string = "sha"
 	JobParam_Error     string = "error"
 	JobParam_Layout    string = "layout"
