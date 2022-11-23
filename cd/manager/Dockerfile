@@ -1,4 +1,4 @@
-FROM golang:1.18.3-buster
+FROM golang:1.18.3-buster as builder
 
 # Install deps
 RUN apt-get update && apt-get install -y \
@@ -31,25 +31,25 @@ RUN set -eux; \
   && chmod +x tini
 
 # Now comes the actual target image, which aims to be as small as possible.
-FROM busybox:1.31.1-glibc
+FROM busybox:1.31.1-glibc as target
 
 ARG ENV_TAG
 ENV ENV_TAG=$ENV_TAG
 
-# Get the cd-manager binary from the build container.
-ENV SRC_DIR /cd-manager
-COPY --from=0 $SRC_DIR/cmd/manager/cd-manager /usr/local/bin/manager/cd-manager
-COPY --from=0 $SRC_DIR/env/.env."$ENV_TAG" /usr/local/bin/manager/env/.env
-COPY --from=0 /tmp/tini /sbin/tini
-COPY --from=0 /etc/ssl/certs /etc/ssl/certs
+COPY --from=builder /tmp/tini /sbin/tini
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
 # This shared lib (part of glibc) doesn't seem to be included with busybox.
-COPY --from=0 /lib/*-linux-gnu*/libdl.so.2 /lib/
+COPY --from=builder /lib/*-linux-gnu*/libdl.so.2 /lib/
 
 # Copy over SSL libraries.
-COPY --from=0 /usr/lib/*-linux-gnu*/libssl.so* /usr/lib/
-COPY --from=0 /usr/lib/*-linux-gnu*/libcrypto.so* /usr/lib/
+COPY --from=builder /usr/lib/*-linux-gnu*/libssl.so* /usr/lib/
+COPY --from=builder /usr/lib/*-linux-gnu*/libcrypto.so* /usr/lib/
 
+# Get the cd-manager binary and environment variables from the build container.
+ENV SRC_DIR /cd-manager
+COPY --from=builder $SRC_DIR/env/.env."$ENV_TAG" /usr/local/bin/manager/env/.env
+COPY --from=builder $SRC_DIR/cmd/manager/cd-manager /usr/local/bin/manager/cd-manager
 
 EXPOSE 8080
 

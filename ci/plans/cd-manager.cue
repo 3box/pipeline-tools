@@ -44,6 +44,7 @@ dagger.#Plan & {
 	actions: {
 		image: docker.#Dockerfile & {
 			buildArg: "ENV_TAG": client.env.ENV_TAG
+			target: "target"
 			source: client.filesystem.source.read.contents
 		}
 
