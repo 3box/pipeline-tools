@@ -72,10 +72,11 @@ jobs:
       -
         name: Setup Dagger
         run: |
-            curl -L https://dl.dagger.io/dagger/install.sh | sh
-            ./bin/dagger project init
-            ./bin/dagger project update
-            ./bin/dagger project update "github.com/3box/pipeline-tools/ci@${{ env.SHA }}"
+          curl -L https://dl.dagger.io/dagger/install.sh | sh
+          mv ./bin/dagger /usr/local/bin
+          dagger version  
+          dagger project update
+          dagger project update "github.com/3box/pipeline-tools/ci@${{ env.SHA }}"
       -
         name: Set commit status "pending"
         run: dagger do pending -p ${{ env.STATUS_PLAN }}
