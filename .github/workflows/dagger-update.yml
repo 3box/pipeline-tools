@@ -27,6 +27,9 @@ env:
   SHA: ${{ github.sha }}
 
 jobs:
+  update_dagger_project:
+    runs-on: ubuntu-latest
+    steps:
       -
         name: Install Dagger
         uses: dagger/dagger-for-github@v3
