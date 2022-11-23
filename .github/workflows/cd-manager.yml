@@ -18,7 +18,6 @@ env:
   DAGGER_PLAN: ci/plans/cd-manager.cue
   STATUS_PLAN: ci/plans/status.cue
   DAGGER_LOG_FORMAT: "plain"
-  PIPELINE_TOOLS_VER: "0.2.0"
   # Secrets
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -43,7 +42,9 @@ jobs:
       -
         name: Set sha tag
         run: |
-          SHA_TAG=$(git rev-parse --short=12 "${{ env.SHA }}")
+          SHA=$(git rev-parse HEAD)
+          SHA_TAG=$(git rev-parse --short=12 HEAD)
+          echo "SHA=$SHA" >> $GITHUB_ENV
           echo "SHA_TAG=$SHA_TAG" >> $GITHUB_ENV
       -
         name: Set main branch tag
@@ -78,9 +79,9 @@ jobs:
       -
         name: Setup Dagger
         run: |
-            dagger project init
-            dagger project update
-            dagger project update "github.com/3box/pipeline-tools/ci@v${{ env.PIPELINE_TOOLS_VER }}"
+          dagger project init
+          dagger project update
+          dagger project update "github.com/3box/pipeline-tools/ci@${{ env.SHA }}"
       -
         name: Set commit status "pending"
         run: dagger do pending -p ${{ env.STATUS_PLAN }}
