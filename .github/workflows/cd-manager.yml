@@ -75,12 +75,11 @@ jobs:
         with:
           install-only: true
       -
-        # Use the tip of the current branch so we always use the latest scripts
         name: Setup Dagger
         run: |
-          dagger project init
-          dagger project update
-          dagger project update 'github.com/3box/pipeline-tools/ci@"ci/dagger-update"'
+            dagger project init
+            dagger project update
+            dagger project update "github.com/3box/pipeline-tools/ci@develop"
       -
         name: Set commit status "pending"
         run: dagger do pending -p ${{ env.STATUS_PLAN }}
