@@ -138,7 +138,7 @@ import (
 			script: contents: #"""
 				docker rm -f localstack
 				docker network create ci-test || true
-				docker run -d --rm --name localstack --network ci-test -p 4566:4566 -p 4510-4559:4510-4559 localstack/localstack
+				docker run -d --rm --name localstack --network ci-test -p 4566:4566 -p 4510-4559:4510-4559 localstack/localstack:1.2.0
 
 				timeout=$TIMEOUT
 				until [[ $timeout -le 0 ]]; do
