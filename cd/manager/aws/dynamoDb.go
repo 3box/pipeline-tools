@@ -143,6 +143,7 @@ func (db DynamoDb) createTable() error {
 			},
 		}
 		if _, err = db.client.CreateTable(ctx, &createTableInput); err != nil {
+			log.Printf("dynamodb: table creation error: %v", err)
 			return err
 		}
 		var exists bool
