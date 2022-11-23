@@ -163,6 +163,7 @@ func (db DynamoDb) tableExists(table string) (bool, error) {
 	defer cancel()
 
 	if output, err := db.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(table)}); err != nil {
+		log.Printf("dynamodb: table does not exist: %v", table)
 		return false, err
 	} else {
 		return output.Table.TableStatus == types.TableStatusActive, nil
