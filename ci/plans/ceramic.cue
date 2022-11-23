@@ -51,13 +51,12 @@ dagger.#Plan & {
 		contents: dagger.#FS
 		include: [
 			"package.json",
-			"pnpm-lock.yaml",
-			"pnpm-workspace.yaml",
+			"package-lock.json",
+			"lerna.json",
 			"tsconfig.json",
 			"packages",
 			"types",
-		],
-		exclude: ["**/node_modules"]
+		]
 	}
 	// Dockerfile
 	client: filesystem: dockerfile: read: {

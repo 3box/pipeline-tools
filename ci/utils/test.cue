@@ -192,9 +192,6 @@ import (
 					docker logs --details --timestamps --tail 100 "$IMAGE_NAME"
 					curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 					cat curl.out
-					echo -e "\n=============== Localstack Logs ===============\n"
-					docker logs --details --timestamps --tail 100 localstack > logs.out
-					cat logs.out
 
 					if grep -q "200 OK" curl.out
 					then
