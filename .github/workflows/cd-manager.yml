@@ -80,7 +80,7 @@ jobs:
         run: |
           dagger project init
           dagger project update
-          dagger project update "github.com/3box/pipeline-tools/ci@\"${{ env.BRANCH }}\""
+          dagger project update 'github.com/3box/pipeline-tools/ci@"ci/dagger-update"'
       -
         name: Set commit status "pending"
         run: dagger do pending -p ${{ env.STATUS_PLAN }}
