@@ -28,6 +28,7 @@ env:
   RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   STATUS_URL: "https://api.github.com/repos/3box/pipeline-tools/statuses/${{ github.sha }}"
   BRANCH: ${{ github.head_ref || github.ref_name }}
+  SHA: ${{ github.sha }}
 
 jobs:
   handle_docker_image:
@@ -71,11 +72,13 @@ jobs:
         run: |
           echo "ENV_TAG=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
       -
+        name: Install Dagger
+        uses: dagger/dagger-for-github@v3
+        with:
+          install-only: true
+      -
         name: Setup Dagger
         run: |
-          curl -L https://dl.dagger.io/dagger/install.sh | sh
-          mv ./bin/dagger /usr/local/bin
-          dagger version
           dagger project init
           dagger project update
           dagger project update "github.com/3box/pipeline-tools/ci@${{ env.SHA }}"
