@@ -35,8 +35,13 @@ jobs:
         with:
           ref: ${{ env.BRANCH }}
       -
-        name: Set tag env
-        run: echo "RELEASE_VERSION=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
+        name: Set version
+        if: ${{ github.event.inputs.version != '' }}
+        run: echo "PIPELINE_TOOLS_VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+      -
+        name: Set version to latest git tag
+        if: ${{ github.event.inputs.version == '' }}
+        run: echo "PIPELINE_TOOLS_VERSION=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
       -
         name: Install Dagger
         uses: dagger/dagger-for-github@v3
@@ -47,4 +52,4 @@ jobs:
         run: |
             dagger project init
             dagger project update
-            dagger project update "github.com/3box/pipeline-tools/ci@${{ env.RELEASE_VERSION }}"
+            dagger project update "github.com/3box/pipeline-tools/ci@${{ env.PIPELINE_TOOLS_VERSION }}"
