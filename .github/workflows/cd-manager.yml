@@ -28,7 +28,6 @@ env:
   RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   STATUS_URL: "https://api.github.com/repos/3box/pipeline-tools/statuses/${{ github.sha }}"
   BRANCH: ${{ github.head_ref || github.ref_name }}
-  SHA: ${{ github.sha }}
 
 jobs:
   handle_docker_image:
@@ -42,7 +41,9 @@ jobs:
       -
         name: Set sha tag
         run: |
-          SHA_TAG=$(git rev-parse --short=12 "${{ env.SHA }}")
+          SHA=$(git rev-parse HEAD)
+          SHA_TAG=$(git rev-parse --short=12 HEAD)
+          echo "SHA=$SHA" >> $GITHUB_ENV
           echo "SHA_TAG=$SHA_TAG" >> $GITHUB_ENV
       -
         name: Set main branch tag
