@@ -80,10 +80,7 @@ jobs:
         run: |
           dagger project init
           dagger project update
-          # Pick up the latest tagged version
-          dagger project update "github.com/3box/pipeline-tools/ci"
-          # Now pick up the latest version from this branch
-          dagger project update "github.com/3box/pipeline-tools/ci@${{ env.SHA_TAG }}"
+          dagger project update "github.com/3box/pipeline-tools/ci@${{ env.SHA }}"
       -
         name: Set commit status "pending"
         run: dagger do pending -p ${{ env.STATUS_PLAN }}
