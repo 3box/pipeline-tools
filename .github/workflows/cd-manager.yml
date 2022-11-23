@@ -74,7 +74,8 @@ jobs:
         run: |
           curl -L https://dl.dagger.io/dagger/install.sh | sh
           mv ./bin/dagger /usr/local/bin
-          dagger version  
+          dagger version
+          dagger project init
           dagger project update
           dagger project update "github.com/3box/pipeline-tools/ci@${{ env.SHA }}"
       -
