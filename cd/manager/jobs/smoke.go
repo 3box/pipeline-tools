@@ -12,10 +12,10 @@ import (
 // Allow up to 15 minutes for smoke tests to run
 const SmokeTestFailureTime = 15 * time.Minute
 
-const ECSCluster = "ceramic-qa-tests"
-const ECSFamilyPrefix = "ceramic-qa-tests-smoke--"
-const ECSContainerName = "ceramic-qa-tests-smoke"
-const ECSNetworkConfigurationParameter = "/ceramic-qa-tests-smoke/network_configuration"
+const ClusterName = "ceramic-qa-tests"
+const FamilyPrefix = "ceramic-qa-tests-smoke--"
+const ContainerName = "ceramic-qa-tests-smoke"
+const NetworkConfigurationParameter = "/ceramic-qa-tests-smoke/network_configuration"
 
 var _ manager.Job = &smokeTestJob{}
 
@@ -35,10 +35,10 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 	if s.state.Stage == manager.JobStage_Queued {
 		// Launch smoke test
 		if id, err := s.d.LaunchTask(
-			ECSCluster,
-			ECSFamilyPrefix+s.env,
-			ECSContainerName,
-			ECSNetworkConfigurationParameter,
+			ClusterName,
+			FamilyPrefix+s.env,
+			ContainerName,
+			NetworkConfigurationParameter,
 			nil); err != nil {
 			s.state.Stage = manager.JobStage_Failed
 			s.state.Params[manager.JobParam_Error] = err.Error()
@@ -54,7 +54,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 		s.state.Params[manager.JobParam_Error] = manager.Error_Timeout
 		log.Printf("smokeTestJob: job run timed out: %s", manager.PrintJob(s.state))
 	} else if s.state.Stage == manager.JobStage_Started {
-		if running, err := s.d.CheckTask(ECSCluster, "", true, false, s.state.Params[manager.JobParam_Id].(string)); err != nil {
+		if running, err := s.d.CheckTask(ClusterName, "", true, false, s.state.Params[manager.JobParam_Id].(string)); err != nil {
 			s.state.Stage = manager.JobStage_Failed
 			s.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("smokeTestJob: error checking task running status: %v, %s", err, manager.PrintJob(s.state))
@@ -69,7 +69,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 			return s.state, nil
 		}
 	} else if s.state.Stage == manager.JobStage_Waiting {
-		if stopped, err := s.d.CheckTask(ECSCluster, "", false, false, s.state.Params[manager.JobParam_Id].(string)); err != nil {
+		if stopped, err := s.d.CheckTask(ClusterName, "", false, false, s.state.Params[manager.JobParam_Id].(string)); err != nil {
 			s.state.Stage = manager.JobStage_Failed
 			s.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("smokeTestJob: error checking task stopped status: %v, %s", err, manager.PrintJob(s.state))
