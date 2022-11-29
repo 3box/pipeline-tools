@@ -232,11 +232,17 @@ func (m *JobManager) scheduleTests() error {
 }
 
 func (m *JobManager) checkAnchorInterval() error {
-	// Check time since the last anchor job was completed
-	return m.checkJobInterval(manager.JobType_Anchor, manager.JobStage_Completed, "CAS_MAX_ANCHOR_INTERVAL", func(ts time.Time) error {
-		notifs.NewAnchorIntervalNotif(m.notifs).SendAlert(ts)
-		return nil
+	// Check time since the last anchor job was completed, if there isn't an anchor job already running.
+	activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+		return manager.IsActiveJob(js) && (js.Type == manager.JobType_Anchor)
 	})
+	if len(activeAnchors) == 0 {
+		return m.checkJobInterval(manager.JobType_Anchor, manager.JobStage_Completed, "CAS_MAX_ANCHOR_INTERVAL", func(ts time.Time) error {
+			notifs.NewAnchorIntervalNotif(m.notifs).SendAlert(ts)
+			return nil
+		})
+	}
+	return nil
 }
 
 func (m *JobManager) checkJobInterval(jobType manager.JobType, jobStage manager.JobStage, intervalEnv string, processFn func(time.Time) error) error {

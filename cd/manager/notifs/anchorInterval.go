@@ -7,7 +7,7 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
-const NotifPacing = time.Hour
+const NotifPacing = 12 * time.Hour
 
 // lastNotifTime is the time at which the last notification was sent indicating that an anchor job was not started in a
 // timely manner.
