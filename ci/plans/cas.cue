@@ -121,7 +121,11 @@ dagger.#Plan & {
 							-e DB_HOST=pg \
 							-e DB_USERNAME=root \
 							-e DB_PASSWORD=root \
-							-e ETH_NETWORK=ropsten \
+							-e BLOCKCHAIN_CONNECTOR=ethereum \
+							-e ETH_GAS_LIMIT=4712388 \
+							-e ETH_GAS_PRICE=100000000000 \
+							-e ETH_NETWORK=goerli \
+							-e ETH_OVERRIDE_GAS_CONFIG=false \
 							-e ETH_WALLET_PK=0x16dd0990d19001c50eeea6d32e8fdeef40d3945962caf18c18c3930baa5a6ec9 \
 							"$IMAGE_NAME"
 
