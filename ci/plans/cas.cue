@@ -7,6 +7,7 @@ import (
 	"universe.dagger.io/aws"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
+	"universe.dagger.io/docker/cli"
 
 	"github.com/3box/pipeline-tools/ci/utils"
 )
@@ -56,25 +57,38 @@ dagger.#Plan & {
 			src: _source
 		}
 
-		_image: docker.#Dockerfile & {
+		_baseImage: docker.#Dockerfile & {
+			target: "base"
+			source: _source
+		}
+
+		_runnerImage: docker.#Dockerfile & {
+			target: "runner"
 			source: _source
 		}
 
 		verify: {
-			_endpoint: "api/v0/healthcheck"
-			_port:     8081
-			_cli:      alpine.#Build & {
+			_endpoint:  "api/v0/healthcheck"
+			_port:      8081
+			_imageName: "ci-test-image"
+			_loadImage: cli.#Load & {
+				image: _baseImage.output
+				host:  _dockerHost
+				tag:   "\(_imageName)"
+			}
+			_cli: alpine.#Build & {
 				packages: {
 					bash: {}
 					curl: {}
 					"docker-cli": {}
-					"docker-compose": {}
 				}
 			}
 			healthcheck: bash.#Run & {
 				env: {
-					URL:     "http://0.0.0.0:\(_port)/\(_endpoint)"
-					TIMEOUT: "60"
+					URL:        "http://0.0.0.0:\(_port)/\(_endpoint)"
+					TIMEOUT:    "60"
+					IMAGE_NAME: "\(_imageName)"
+					DEP:        "\(_loadImage.success)"
 				}
 				input:   _cli.output
 				workdir: "/src"
@@ -88,18 +102,40 @@ dagger.#Plan & {
 				}
 				always: true
 				script: contents: #"""
-						docker-compose down
-						docker-compose up -d
+						docker rm -f "$IMAGE_NAME" pg
+						docker network create ci-test || true
+						docker run -d --name pg \
+							--network ci-test \
+							-p 5432:5432 \
+							-e POSTGRES_PASSWORD=root \
+							-e POSTGRES_USER=root \
+							-e POSTGRES_DB=anchor_db \
+							postgres
+						docker run -d --name "$IMAGE_NAME" \
+							--network ci-test \
+							-p 8081:8081 \
+							-e NODE_ENV=dev \
+							-e APP_MODE=server \
+							-e APP_PORT=8081 \
+							-e DB_NAME=anchor_db \
+							-e DB_HOST=pg \
+							-e DB_USERNAME=root \
+							-e DB_PASSWORD=root \
+							-e ETH_NETWORK=ropsten \
+							-e ETH_WALLET_PK=0x16dd0990d19001c50eeea6d32e8fdeef40d3945962caf18c18c3930baa5a6ec9 \
+							"$IMAGE_NAME"
+
 						timeout=$TIMEOUT
 						until [[ $timeout -le 0 ]]; do
 							echo -e "\n=============== Startup Logs ===============\n"
-							docker-compose logs --timestamps --tail=100
+							docker logs --details --timestamps --tail 100 "$IMAGE_NAME"
 							curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
 
 							if grep -q "200 OK" curl.out
 							then
 								echo Healthcheck passed
-								docker-compose down
+								docker rm -f "$IMAGE_NAME" pg
+								docker network rm ci-test
 								exit 0
 							fi
 
@@ -109,7 +145,8 @@ dagger.#Plan & {
 
 						if [ $timeout -le 0 ]; then
 							echo Healthcheck failed
-							docker-compose down
+							docker rm -f "$IMAGE_NAME" pg
+							docker network rm ci-test
 							exit 1
 						fi
 					"""#
@@ -125,8 +162,54 @@ dagger.#Plan & {
 			} | {
 				_tags: _baseTags
 			}
+			ecr: {
+				if EnvTag == "dev" {
+					_qa: {
+						_base: utils.#ECR & {
+							img: _baseImage.output
+							env: {
+								AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+								AWS_ECR_SECRET: client.commands.aws.stdout
+								AWS_REGION:     Region
+								REPO:           "ceramic-qa-cas"
+								TAGS:           _tags + ["qa"]
+							}
+						}
+						_runner: utils.#ECR & {
+							img: _runnerImage.output
+							env: {
+								AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+								AWS_ECR_SECRET: client.commands.aws.stdout
+								AWS_REGION:     Region
+								REPO:           "ceramic-qa-cas-runner"
+								TAGS:           _tags + ["qa"]
+							}
+						}
+					}
+				}
+				_base: utils.#ECR & {
+					img: _baseImage.output
+					env: {
+						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+						AWS_ECR_SECRET: client.commands.aws.stdout
+						AWS_REGION:     Region
+						REPO:           "ceramic-\(EnvTag)-cas"
+						TAGS:           _tags
+					}
+				}
+				_runner: utils.#ECR & {
+					img: _runnerImage.output
+					env: {
+						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+						AWS_ECR_SECRET: client.commands.aws.stdout
+						AWS_REGION:     Region
+						REPO:           "ceramic-\(EnvTag)-cas-runner"
+						TAGS:           _tags
+					}
+				}
+			}
 			dockerhub: utils.#Dockerhub & {
-				img: _image.output
+				img: _baseImage.output
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN:    client.env.DOCKERHUB_TOKEN
