@@ -337,14 +337,14 @@ func (m *JobManager) processDeployJobs(dequeuedJobs []manager.JobState) bool {
 			if (dequeuedJob.Type == manager.JobType_TestE2E) || (dequeuedJob.Type == manager.JobType_TestSmoke) {
 				break
 			} else if (dequeuedJob.Type == manager.JobType_Deploy) && (dequeuedJob.Params[manager.JobParam_Component].(string) == deployComponent) {
-				// Replace the existing deploy job with a newer one, and update the cache and database.
+				// Skip the current deploy job, and replace it with a newer one.
 				if err := m.updateJobStage(deployJob, manager.JobStage_Skipped); err != nil {
 					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any
 					// jobs already skipped won't be picked up again, which is ok.
 					return true
 				}
+				deployJob = dequeuedJob
 			}
-			deployJob = dequeuedJob
 		}
 		log.Printf("processDeployJobs: starting deploy job: %s", manager.PrintJob(deployJob))
 		m.advanceJob(deployJob)
