@@ -45,7 +45,7 @@ func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch, shaTag stri
 	}); err != nil {
 		return "", err
 	} else {
-		log.Printf("getLatestCommitHash: list commits rate limit=%d, remaining=%d, resetAt=%s: ", resp.Limit, resp.Remaining, resp.Reset)
+		log.Printf("getLatestCommitHash: list commits rate limit=%d, remaining=%d, resetAt=%s", resp.Limit, resp.Remaining, resp.Reset)
 		for _, commit := range commits {
 			sha := *commit.SHA
 			if checksPassed, err := g.checkRefStatus(repo, sha); err != nil {
@@ -68,7 +68,7 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 		defer cancel()
 
 		status, resp, err := g.client.Repositories.GetCombinedStatus(ctx, manager.GitHubOrg, string(repo), ref, &github.ListOptions{PerPage: 100})
-		log.Printf("checkRefStatus: get combined status rate limit=%d, remaining=%d, resetAt=%s: ", resp.Limit, resp.Remaining, resp.Reset)
+		log.Printf("checkRefStatus: status=%s, rate limit=%d, remaining=%d, resetAt=%s", status, resp.Limit, resp.Remaining, resp.Reset)
 		return status, err
 	}
 	// Wait a few minutes for the status to finalize if it is currently "pending"
@@ -90,7 +90,6 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 			case manager.CommitStatus_Failure:
 				return false, nil
 			}
-			log.Printf("checkRefStatus: commit status is pending: %s", status.String())
 		}
 		// Sleep for a few seconds so we don't get rate limited
 		time.Sleep(manager.DefaultTick)
