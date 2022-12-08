@@ -69,6 +69,7 @@ const (
 	JobParam_Component string = "component"
 	JobParam_Id        string = "id"
 	JobParam_Sha       string = "sha"
+	JobParam_ShaTag    string = "shaTag"
 	JobParam_Error     string = "error"
 	JobParam_Layout    string = "layout"
 	JobParam_Manual    string = "manual"
@@ -253,7 +254,7 @@ type Manager interface {
 
 // Repository represents a git service hosting our repositories (e.g. GitHub)
 type Repository interface {
-	GetLatestCommitHash(DeployRepo, string) (string, error)
+	GetLatestCommitHash(DeployRepo, string, string) (string, error)
 }
 
 func PrintJob(jobStates ...JobState) string {

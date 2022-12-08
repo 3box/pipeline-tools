@@ -48,9 +48,11 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 			//
 			// The last two cases will only happen when redeploying manually, so we can note that in the notification.
 			if sha == manager.BuildHashLatest {
+				shaTag, _ := jobState.Params[manager.JobParam_ShaTag].(string)
 				latestSha, err := repo.GetLatestCommitHash(
 					manager.ComponentRepo(c),
 					manager.EnvBranch(manager.EnvType(os.Getenv("ENV"))),
+					shaTag,
 				)
 				if err != nil {
 					return nil, err

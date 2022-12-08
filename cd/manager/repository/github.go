@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/github"
@@ -30,7 +31,7 @@ func NewRepository() manager.Repository {
 	return &Github{github.NewClient(httpClient)}
 }
 
-func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch string) (string, error) {
+func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch, shaTag string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -50,6 +51,8 @@ func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch string) (str
 			if checksPassed, err := g.checkRefStatus(repo, sha); err != nil {
 				return "", err
 			} else if checksPassed { // Return the newest commit with passed checks
+				return sha, nil
+			} else if strings.HasPrefix(sha, shaTag) { // Return the commit for which the job was created
 				return sha, nil
 			}
 		}
