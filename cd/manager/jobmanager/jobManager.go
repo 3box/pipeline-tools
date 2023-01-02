@@ -13,7 +13,6 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/jobs"
-	"github.com/3box/pipeline-tools/cd/manager/notifs"
 )
 
 var _ manager.Manager = &JobManager{}
@@ -140,9 +139,6 @@ func (m *JobManager) processJobs() {
 	if err := m.scheduleTests(); err != nil {
 		log.Printf("processJobs: error scheduling tests: %v", err)
 	}
-	if err := m.checkAnchorInterval(); err != nil {
-		log.Printf("processJobs: error checking anchor job interval: %v", err)
-	}
 	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
 	if !m.paused {
 		// Always check if we have anchor jobs, even if none were dequeued. This is because we might have a minimum
@@ -227,20 +223,6 @@ func (m *JobManager) scheduleTests() error {
 			log.Printf("scheduleTests: failed to queue e2e tests: %v", err)
 			return err
 		}
-	}
-	return nil
-}
-
-func (m *JobManager) checkAnchorInterval() error {
-	// Check time since the last anchor job was completed, if there isn't an anchor job already running.
-	activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return manager.IsActiveJob(js) && (js.Type == manager.JobType_Anchor)
-	})
-	if len(activeAnchors) == 0 {
-		return m.checkJobInterval(manager.JobType_Anchor, manager.JobStage_Completed, "CAS_MAX_ANCHOR_INTERVAL", func(ts time.Time) error {
-			notifs.NewAnchorIntervalNotif(m.notifs).SendAlert(ts)
-			return nil
-		})
 	}
 	return nil
 }
