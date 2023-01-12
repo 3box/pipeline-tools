@@ -127,6 +127,7 @@ dagger.#Plan & {
 							-e ETH_NETWORK=goerli \
 							-e ETH_OVERRIDE_GAS_CONFIG=false \
 							-e ETH_WALLET_PK=0x16dd0990d19001c50eeea6d32e8fdeef40d3945962caf18c18c3930baa5a6ec9 \
+							-e ETH_CONTRACT_ADDRESS=0xD3f84Cf6Be3DD0EB16dC89c972f7a27B441A39f2 \
 							"$IMAGE_NAME"
 
 						timeout=$TIMEOUT
