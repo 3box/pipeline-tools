@@ -70,28 +70,14 @@ dagger.#Plan & {
 			} | {
 				_tags: _baseTags
 			}
-			ecr: {
-				if Branch == "develop" {
-					qa: utils.#ECR & {
-						img: _image.output
-						env: {
-							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
-							AWS_ECR_SECRET: client.commands.aws.stdout
-							AWS_REGION:     Region
-							REPO:           "go-ipfs-qa"
-							TAGS:           _baseTags + ["qa"]
-						}
-					}
-				}
-				utils.#ECR & {
-					img: _image.output
-					env: {
-						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
-						AWS_ECR_SECRET: client.commands.aws.stdout
-						AWS_REGION:     Region
-						REPO:           "go-ipfs-\(EnvTag)"
-						TAGS:           _tags
-					}
+			ecr: utils.#ECR & {
+				img: _image.output
+				env: {
+					AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+					AWS_ECR_SECRET: client.commands.aws.stdout
+					AWS_REGION:     Region
+					REPO:           "go-ipfs-\(EnvTag)"
+					TAGS:           _tags
 				}
 			}
 			dockerhub: utils.#Dockerhub & {
@@ -125,14 +111,6 @@ dagger.#Plan & {
 					ENV_TAG: "\(EnvTag)"
 				}
 				job: jobParams
-			}
-			if EnvTag == "dev" {
-				_deployQa: utils.#Job & {
-					env: jobEnv & {
-						ENV_TAG: "qa"
-					}
-					job: jobParams
-				}
 			}
 		}
 	}
