@@ -60,7 +60,7 @@ const (
 
 const (
 	EnvBranch_Dev  string = "develop"
-	EnvBranch_Qa   string = "develop"
+	EnvBranch_Qa   string = "qa"
 	EnvBranch_Tnet string = "release-candidate"
 	EnvBranch_Prod string = "main"
 )
