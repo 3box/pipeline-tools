@@ -51,7 +51,7 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 				shaTag, _ := jobState.Params[manager.JobParam_ShaTag].(string)
 				latestSha, err := repo.GetLatestCommitHash(
 					manager.ComponentRepo(c),
-					manager.EnvBranch(manager.EnvType(os.Getenv("ENV"))),
+					manager.EnvBranch(c, manager.EnvType(os.Getenv("ENV"))),
 					shaTag,
 				)
 				if err != nil {

@@ -284,12 +284,20 @@ func EnvName(env EnvType) string {
 	}
 }
 
-func EnvBranch(env EnvType) string {
+func EnvBranch(component DeployComponent, env EnvType) string {
 	switch env {
 	case EnvType_Dev:
 		return EnvBranch_Dev
 	case EnvType_Qa:
-		return EnvBranch_Qa
+		// Ceramic and CAS "qa" deploys correspond to the "develop" branch
+		switch component {
+		case DeployComponent_Ceramic:
+			return EnvBranch_Dev
+		case DeployComponent_Cas:
+			return EnvBranch_Dev
+		default:
+			return EnvBranch_Qa
+		}
 	case EnvType_Tnet:
 		return EnvBranch_Tnet
 	case EnvType_Prod:
