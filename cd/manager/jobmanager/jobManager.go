@@ -141,9 +141,8 @@ func (m *JobManager) processJobs() {
 	}
 	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
 	if !m.paused {
-		// Always check if we have anchor jobs, even if none were dequeued. This is because we might have a minimum
-		// number of jobs to run configured. The only time we don't want to run anchor jobs is when a deployment is
-		// kicked off.
+		// Always attempt to check if we have anchor jobs, even if none were dequeued. This is because we might have a
+		// configured minimum number of jobs to run.
 		processAnchorJobs := true
 		// Try to dequeue multiple jobs and collapse similar ones:
 		// - one deploy at a time
@@ -176,7 +175,26 @@ func (m *JobManager) processJobs() {
 				} else
 				// Decide how to proceed based on the first job from the list
 				if dequeuedJobs[0].Type == manager.JobType_Deploy {
-					processAnchorJobs = !m.processDeployJobs(dequeuedJobs)
+					m.processDeployJobs(dequeuedJobs)
+					// There are two scenarios for anchor jobs on encountering a deploy job at the head of the queue:
+					// - Anchor jobs are started if no deployment was *started*, even if this deploy job was ahead of
+					//   anchor jobs in the queue.
+					// - Anchor jobs are not started since a deploy job was *dequeued* ahead of them. (This would be the
+					//   normal behavior for a job queue, i.e. jobs get processed in the order they were scheduled.)
+					//
+					// The first scenario only applies to the QA environment that is used for running the E2E tests. E2E
+					// tests need anchor jobs to run, but if all jobs are processed sequentially, anchor jobs required
+					// for processing test streams can get blocked by deploy jobs, which are in turn blocked by the E2E
+					// tests themselves. Letting anchor jobs "skip the queue" prevents this "deadlock".
+					//
+					// Testing for this scenario can be simplified by checking whether E2E tests were in progress. So,
+					// anchor jobs will only be able to "skip the queue" if E2E tests were running but fallback to
+					// sequential processing otherwise. Since E2E tests only run in QA, all other environments (and QA
+					// for all other scenarios besides active E2E tests) will have the default (sequential) behavior.
+					e2eTestJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+						return manager.IsActiveJob(js) && (js.Type == manager.JobType_TestE2E)
+					})
+					processAnchorJobs = len(e2eTestJobs) > 0
 				} else {
 					m.processTestJobs(dequeuedJobs)
 				}
