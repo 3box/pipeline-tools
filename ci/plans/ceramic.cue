@@ -55,6 +55,7 @@ dagger.#Plan & {
 			"lerna.json",
 			"tsconfig.json",
 			"packages",
+			"patches",
 			"types",
 		]
 	}
