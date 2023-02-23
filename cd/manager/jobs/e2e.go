@@ -92,11 +92,12 @@ func (e e2eTestJob) startE2eTest(config string) error {
 		"ceramic-qa-tests-e2e_tests",
 		"e2e_tests",
 		map[string]string{
-			"NODE_ENV":              config,
-			"ETH_RPC_URL":           os.Getenv("BLOCKCHAIN_RPC_URL"),
-			"AWS_ACCESS_KEY_ID":     os.Getenv("E2E_AWS_ACCESS_KEY_ID"),
-			"AWS_SECRET_ACCESS_KEY": os.Getenv("E2E_AWS_SECRET_ACCESS_KEY"),
-			"AWS_REGION":            os.Getenv("AWS_REGION"),
+			"NODE_ENV":                      config,
+			"ETH_RPC_URL":                   os.Getenv("BLOCKCHAIN_RPC_URL"),
+			"AWS_ACCESS_KEY_ID":             os.Getenv("E2E_AWS_ACCESS_KEY_ID"),
+			"AWS_SECRET_ACCESS_KEY":         os.Getenv("E2E_AWS_SECRET_ACCESS_KEY"),
+			"AWS_REGION":                    os.Getenv("AWS_REGION"),
+			"CERAMIC_NODE_PRIVATE_SEED_URL": os.Getenv("CERAMIC_NODE_PRIVATE_SEED_URL"),
 		}); err != nil {
 		return err
 	} else {
