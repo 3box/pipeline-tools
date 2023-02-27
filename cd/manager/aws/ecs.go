@@ -162,11 +162,11 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 func (e Ecs) componentTask(component manager.DeployComponent, service string) (*manager.Task, bool) {
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		if strings.Contains(service, manager.ServiceSuffix_CeramicNode) {
+		if strings.Contains(service, manager.ServiceSuffix_CeramicNode) || strings.Contains(service, manager.ServiceSuffix_CeramicGateway) {
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Ipfs:
-		if strings.Contains(service, manager.ServiceSuffix_IpfsNode) {
+		if strings.Contains(service, manager.ServiceSuffix_IpfsNode) || strings.Contains(service, manager.ServiceSuffix_IpfsGateway) {
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Cas:
