@@ -53,7 +53,7 @@ func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 		cache,
 		time.UnixMilli(0),
 	}
-	if err := db.createTable(); err != nil {
+	if err = db.createTable(); err != nil {
 		log.Fatalf("dynamodb: table creation failed: %v", err)
 	}
 	return db

@@ -12,6 +12,10 @@ import (
 // Allow up to 3 hours for anchor workers to run
 const AnchorStalledTime = 3 * time.Hour
 
+// For CASv5 workers
+const CasV5Version = "5"
+const CasV5EnvVar = "USE_QUEUE_BATCHES"
+
 var _ manager.Job = &anchorJob{}
 
 type anchorJob struct {
@@ -28,13 +32,18 @@ func AnchorJob(db manager.Database, d manager.Deployment, notifs manager.Notifs,
 
 func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 	if a.state.Stage == manager.JobStage_Queued {
+		var overrides map[string]string = nil
+		// Check if this is a CASv5 anchor job
+		if version, found := a.state.Params[manager.JobParam_Version].(string); found && (version == CasV5Version) {
+			overrides = map[string]string{CasV5EnvVar: "true"}
+		}
 		// Launch anchor worker
 		if id, err := a.d.LaunchTask(
 			"ceramic-"+a.env+"-cas",
 			"ceramic-"+a.env+"-cas-anchor",
 			"cas_anchor",
 			"/ceramic-"+a.env+"-cas/anchor_network_configuration",
-			nil); err != nil {
+			overrides); err != nil {
 			a.state.Stage = manager.JobStage_Failed
 			a.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("anchorJob: error starting task: %v, %s", err, manager.PrintJob(a.state))
