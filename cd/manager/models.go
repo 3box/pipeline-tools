@@ -73,6 +73,7 @@ const (
 	JobParam_Delayed   string = "delayed"
 	JobParam_Stalled   string = "stalled"
 	JobParam_Source    string = "source"
+	JobParam_Version   string = "version"
 )
 
 type DeployComponent string
