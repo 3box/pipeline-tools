@@ -144,9 +144,6 @@ dagger.#Plan & {
 			if EnvTag == "tnet" {
 				_extraTags: ["\(Version)"]
 			}
-			if EnvTag == "dev" {
-				_extraTags: ["qa"]
-			}
 			ecr: {
 				if EnvTag == "dev" {
 					qa: utils.#ECR & {
@@ -156,7 +153,7 @@ dagger.#Plan & {
 							AWS_ECR_SECRET: client.commands.aws.stdout
 							AWS_REGION:     Region
 							REPO:           "ceramic-qa"
-							TAGS:           _tags + _extraTags
+							TAGS:           _tags + _extraTags + ["qa"]
 						}
 					}
 				}

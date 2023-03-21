@@ -62,13 +62,10 @@ dagger.#Plan & {
 		}
 
 		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
-			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
-			_tags: [...string]
-			{
-				Branch == "main"
-				_tags: _baseTags + ["latest"]
-			} | {
-				_tags: _baseTags
+			_tags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
+			_extraTags: [...string] | *[]
+			if EnvTag == "prod" {
+				_extraTags: ["latest"]
 			}
 			ecr: utils.#ECR & {
 				img: _image.output
@@ -77,7 +74,7 @@ dagger.#Plan & {
 					AWS_ECR_SECRET: client.commands.aws.stdout
 					AWS_REGION:     Region
 					REPO:           "go-ipfs-\(EnvTag)"
-					TAGS:           _tags
+					TAGS:           _tags + _extraTags
 				}
 			}
 			dockerhub: utils.#Dockerhub & {
@@ -86,7 +83,7 @@ dagger.#Plan & {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN:    client.env.DOCKERHUB_TOKEN
 					REPO:               _repo
-					TAGS:               _tags
+					TAGS:               _tags + _extraTags
 				}
 			}
 		}
