@@ -159,13 +159,10 @@ dagger.#Plan & {
 		}
 
 		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
-			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
-			_tags: [...string]
-			{
-				Branch == "main"
-				_tags: _baseTags + ["latest"]
-			} | {
-				_tags: _baseTags
+			_tags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
+			_extraTags: [...string] | *[]
+			if EnvTag == "prod" {
+				_extraTags: ["latest"]
 			}
 			ecr: {
 				if EnvTag == "dev" {
@@ -177,7 +174,7 @@ dagger.#Plan & {
 								AWS_ECR_SECRET: client.commands.aws.stdout
 								AWS_REGION:     Region
 								REPO:           "ceramic-qa-cas"
-								TAGS:           _tags + ["qa"]
+								TAGS:           _tags + _extraTags + ["qa"]
 							}
 						}
 						_runner: utils.#ECR & {
@@ -187,7 +184,7 @@ dagger.#Plan & {
 								AWS_ECR_SECRET: client.commands.aws.stdout
 								AWS_REGION:     Region
 								REPO:           "ceramic-qa-cas-runner"
-								TAGS:           _tags + ["qa"]
+								TAGS:           _tags + _extraTags + ["qa"]
 							}
 						}
 					}
@@ -199,7 +196,7 @@ dagger.#Plan & {
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION:     Region
 						REPO:           "ceramic-\(EnvTag)-cas"
-						TAGS:           _tags
+						TAGS:           _tags + _extraTags
 					}
 				}
 				_runner: utils.#ECR & {
@@ -209,7 +206,7 @@ dagger.#Plan & {
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION:     Region
 						REPO:           "ceramic-\(EnvTag)-cas-runner"
-						TAGS:           _tags
+						TAGS:           _tags + _extraTags
 					}
 				}
 			}
@@ -219,7 +216,7 @@ dagger.#Plan & {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN:    client.env.DOCKERHUB_TOKEN
 					REPO:               _repo
-					TAGS:               _tags
+					TAGS:               _tags + _extraTags
 				}
 			}
 		}
