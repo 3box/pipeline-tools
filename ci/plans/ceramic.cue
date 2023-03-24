@@ -50,6 +50,7 @@ dagger.#Plan & {
 		path:     "."
 		contents: dagger.#FS
 		include: [
+			".git",
 			"package.json",
 			"package-lock.json",
 			"lerna.json",
