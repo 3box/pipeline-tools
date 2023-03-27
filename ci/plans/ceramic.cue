@@ -50,7 +50,6 @@ dagger.#Plan & {
 		path:     "."
 		contents: dagger.#FS
 		include: [
-			".git",
 			"package.json",
 			"package-lock.json",
 			"lerna.json",
@@ -83,17 +82,18 @@ dagger.#Plan & {
 			run: env: IPFS_FLAVOR: "go"
 		}
 
-		_image: docker.#Dockerfile & {
+		build: docker.#Dockerfile & {
 			_file: core.#ReadFile & {
 				input: _dockerfile
 				path:  "Dockerfile.daemon"
 			}
+			buildArg: "GIT_COMMIT_HASH": version.sha
 			source: _imageSource
 			dockerfile: contents: _file.contents
 		}
 
 		verify: utils.#TestImage & {
-			testImage:  _image.output
+			testImage:  build.output
 			endpoint:   "api/v0/node/healthcheck"
 			port:       7007
 			dockerHost: client.network."unix:///var/run/docker.sock".connect
@@ -148,7 +148,7 @@ dagger.#Plan & {
 			ecr: {
 				if EnvTag == "dev" {
 					qa: utils.#ECR & {
-						img: _image.output
+						img: build.output
 						env: {
 							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 							AWS_ECR_SECRET: client.commands.aws.stdout
@@ -159,7 +159,7 @@ dagger.#Plan & {
 					}
 				}
 				utils.#ECR & {
-					img: _image.output
+					img: build.output
 					env: {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
@@ -170,7 +170,7 @@ dagger.#Plan & {
 				}
 			}
 			dockerhub: utils.#Dockerhub & {
-				img: _image.output
+				img: build.output
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN:    client.env.DOCKERHUB_TOKEN
