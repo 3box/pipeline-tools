@@ -33,6 +33,23 @@ import (
 	}
 }
 
+#TestImageCommand: {
+	testImage:     docker.#Image
+	command:      string
+
+	run: {
+		bash.#Run & {
+			env: {
+				CMD:        "\(command)"
+			}
+			input:  testImage
+			always: true
+			script: contents: #"""
+				composedb "$CMD"
+			"""#
+		}
+	}}
+
 #TestImage: {
 	testImage:     docker.#Image
 	testImageName: string | *"ci-test-image"
