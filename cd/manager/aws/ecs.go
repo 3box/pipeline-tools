@@ -110,7 +110,7 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	privateCluster := manager.CeramicEnvPfx()
 	publicCluster := manager.CeramicEnvPfx() + "-ex"
 	casCluster := manager.CeramicEnvPfx() + "-cas"
-	casV5Cluster := "app-cas-" + os.Getenv("ENV")
+	casV5Cluster := "app-cas-" + string(e.env)
 	ecrRepo, err := e.componentEcrRepo(component)
 	if err != nil {
 		log.Printf("generateEnvLayout: ecr repo error: %s, %v", component, err)
@@ -126,9 +126,9 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 		} else {
 			for _, serviceArn := range clusterServices.ServiceArns {
 				service := e.serviceNameFromArn(serviceArn)
-				if task, matched := e.componentTask(component, service); matched {
+				if task, matched := e.componentTask(component, cluster, service); matched {
 					if _, found := layout.Clusters[cluster]; !found {
-						// We found at least one matching task so we can start populating the cluster layout
+						// We found at least one matching task, so we can start populating the cluster layout.
 						layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
 					}
 					descSvcOutput, err := e.describeEcsService(cluster, service)
@@ -160,7 +160,7 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	return layout, nil
 }
 
-func (e Ecs) componentTask(component manager.DeployComponent, service string) (*manager.Task, bool) {
+func (e Ecs) componentTask(component manager.DeployComponent, cluster, service string) (*manager.Task, bool) {
 	switch component {
 	case manager.DeployComponent_Ceramic:
 		if strings.Contains(service, manager.ServiceSuffix_CeramicNode) {
@@ -171,22 +171,28 @@ func (e Ecs) componentTask(component manager.DeployComponent, service string) (*
 			return &manager.Task{}, true
 		}
 	case manager.DeployComponent_Cas:
-		// Until all environments are moved to CASv2, the CAS Scheduler (CASv2) and CAS Worker (CASv1) ECS Services will
-		// exist in some environments and not others. This is ok because only if a service exists in an environment will
-		// we attempt to update it during a deployment.
-		if strings.Contains(service, manager.ServiceSuffix_CasApi) ||
-			// CASv2
-			strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
-			return &manager.Task{}, true
-		} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
-			return &manager.Task{
-				Repo: manager.CeramicEnvPfx() + "-cas-runner",
-				Temp: true, // Anchor workers do not stay up permanently
-			}, true
+		// All pre-CASv5 services are only present in the CAS cluster
+		if cluster == manager.CeramicEnvPfx()+"-cas" {
+			// Until all environments are moved to CASv2, the CAS Scheduler (CASv2) and CAS Worker (CASv1) ECS Services will
+			// exist in some environments and not others. This is ok because only if a service exists in an environment will
+			// we attempt to update it during a deployment.
+			if strings.Contains(service, manager.ServiceSuffix_CasApi) ||
+				// CASv2
+				strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
+				return &manager.Task{}, true
+			} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
+				return &manager.Task{
+					Repo: manager.CeramicEnvPfx() + "-cas-runner",
+					Temp: true, // Anchor workers do not stay up permanently
+				}, true
+			}
 		}
 	case manager.DeployComponent_CasV5:
-		if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
-			return &manager.Task{}, true
+		// All CASv5 services will exist in a separate "app-cas" cluster
+		if cluster == "app-cas-"+string(e.env) {
+			if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
+				return &manager.Task{}, true
+			}
 		}
 	default:
 		log.Printf("componentTask: unknown component: %s", component)
