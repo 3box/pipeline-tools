@@ -100,13 +100,11 @@ const (
 )
 
 const (
-	ServiceSuffix_CeramicNode    string = "node"
-	ServiceSuffix_CeramicGateway string = "gateway"
-	ServiceSuffix_IpfsNode       string = "ipfs-nd"
-	ServiceSuffix_IpfsGateway    string = "ipfs-gw"
-	ServiceSuffix_CasApi         string = "api"
-	ServiceSuffix_CasWorker      string = "anchor"
-	ServiceSuffix_CasScheduler   string = "scheduler"
+	ServiceSuffix_CeramicNode  string = "node"
+	ServiceSuffix_IpfsNode     string = "ipfs-nd"
+	ServiceSuffix_CasApi       string = "api"
+	ServiceSuffix_CasWorker    string = "anchor"
+	ServiceSuffix_CasScheduler string = "scheduler"
 )
 
 const (
