@@ -260,16 +260,33 @@ func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 			}
 		}
 		// Prepare component messages with GitHub commit hashes and hyperlinks
-		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes[manager.DeployComponent_Ceramic])
-		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes[manager.DeployComponent_Cas])
-		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, commitHashes[manager.DeployComponent_Ipfs])
-		return fmt.Sprintf("%s\n%s\n%s", ceramicMsg, casMsg, ipfsMsg)
+		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes)
+		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes)
+		casV5Msg := n.getComponentMsg(manager.DeployComponent_CasV5, commitHashes)
+		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, commitHashes)
+		return n.combineComponentMsgs(ceramicMsg, casMsg, casV5Msg, ipfsMsg)
 	}
 }
 
-func (n JobNotifs) getComponentMsg(component manager.DeployComponent, sha string) string {
-	repo := manager.ComponentRepo(component)
-	return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, sha[:12], manager.GitHubOrg, repo, sha)
+func (n JobNotifs) getComponentMsg(component manager.DeployComponent, commitHashes map[manager.DeployComponent]string) string {
+	if commitHash, found := commitHashes[component]; found {
+		repo := manager.ComponentRepo(component)
+		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, commitHash[:12], manager.GitHubOrg, repo, commitHash)
+	}
+	return ""
+}
+
+func (n JobNotifs) combineComponentMsgs(msgs ...string) string {
+	message := ""
+	for i, msg := range msgs {
+		if len(msg) > 0 {
+			message += msg
+			if i < len(msgs)-1 {
+				message += "\n"
+			}
+		}
+	}
+	return message
 }
 
 func (n JobNotifs) getActiveJobs(jobState manager.JobState) []discord.EmbedField {

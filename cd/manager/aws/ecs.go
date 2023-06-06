@@ -110,6 +110,7 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	privateCluster := manager.CeramicEnvPfx()
 	publicCluster := manager.CeramicEnvPfx() + "-ex"
 	casCluster := manager.CeramicEnvPfx() + "-cas"
+	casV5Cluster := "app-cas-" + os.Getenv("ENV")
 	ecrRepo, err := e.componentEcrRepo(component)
 	if err != nil {
 		log.Printf("generateEnvLayout: ecr repo error: %s, %v", component, err)
@@ -118,7 +119,7 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	// Populate the service layout by retrieving the clusters/services from ECS
 	layout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: ecrRepo}
 	casSchedulerFound := false
-	for _, cluster := range []string{privateCluster, publicCluster, casCluster} {
+	for _, cluster := range []string{privateCluster, publicCluster, casCluster, casV5Cluster} {
 		if clusterServices, err := e.listEcsServices(cluster); err != nil {
 			log.Printf("generateEnvLayout: list services error: %s, %v", cluster, err)
 			return nil, err
@@ -183,6 +184,10 @@ func (e Ecs) componentTask(component manager.DeployComponent, service string) (*
 				Temp: true, // Anchor workers do not stay up permanently
 			}, true
 		}
+	case manager.DeployComponent_CasV5:
+		if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
+			return &manager.Task{}, true
+		}
 	default:
 		log.Printf("componentTask: unknown component: %s", component)
 	}
@@ -198,6 +203,8 @@ func (e Ecs) componentEcrRepo(component manager.DeployComponent) (string, error)
 		return "go-ipfs-" + envStr, nil
 	case manager.DeployComponent_Cas:
 		return manager.CeramicEnvPfx() + "-cas", nil
+	case manager.DeployComponent_CasV5:
+		return "app-cas-scheduler", nil
 	default:
 		return "", fmt.Errorf("componentTask: unknown component: %s", component)
 	}

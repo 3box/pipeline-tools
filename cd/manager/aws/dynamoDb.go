@@ -53,13 +53,16 @@ func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 		cache,
 		time.UnixMilli(0),
 	}
-	if err = db.createTable(); err != nil {
-		log.Fatalf("dynamodb: table creation failed: %v", err)
+	if err = db.createJobTable(); err != nil {
+		log.Fatalf("dynamodb: job table creation failed: %v", err)
+	}
+	if err = db.createBuildTable(); err != nil {
+		log.Fatalf("dynamodb: build table creation failed: %v", err)
 	}
 	return db
 }
 
-func (db DynamoDb) createTable() error {
+func (db DynamoDb) createJobTable() error {
 	// Create the table if it doesn't already exist
 	if exists, err := db.tableExists(db.jobTable); !exists {
 		ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
@@ -143,12 +146,51 @@ func (db DynamoDb) createTable() error {
 			},
 		}
 		if _, err = db.client.CreateTable(ctx, &createTableInput); err != nil {
-			log.Printf("dynamodb: table creation error: %v", err)
 			return err
 		}
 		var exists bool
 		for i := 0; i < TableCreationRetries; i++ {
 			if exists, err = db.tableExists(db.jobTable); exists {
+				return nil
+			}
+			time.Sleep(TableCreationWait)
+		}
+		return err
+	}
+	return nil
+}
+
+func (db DynamoDb) createBuildTable() error {
+	// Create the table if it doesn't already exist
+	if exists, err := db.tableExists(db.buildTable); !exists {
+		ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+		defer cancel()
+
+		createTableInput := dynamodb.CreateTableInput{
+			AttributeDefinitions: []types.AttributeDefinition{
+				{
+					AttributeName: aws.String("key"),
+					AttributeType: "S",
+				},
+			},
+			KeySchema: []types.KeySchemaElement{
+				{
+					AttributeName: aws.String("key"),
+					KeyType:       "HASH",
+				},
+			},
+			TableName: aws.String(db.buildTable),
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(1),
+				WriteCapacityUnits: aws.Int64(1),
+			},
+		}
+		if _, err = db.client.CreateTable(ctx, &createTableInput); err != nil {
+			return err
+		}
+		var exists bool
+		for i := 0; i < TableCreationRetries; i++ {
+			if exists, err = db.tableExists(db.buildTable); exists {
 				return nil
 			}
 			time.Sleep(TableCreationWait)

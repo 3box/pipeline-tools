@@ -81,6 +81,7 @@ type DeployComponent string
 const (
 	DeployComponent_Ceramic DeployComponent = "ceramic"
 	DeployComponent_Cas     DeployComponent = "cas"
+	DeployComponent_CasV5   DeployComponent = "casv5"
 	DeployComponent_Ipfs    DeployComponent = "ipfs"
 )
 
@@ -89,6 +90,7 @@ type DeployRepo string
 const (
 	DeployRepo_Ceramic DeployRepo = "js-ceramic"
 	DeployRepo_Cas     DeployRepo = "ceramic-anchor-service"
+	DeployRepo_CasV5   DeployRepo = "go-cas"
 	DeployRepo_Ipfs    DeployRepo = "go-ipfs-daemon"
 )
 
