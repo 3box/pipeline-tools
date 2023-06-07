@@ -14,8 +14,6 @@ const AnchorStalledTime = 3 * time.Hour
 
 // For CASv5 workers
 const CasV5Version = "5"
-const CasV5EnvVar = "USE_QUEUE_BATCHES"
-const CASV5ContractAddress = "ETH_CONTRACT_ADDRESS"
 
 var _ manager.Job = &anchorJob{}
 
@@ -36,11 +34,8 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		var overrides map[string]string = nil
 		// Check if this is a CASv5 anchor job
 		if version, found := a.state.Params[manager.JobParam_Version].(string); found && (version == CasV5Version) {
-			overrides = map[string]string{
-				CasV5EnvVar: "true",
-				// This should always be present for CASv5 jobs
-				CASV5ContractAddress: a.state.Params[manager.JobParam_Contract].(string),
-			}
+			// This should always be present for CASv5 jobs
+			overrides = a.state.Params[manager.JobParam_Overrides].(map[string]string)
 		}
 		// Launch anchor worker
 		if id, err := a.d.LaunchTask(

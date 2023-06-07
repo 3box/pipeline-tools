@@ -74,7 +74,7 @@ const (
 	JobParam_Stalled   string = "stalled"
 	JobParam_Source    string = "source"
 	JobParam_Version   string = "version"
-	JobParam_Contract  string = "contract"
+	JobParam_Overrides string = "overrides"
 )
 
 type DeployComponent string
