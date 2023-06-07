@@ -46,6 +46,8 @@ func EnvBranch(component DeployComponent, env EnvType) string {
 			return EnvBranch_Dev
 		case DeployComponent_Cas:
 			return EnvBranch_Dev
+		case DeployComponent_CasV5:
+			return EnvBranch_Dev
 		default:
 			return EnvBranch_Qa
 		}
@@ -64,6 +66,8 @@ func ComponentRepo(component DeployComponent) DeployRepo {
 		return DeployRepo_Ceramic
 	case DeployComponent_Cas:
 		return DeployRepo_Cas
+	case DeployComponent_CasV5:
+		return DeployRepo_CasV5
 	case DeployComponent_Ipfs:
 		return DeployRepo_Ipfs
 	default:
