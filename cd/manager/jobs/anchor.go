@@ -35,7 +35,11 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		// Check if this is a CASv5 anchor job
 		if version, found := a.state.Params[manager.JobParam_Version].(string); found && (version == CasV5Version) {
 			// This should always be present for CASv5 jobs
-			overrides = a.state.Params[manager.JobParam_Overrides].(map[string]string)
+			parsedOverrides := a.state.Params[manager.JobParam_Overrides].(map[string]interface{})
+			overrides = make(map[string]string, len(parsedOverrides))
+			for k, v := range parsedOverrides {
+				overrides[k] = v.(string)
+			}
 		}
 		// Launch anchor worker
 		if id, err := a.d.LaunchTask(
