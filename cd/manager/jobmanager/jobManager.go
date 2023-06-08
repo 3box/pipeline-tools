@@ -361,38 +361,53 @@ func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 		return manager.IsActiveJob(js) && (js.Type == manager.JobType_Deploy)
 	})
 	if len(activeDeploys) == 0 {
-		// Lookup any anchor jobs in progress
-		activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-			return manager.IsActiveJob(js) && (js.Type == manager.JobType_Anchor)
-		})
-		dequeuedAnchors := make([]manager.JobState, 0, 0)
-		for _, dequeuedJob := range dequeuedJobs {
-			if dequeuedJob.Type == manager.JobType_Anchor {
-				// Launch a new anchor job (hence a list) if:
-				//  - The maximum number of anchor jobs is -1 (infinity)
-				//  - The number of active anchor jobs + the number of dequeued jobs < the configured maximum
-				if (m.maxAnchorJobs == -1) || (len(activeAnchors)+len(dequeuedAnchors) < m.maxAnchorJobs) {
-					dequeuedAnchors = append(dequeuedAnchors, dequeuedJob)
-				} else if err := m.updateJobStage(dequeuedJob, manager.JobStage_Skipped); err != nil { // Skip any pending anchor jobs so that they don't linger in the job queue
-					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any jobs
-					// already skipped won't be picked up again, which is ok.
-					return true
-				}
+		return m.processVxAnchorJobs(dequeuedJobs, true) || m.processVxAnchorJobs(dequeuedJobs, false)
+	} else {
+		log.Printf("processAnchorJobs: deployment in progress")
+	}
+	return false
+}
+
+func (m *JobManager) processVxAnchorJobs(dequeuedJobs []manager.JobState, processV5Jobs bool) bool {
+	// Lookup any anchor jobs in progress
+	activeAnchors := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+		// Returns true if `processV5Jobs=true` and this is a v5 worker job, or if `processV5Jobs=false` and this is a
+		// v2 worker job.
+		return manager.IsActiveJob(js) && (js.Type == manager.JobType_Anchor) && (processV5Jobs == manager.IsV5WorkerJob(js))
+	})
+	dequeuedAnchors := make([]manager.JobState, 0, 0)
+	for _, dequeuedJob := range dequeuedJobs {
+		if (dequeuedJob.Type == manager.JobType_Anchor) && (processV5Jobs == manager.IsV5WorkerJob(dequeuedJob)) {
+			// Launch a new anchor job (hence a list) if:
+			//  - The maximum number of anchor jobs is -1 (infinity)
+			//  - The number of active anchor jobs + the number of dequeued jobs < the configured maximum
+			if (m.maxAnchorJobs == -1) || (len(activeAnchors)+len(dequeuedAnchors) < m.maxAnchorJobs) {
+				dequeuedAnchors = append(dequeuedAnchors, dequeuedJob)
+			} else
+			// Skip any pending anchor jobs so that they don't linger in the job queue
+			if err := m.updateJobStage(dequeuedJob, manager.JobStage_Skipped); err != nil {
+				// Return `true` from here so that no state is changed and the loop can restart cleanly. Any jobs
+				// already skipped won't be picked up again, which is ok.
+				return true
 			}
 		}
-		// Now advance all anchor/test jobs, order doesn't matter.
-		for _, anchorJob := range dequeuedAnchors {
-			log.Printf("processAnchorJobs: starting anchor job: %s", manager.PrintJob(anchorJob))
-			m.advanceJob(anchorJob)
-		}
-		// If not enough anchor jobs were running to satisfy the configured minimum number of workers, add jobs to the
-		// queue to make up the difference. These jobs should get picked up in a subsequent job manager iteration,
-		// properly coordinated with other jobs in the queue. It's ok if we ultimately end up with more jobs queued than
-		// the configured maximum number of workers - the actual number of jobs run will be capped correctly.
-		//
-		// This mode is enforced via configuration to only be enabled when the scheduler is not running so that there is
-		// a single source for new anchor jobs.
-		numJobs := len(dequeuedAnchors)
+	}
+	// Now advance all anchor jobs, order doesn't matter.
+	for _, anchorJob := range dequeuedAnchors {
+		log.Printf("processVxAnchorJobs: starting anchor job: %s", manager.PrintJob(anchorJob))
+		m.advanceJob(anchorJob)
+	}
+	// If not enough anchor jobs were running to satisfy the configured minimum number of workers, add jobs to the queue
+	// to make up the difference. These jobs should get picked up in a subsequent job manager iteration, properly
+	// coordinated with other jobs in the queue. It's ok if we ultimately end up with more jobs queued than the
+	// configured maximum number of workers - the actual number of jobs run will be capped correctly.
+	//
+	// This mode is enforced via configuration to only be enabled when the scheduler is not running so that there is a
+	// single source for new anchor jobs.
+	//
+	// NOTE: This mode will not be used for CASv5 Anchor Workers.
+	numJobs := len(dequeuedAnchors)
+	if !processV5Jobs {
 		for i := 0; i < m.minAnchorJobs-numJobs; i++ {
 			if _, err := m.NewJob(manager.JobState{
 				Type: manager.JobType_Anchor,
@@ -400,14 +415,11 @@ func (m *JobManager) processAnchorJobs(dequeuedJobs []manager.JobState) bool {
 					manager.JobParam_Source: manager.ServiceName,
 				},
 			}); err != nil {
-				log.Printf("processAnchorJobs: failed to queue additional anchor job: %v", err)
+				log.Printf("processVxAnchorJobs: failed to queue additional anchor job: %v", err)
 			}
 		}
-		return numJobs > 0
-	} else {
-		log.Printf("processAnchorJobs: deployment in progress")
 	}
-	return false
+	return numJobs > 0
 }
 
 func (m *JobManager) processTestJobs(dequeuedJobs []manager.JobState) bool {

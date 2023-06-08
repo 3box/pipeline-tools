@@ -130,3 +130,12 @@ func IsValidSha(sha string) bool {
 	isValidSha, err := regexp.MatchString(CommitHashRegex, sha)
 	return err == nil && isValidSha
 }
+
+func IsV5WorkerJob(jobState JobState) bool {
+	if jobState.Type == JobType_Anchor {
+		if version, found := jobState.Params[JobParam_Version].(string); found && (version == CasV5Version) {
+			return true
+		}
+	}
+	return false
+}

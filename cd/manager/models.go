@@ -149,6 +149,9 @@ const ServiceName = "cd-manager"
 const DefaultCasMaxAnchorWorkers = 1
 const DefaultCasMinAnchorWorkers = 0
 
+// For CASv5 workers
+const CasV5Version = "5"
+
 // JobState represents the state of a job in the database
 type JobState struct {
 	Stage  JobStage               `dynamodbav:"stage"`
