@@ -35,17 +35,19 @@ import (
 
 #TestImageCommand: {
 	testImage:     docker.#Image
-	command:      [...string]
+	command:      string
+	commandArgs:  [...string]
 
 	run: {
 		bash.#Run & {
 			env: {
-				CMD:        strings.Join(command, " ")
+				CMD:        "\(command)"
+				ARGS:  strings.Join(commandArgs, " ")
 			}
 			input:  testImage
 			always: true
 			script: contents: #"""
-				"$CMD"
+				"$CMD" "$ARGS"
 			"""#
 		}
 	}}
