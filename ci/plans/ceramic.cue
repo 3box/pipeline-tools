@@ -67,7 +67,7 @@ dagger.#Plan & {
 	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
-		_repo_cermic:        "js-ceramic"
+		_repo_ceramic:        "js-ceramic"
 		_repo_composeDB: "composedb"
 		_fullSource:  client.filesystem.fullSource.read.contents
 		_imageSource: client.filesystem.imageSource.read.contents
@@ -117,7 +117,7 @@ dagger.#Plan & {
 			}
 			verifyComposeDB: utils.#TestImageCommand & {
 				testImage:  buildComposeDB.output
-				command:   "version"
+				command:   ["ls"]
 			}
 		}
 

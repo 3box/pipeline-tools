@@ -2,7 +2,7 @@ package utils
 
 import (
 	"dagger.io/dagger"
-
+	"strings"
 	"universe.dagger.io/alpine"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
@@ -35,17 +35,17 @@ import (
 
 #TestImageCommand: {
 	testImage:     docker.#Image
-	command:      string
+	command:      [...string]
 
 	run: {
 		bash.#Run & {
 			env: {
-				CMD:        "\(command)"
+				CMD:        strings.Join(command, " ")
 			}
 			input:  testImage
 			always: true
 			script: contents: #"""
-				composedb "$CMD"
+				"$CMD"
 			"""#
 		}
 	}}
