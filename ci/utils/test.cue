@@ -2,7 +2,7 @@ package utils
 
 import (
 	"dagger.io/dagger"
-
+	"strings"
 	"universe.dagger.io/alpine"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
@@ -32,6 +32,25 @@ import (
 			"""#
 	}
 }
+
+#TestImageCommand: {
+	testImage:     docker.#Image
+	command:      string
+	commandArgs:  [...string]
+
+	run: {
+		bash.#Run & {
+			env: {
+				CMD:        "\(command)"
+				ARGS:  strings.Join(commandArgs, " ")
+			}
+			input:  testImage
+			always: true
+			script: contents: #"""
+				"$CMD" "$ARGS"
+			"""#
+		}
+	}}
 
 #TestImage: {
 	testImage:     docker.#Image

@@ -67,10 +67,11 @@ dagger.#Plan & {
 	client: network: "unix:///var/run/docker.sock": connect: dagger.#Socket
 
 	actions: {
-		_repo:        "js-ceramic"
-		_fullSource:  client.filesystem.fullSource.read.contents
-		_imageSource: client.filesystem.imageSource.read.contents
-		_dockerfile:  client.filesystem.dockerfile.read.contents
+		_repo_ceramic:   "js-ceramic"
+		_repo_composeDB: "composedb"
+		_fullSource:     client.filesystem.fullSource.read.contents
+		_imageSource:    client.filesystem.imageSource.read.contents
+		_dockerfile:     client.filesystem.dockerfile.read.contents
 
 		testJs: utils.#TestNode & {
 			src: _fullSource
@@ -82,7 +83,7 @@ dagger.#Plan & {
 			run: env: IPFS_FLAVOR: "go"
 		}
 
-		build: docker.#Dockerfile & {
+		buildCeramic: docker.#Dockerfile & {
 			_file: core.#ReadFile & {
 				input: _dockerfile
 				path:  "Dockerfile.daemon"
@@ -90,13 +91,35 @@ dagger.#Plan & {
 			buildArg: "GIT_COMMIT_HASH": version.sha
 			source: _imageSource
 			dockerfile: contents: _file.contents
+			target: "ceramic"
 		}
 
-		verify: utils.#TestImage & {
-			testImage:  build.output
-			endpoint:   "api/v0/node/healthcheck"
-			port:       7007
-			dockerHost: client.network."unix:///var/run/docker.sock".connect
+		buildComposeDB: docker.#Dockerfile & {
+			_file: core.#ReadFile & {
+				input: _dockerfile
+				path:  "Dockerfile.daemon"
+			}
+			buildArg: {
+				"GIT_COMMIT_HASH": version.sha
+				"BASE_BUILD":      buildCeramic.output.config.entrypoint[0] // Added to ensure the composeDB image waits for the js-ceramic image to be built
+			}
+			source: _imageSource
+			dockerfile: contents: _file.contents
+			target: "composedb"
+		}
+
+		verify: {
+			verifyCeramic: utils.#TestImage & {
+				testImage:  buildCeramic.output
+				endpoint:   "api/v0/node/healthcheck"
+				port:       7007
+				dockerHost: client.network."unix:///var/run/docker.sock".connect
+			}
+			verifyComposeDB: utils.#TestImageCommand & {
+				testImage: buildComposeDB.output
+				command:   "composedb"
+				commandArgs: ["version"]
+			}
 		}
 
 		version: {
@@ -147,8 +170,8 @@ dagger.#Plan & {
 			}
 			ecr: {
 				if EnvTag == "dev" {
-					qa: utils.#ECR & {
-						img: build.output
+					qa_ceramic: utils.#ECR & {
+						img: buildCeramic.output
 						env: {
 							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 							AWS_ECR_SECRET: client.commands.aws.stdout
@@ -157,9 +180,19 @@ dagger.#Plan & {
 							TAGS:           _tags + _extraTags + ["qa"]
 						}
 					}
+					qa_cdb: utils.#ECR & {
+						img: buildComposeDB.output
+						env: {
+							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+							AWS_ECR_SECRET: client.commands.aws.stdout
+							AWS_REGION:     Region
+							REPO:           "composedb-qa"
+							TAGS:           _tags + _extraTags + ["qa"]
+						}
+					}
 				}
-				utils.#ECR & {
-					img: build.output
+				ecr_ceramic: utils.#ECR & {
+					img: buildCeramic.output
 					env: {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
@@ -168,13 +201,32 @@ dagger.#Plan & {
 						TAGS:           _tags + _extraTags
 					}
 				}
+				ecr_cdb: utils.#ECR & {
+					img: buildComposeDB.output
+					env: {
+						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
+						AWS_ECR_SECRET: client.commands.aws.stdout
+						AWS_REGION:     Region
+						REPO:           "composedb-\(EnvTag)"
+						TAGS:           _tags + _extraTags
+					}
+				}
 			}
-			dockerhub: utils.#Dockerhub & {
-				img: build.output
+			dockerhub_ceramic: utils.#Dockerhub & {
+				img: buildCeramic.output
 				env: {
 					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
 					DOCKERHUB_TOKEN:    client.env.DOCKERHUB_TOKEN
-					REPO:               _repo
+					REPO:               _repo_ceramic
+					TAGS:               _tags + _extraTags
+				}
+			}
+			dockerhub_cdb: utils.#Dockerhub & {
+				img: buildComposeDB.output
+				env: {
+					DOCKERHUB_USERNAME: client.env.DOCKERHUB_USERNAME
+					DOCKERHUB_TOKEN:    client.env.DOCKERHUB_TOKEN
+					REPO:               _repo_composeDB
 					TAGS:               _tags + _extraTags
 				}
 			}
