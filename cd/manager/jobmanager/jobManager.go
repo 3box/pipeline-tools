@@ -378,10 +378,13 @@ func (m *JobManager) processVxAnchorJobs(dequeuedJobs []manager.JobState, proces
 	dequeuedAnchors := make([]manager.JobState, 0, 0)
 	for _, dequeuedJob := range dequeuedJobs {
 		if (dequeuedJob.Type == manager.JobType_Anchor) && (processV5Jobs == manager.IsV5WorkerJob(dequeuedJob)) {
-			// Launch a new anchor job (hence a list) if:
+			// Launch a new anchor job if:
+			//  - This is a v5 job - the v5 Scheduler is responsible for scaling/capping v5 workers
 			//  - The maximum number of anchor jobs is -1 (infinity)
 			//  - The number of active anchor jobs + the number of dequeued jobs < the configured maximum
-			if (m.maxAnchorJobs == -1) || (len(activeAnchors)+len(dequeuedAnchors) < m.maxAnchorJobs) {
+			if manager.IsV5WorkerJob(dequeuedJob) ||
+				(m.maxAnchorJobs == -1) ||
+				(len(activeAnchors)+len(dequeuedAnchors) < m.maxAnchorJobs) {
 				dequeuedAnchors = append(dequeuedAnchors, dequeuedJob)
 			} else
 			// Skip any pending anchor jobs so that they don't linger in the job queue
@@ -405,7 +408,7 @@ func (m *JobManager) processVxAnchorJobs(dequeuedJobs []manager.JobState, proces
 	// This mode is enforced via configuration to only be enabled when the scheduler is not running so that there is a
 	// single source for new anchor jobs.
 	//
-	// NOTE: This mode will not be used for CASv5 Anchor Workers.
+	// This mode will not be used for v5 anchor jobs - the v5 Scheduler is responsible for scaling v5 workers.
 	numJobs := len(dequeuedAnchors)
 	if !processV5Jobs {
 		for i := 0; i < m.minAnchorJobs-numJobs; i++ {
