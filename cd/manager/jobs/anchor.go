@@ -31,11 +31,11 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		var overrides map[string]string = nil
 		// Check if this is a CASv5 anchor job
 		if manager.IsV5WorkerJob(a.state) {
-			// This should always be present for CASv5 jobs
-			parsedOverrides := a.state.Params[manager.JobParam_Overrides].(map[string]interface{})
-			overrides = make(map[string]string, len(parsedOverrides))
-			for k, v := range parsedOverrides {
-				overrides[k] = v.(string)
+			if parsedOverrides, found := a.state.Params[manager.JobParam_Overrides].(map[string]interface{}); found {
+				overrides = make(map[string]string, len(parsedOverrides))
+				for k, v := range parsedOverrides {
+					overrides[k] = v.(string)
+				}
 			}
 		}
 		// Launch anchor worker
