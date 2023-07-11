@@ -5,7 +5,7 @@ import "time"
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
 const DefaultFailureTime = 30 * time.Minute
-const DefaultHttpWaitTime = 10 * time.Second
+const DefaultHttpWaitTime = 30 * time.Second
 const DefaultWaitTime = 5 * time.Minute
 
 type JobType string
