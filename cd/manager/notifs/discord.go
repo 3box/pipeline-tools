@@ -32,6 +32,8 @@ const (
 
 const DiscordPacing = 2 * time.Second
 
+const ShaTagLength = 12
+
 var _ manager.Notifs = &JobNotifs{}
 
 type JobNotifs struct {
@@ -269,9 +271,9 @@ func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
 }
 
 func (n JobNotifs) getComponentMsg(component manager.DeployComponent, commitHashes map[manager.DeployComponent]string) string {
-	if commitHash, found := commitHashes[component]; found {
+	if commitHash, found := commitHashes[component]; found && (len(commitHash) >= ShaTagLength) {
 		repo := manager.ComponentRepo(component)
-		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, commitHash[:12], manager.GitHubOrg, repo, commitHash)
+		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, commitHash[:ShaTagLength], manager.GitHubOrg, repo, commitHash)
 	}
 	return ""
 }
