@@ -117,6 +117,15 @@ const (
 )
 
 const (
+	ContainerName_CeramicNode    string = "ceramic_node"
+	ContainerName_IpfsNode       string = "go-ipfs"
+	ContainerName_CasApi         string = "cas_api"
+	ContainerName_CasWorker      string = "cas_anchor"
+	ContainerName_CasScheduler   string = "cas_scheduler"
+	ContainerName_CasV5Scheduler string = "scheduler"
+)
+
+const (
 	Error_Timeout string = "Timeout"
 )
 
@@ -190,7 +199,8 @@ type TaskSet struct {
 type Task struct {
 	Id   string `dynamodbav:"id,omitempty"`
 	Repo string `dynamodbav:"repo,omitempty"` // Task repo override
-	Temp bool   `dynamodbav:"temp,omitempty"` // Whether or not the task is meant to go down once it has completed
+	Temp bool   `dynamodbav:"temp,omitempty"` // Whether the task is meant to go down once it has completed
+	Name string `dynamodbav:"temp,omitempty"` // Container name
 }
 
 // Job represents job state machine objects processed by the job manager
