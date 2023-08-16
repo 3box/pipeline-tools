@@ -154,6 +154,7 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 			casCluster + "-" + manager.ServiceSuffix_CasWorker: {
 				Repo: "ceramic-prod-cas-runner",
 				Temp: true, // Anchor workers do not stay up permanently
+				Name: manager.ContainerName_CasWorker,
 			},
 		}}
 	}
@@ -164,11 +165,11 @@ func (e Ecs) componentTask(component manager.DeployComponent, cluster, service s
 	switch component {
 	case manager.DeployComponent_Ceramic:
 		if strings.Contains(service, manager.ServiceSuffix_CeramicNode) {
-			return &manager.Task{}, true
+			return &manager.Task{Name: manager.ContainerName_CeramicNode}, true
 		}
 	case manager.DeployComponent_Ipfs:
 		if strings.Contains(service, manager.ServiceSuffix_IpfsNode) {
-			return &manager.Task{}, true
+			return &manager.Task{Name: manager.ContainerName_IpfsNode}, true
 		}
 	case manager.DeployComponent_Cas:
 		// All pre-CASv5 services are only present in the CAS cluster
@@ -176,14 +177,16 @@ func (e Ecs) componentTask(component manager.DeployComponent, cluster, service s
 			// Until all environments are moved to CASv2, the CAS Scheduler (CASv2) and CAS Worker (CASv1) ECS Services will
 			// exist in some environments and not others. This is ok because only if a service exists in an environment will
 			// we attempt to update it during a deployment.
-			if strings.Contains(service, manager.ServiceSuffix_CasApi) ||
+			if strings.Contains(service, manager.ServiceSuffix_CasApi) {
+				return &manager.Task{Name: manager.ContainerName_CasApi}, true
+			} else if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
 				// CASv2
-				strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
-				return &manager.Task{}, true
+				return &manager.Task{Name: manager.ContainerName_CasScheduler}, true
 			} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
 				return &manager.Task{
 					Repo: "ceramic-prod-cas-runner",
 					Temp: true, // Anchor workers do not stay up permanently
+					Name: manager.ContainerName_CasWorker,
 				}, true
 			}
 		}
@@ -191,7 +194,7 @@ func (e Ecs) componentTask(component manager.DeployComponent, cluster, service s
 		// All CASv5 services will exist in a separate "app-cas" cluster
 		if cluster == "app-cas-"+string(e.env) {
 			if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
-				return &manager.Task{}, true
+				return &manager.Task{Name: manager.ContainerName_CasV5Scheduler}, true
 			}
 		}
 	default:
@@ -310,7 +313,7 @@ func (e Ecs) runEcsTask(cluster, family, container string, networkConfig *types.
 	}
 }
 
-func (e Ecs) updateEcsTaskDefinition(taskDefArn, image string) (string, error) {
+func (e Ecs) updateEcsTaskDefinition(taskDefArn, image, containerName string) (string, error) {
 	taskDef, err := e.getEcsTaskDefinition(taskDefArn)
 	if err != nil {
 		log.Printf("updateEcsTaskDefinition: get task def error: %s, %s, %v", taskDefArn, image, err)
@@ -320,32 +323,37 @@ func (e Ecs) updateEcsTaskDefinition(taskDefArn, image string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
-	taskDef.ContainerDefinitions[0].Image = aws.String(e.ecrUri + image)
-	regTaskDefInput := &ecs.RegisterTaskDefinitionInput{
-		ContainerDefinitions:    taskDef.ContainerDefinitions,
-		Family:                  taskDef.Family,
-		Cpu:                     taskDef.Cpu,
-		EphemeralStorage:        taskDef.EphemeralStorage,
-		ExecutionRoleArn:        taskDef.ExecutionRoleArn,
-		InferenceAccelerators:   taskDef.InferenceAccelerators,
-		IpcMode:                 taskDef.IpcMode,
-		Memory:                  taskDef.Memory,
-		NetworkMode:             taskDef.NetworkMode,
-		PidMode:                 taskDef.PidMode,
-		PlacementConstraints:    taskDef.PlacementConstraints,
-		ProxyConfiguration:      taskDef.ProxyConfiguration,
-		RequiresCompatibilities: taskDef.RequiresCompatibilities,
-		RuntimePlatform:         taskDef.RuntimePlatform,
-		TaskRoleArn:             taskDef.TaskRoleArn,
-		Volumes:                 taskDef.Volumes,
-		Tags:                    []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
+	for idx, containerDef := range taskDef.ContainerDefinitions {
+		if *containerDef.Name == containerName {
+			taskDef.ContainerDefinitions[idx].Image = aws.String(e.ecrUri + image)
+			regTaskDefInput := &ecs.RegisterTaskDefinitionInput{
+				ContainerDefinitions:    taskDef.ContainerDefinitions,
+				Family:                  taskDef.Family,
+				Cpu:                     taskDef.Cpu,
+				EphemeralStorage:        taskDef.EphemeralStorage,
+				ExecutionRoleArn:        taskDef.ExecutionRoleArn,
+				InferenceAccelerators:   taskDef.InferenceAccelerators,
+				IpcMode:                 taskDef.IpcMode,
+				Memory:                  taskDef.Memory,
+				NetworkMode:             taskDef.NetworkMode,
+				PidMode:                 taskDef.PidMode,
+				PlacementConstraints:    taskDef.PlacementConstraints,
+				ProxyConfiguration:      taskDef.ProxyConfiguration,
+				RequiresCompatibilities: taskDef.RequiresCompatibilities,
+				RuntimePlatform:         taskDef.RuntimePlatform,
+				TaskRoleArn:             taskDef.TaskRoleArn,
+				Volumes:                 taskDef.Volumes,
+				Tags:                    []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
+			}
+			if regTaskDefOutput, err := e.ecsClient.RegisterTaskDefinition(ctx, regTaskDefInput); err != nil {
+				log.Printf("updateEcsTaskDefinition: register task def error: %s, %s, %s, %v", taskDefArn, image, containerName, err)
+				return "", err
+			} else {
+				return *regTaskDefOutput.TaskDefinition.TaskDefinitionArn, nil
+			}
+		}
 	}
-	if regTaskDefOutput, err := e.ecsClient.RegisterTaskDefinition(ctx, regTaskDefInput); err != nil {
-		log.Printf("updateEcsTaskDefinition: register task def error: %s, %s, %v", taskDefArn, image, err)
-		return "", err
-	} else {
-		return *regTaskDefOutput.TaskDefinition.TaskDefinitionArn, nil
-	}
+	return "", fmt.Errorf("updateEcsTaskDefinition: container not found: %s, %s, %s", taskDefArn, image, containerName)
 }
 
 func (e Ecs) getEcsTaskDefinition(taskDefArn string) (*types.TaskDefinition, error) {
@@ -363,7 +371,7 @@ func (e Ecs) getEcsTaskDefinition(taskDefArn string) (*types.TaskDefinition, err
 	}
 }
 
-func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (string, error) {
+func (e Ecs) updateEcsService(cluster, service, image, containerName string, tempTask bool) (string, error) {
 	// Describe service to get task definition ARN
 	descSvcOutput, err := e.describeEcsService(cluster, service)
 	if err != nil {
@@ -371,7 +379,7 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 		return "", err
 	}
 	// Update task definition with new image
-	newTaskDefArn, err := e.updateEcsTaskDefinition(*descSvcOutput.Services[0].TaskDefinition, image)
+	newTaskDefArn, err := e.updateEcsTaskDefinition(*descSvcOutput.Services[0].TaskDefinition, image, containerName)
 	if err != nil {
 		log.Printf("updateEcsService: update task def error: %s, %s, %s, %v, %v", cluster, service, image, tempTask, err)
 		return "", err
@@ -400,11 +408,11 @@ func (e Ecs) updateEcsService(cluster, service, image string, tempTask bool) (st
 	return newTaskDefArn, nil
 }
 
-func (e Ecs) updateEcsTask(cluster, familyPfx, image string, tempTask bool) (string, error) {
+func (e Ecs) updateEcsTask(cluster, familyPfx, image, containerName string, tempTask bool) (string, error) {
 	if prevTaskDefArn, err := e.getEcsTaskDefinitionArn(familyPfx); err != nil {
 		log.Printf("updateEcsTask: get task def error: %s, %s, %s, %v, %v", cluster, familyPfx, image, tempTask, err)
 		return "", err
-	} else if newTaskDefArn, err := e.updateEcsTaskDefinition(prevTaskDefArn, image); err != nil {
+	} else if newTaskDefArn, err := e.updateEcsTaskDefinition(prevTaskDefArn, image, containerName); err != nil {
 		log.Printf("updateEcsTask: update task def error: %s, %s, %s, %s, %v, %v", cluster, familyPfx, image, prevTaskDefArn, tempTask, err)
 		return "", err
 	} else {
@@ -532,7 +540,7 @@ func (e Ecs) updateEnvServiceTask(task *manager.Task, cluster, service, taskSetR
 	if len(task.Repo) > 0 {
 		taskRepo = task.Repo
 	}
-	if id, err := e.updateEcsService(cluster, service, taskRepo+":"+commitHash, task.Temp); err != nil {
+	if id, err := e.updateEcsService(cluster, service, taskRepo+":"+commitHash, task.Name, task.Temp); err != nil {
 		return err
 	} else {
 		task.Id = id
@@ -545,7 +553,7 @@ func (e Ecs) updateEnvTask(task *manager.Task, cluster, taskName, taskSetRepo, c
 	if len(task.Repo) > 0 {
 		taskRepo = task.Repo
 	}
-	if id, err := e.updateEcsTask(cluster, taskName, taskRepo+":"+commitHash, task.Temp); err != nil {
+	if id, err := e.updateEcsTask(cluster, taskName, taskRepo+":"+commitHash, task.Name, task.Temp); err != nil {
 		return err
 	} else {
 		task.Id = id
