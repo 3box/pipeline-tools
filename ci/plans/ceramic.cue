@@ -176,7 +176,7 @@ dagger.#Plan & {
 							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 							AWS_ECR_SECRET: client.commands.aws.stdout
 							AWS_REGION:     Region
-							REPO:           "ceramic-qa"
+							REPO:           "ceramic-prod"
 							TAGS:           _tags + _extraTags + ["qa"]
 						}
 					}
@@ -186,7 +186,7 @@ dagger.#Plan & {
 							AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 							AWS_ECR_SECRET: client.commands.aws.stdout
 							AWS_REGION:     Region
-							REPO:           "composedb-qa"
+							REPO:           "composedb-prod"
 							TAGS:           _tags + _extraTags + ["qa"]
 						}
 					}
@@ -197,7 +197,7 @@ dagger.#Plan & {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION:     Region
-						REPO:           "ceramic-\(EnvTag)"
+						REPO:           "ceramic-prod"
 						TAGS:           _tags + _extraTags
 					}
 				}
@@ -207,7 +207,7 @@ dagger.#Plan & {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION:     Region
-						REPO:           "composedb-\(EnvTag)"
+						REPO:           "composedb-prod"
 						TAGS:           _tags + _extraTags
 					}
 				}

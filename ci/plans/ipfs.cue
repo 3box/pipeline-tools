@@ -73,7 +73,7 @@ dagger.#Plan & {
 					AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 					AWS_ECR_SECRET: client.commands.aws.stdout
 					AWS_REGION:     Region
-					REPO:           "go-ipfs-\(EnvTag)"
+					REPO:           "go-ipfs-prod"
 					TAGS:           _tags + _extraTags
 				}
 			}

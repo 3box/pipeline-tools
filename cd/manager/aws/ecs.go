@@ -152,7 +152,7 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	if casSchedulerFound {
 		layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
 			casCluster + "-" + manager.ServiceSuffix_CasWorker: {
-				Repo: manager.CeramicEnvPfx() + "-cas-runner",
+				Repo: "ceramic-prod-cas-runner",
 				Temp: true, // Anchor workers do not stay up permanently
 			},
 		}}
@@ -182,7 +182,7 @@ func (e Ecs) componentTask(component manager.DeployComponent, cluster, service s
 				return &manager.Task{}, true
 			} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
 				return &manager.Task{
-					Repo: manager.CeramicEnvPfx() + "-cas-runner",
+					Repo: "ceramic-prod-cas-runner",
 					Temp: true, // Anchor workers do not stay up permanently
 				}, true
 			}
@@ -201,14 +201,13 @@ func (e Ecs) componentTask(component manager.DeployComponent, cluster, service s
 }
 
 func (e Ecs) componentEcrRepo(component manager.DeployComponent) (string, error) {
-	envStr := string(e.env)
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		return manager.CeramicEnvPfx(), nil
+		return "ceramic-prod", nil
 	case manager.DeployComponent_Ipfs:
-		return "go-ipfs-" + envStr, nil
+		return "go-ipfs-prod", nil
 	case manager.DeployComponent_Cas:
-		return manager.CeramicEnvPfx() + "-cas", nil
+		return "ceramic-prod-cas", nil
 	case manager.DeployComponent_CasV5:
 		return "app-cas-scheduler", nil
 	default:

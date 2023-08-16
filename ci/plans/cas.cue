@@ -173,7 +173,7 @@ dagger.#Plan & {
 								AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 								AWS_ECR_SECRET: client.commands.aws.stdout
 								AWS_REGION:     Region
-								REPO:           "ceramic-qa-cas"
+								REPO:           "ceramic-prod-cas"
 								TAGS:           _tags + _extraTags + ["qa"]
 							}
 						}
@@ -183,7 +183,7 @@ dagger.#Plan & {
 								AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 								AWS_ECR_SECRET: client.commands.aws.stdout
 								AWS_REGION:     Region
-								REPO:           "ceramic-qa-cas-runner"
+								REPO:           "ceramic-prod-cas-runner"
 								TAGS:           _tags + _extraTags + ["qa"]
 							}
 						}
@@ -195,7 +195,7 @@ dagger.#Plan & {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION:     Region
-						REPO:           "ceramic-\(EnvTag)-cas"
+						REPO:           "ceramic-prod-cas"
 						TAGS:           _tags + _extraTags
 					}
 				}
@@ -205,7 +205,7 @@ dagger.#Plan & {
 						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION:     Region
-						REPO:           "ceramic-\(EnvTag)-cas-runner"
+						REPO:           "ceramic-prod-cas-runner"
 						TAGS:           _tags + _extraTags
 					}
 				}
