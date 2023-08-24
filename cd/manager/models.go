@@ -200,7 +200,7 @@ type Task struct {
 	Id   string `dynamodbav:"id,omitempty"`
 	Repo string `dynamodbav:"repo,omitempty"` // Task repo override
 	Temp bool   `dynamodbav:"temp,omitempty"` // Whether the task is meant to go down once it has completed
-	Name string `dynamodbav:"temp,omitempty"` // Container name
+	Name string `dynamodbav:"name,omitempty"` // Container name
 }
 
 // Job represents job state machine objects processed by the job manager
