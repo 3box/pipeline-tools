@@ -126,7 +126,7 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 		} else {
 			for _, serviceArn := range clusterServices.ServiceArns {
 				service := e.serviceNameFromArn(serviceArn)
-				if task, matched := e.componentTask(component, cluster, service); matched {
+				if task := e.componentTask(component, cluster, service); task != nil {
 					if _, found := layout.Clusters[cluster]; !found {
 						// We found at least one matching task, so we can start populating the cluster layout.
 						layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
@@ -161,20 +161,20 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 	return layout, nil
 }
 
-func (e Ecs) componentTask(component manager.DeployComponent, cluster, service string) (*manager.Task, bool) {
+func (e Ecs) componentTask(component manager.DeployComponent, cluster, service string) *manager.Task {
 	// Skip any ELP services (e.g. "ceramic-elp-1-1-node")
 	serviceNameParts := strings.Split(service, "-")
 	if (len(serviceNameParts) >= 2) && (serviceNameParts[1] == manager.ServiceSuffix_Elp) {
-		return nil, false
+		return nil
 	}
 	switch component {
 	case manager.DeployComponent_Ceramic:
 		if strings.Contains(service, manager.ServiceSuffix_CeramicNode) {
-			return &manager.Task{Name: manager.ContainerName_CeramicNode}, true
+			return &manager.Task{Name: manager.ContainerName_CeramicNode}
 		}
 	case manager.DeployComponent_Ipfs:
 		if strings.Contains(service, manager.ServiceSuffix_IpfsNode) {
-			return &manager.Task{Name: manager.ContainerName_IpfsNode}, true
+			return &manager.Task{Name: manager.ContainerName_IpfsNode}
 		}
 	case manager.DeployComponent_Cas:
 		// All pre-CASv5 services are only present in the CAS cluster
@@ -183,29 +183,29 @@ func (e Ecs) componentTask(component manager.DeployComponent, cluster, service s
 			// exist in some environments and not others. This is ok because only if a service exists in an environment will
 			// we attempt to update it during a deployment.
 			if strings.Contains(service, manager.ServiceSuffix_CasApi) {
-				return &manager.Task{Name: manager.ContainerName_CasApi}, true
+				return &manager.Task{Name: manager.ContainerName_CasApi}
 			} else if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
 				// CASv2
-				return &manager.Task{Name: manager.ContainerName_CasScheduler}, true
+				return &manager.Task{Name: manager.ContainerName_CasScheduler}
 			} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
 				return &manager.Task{
 					Repo: "ceramic-prod-cas-runner",
 					Temp: true, // Anchor workers do not stay up permanently
 					Name: manager.ContainerName_CasWorker,
-				}, true
+				}
 			}
 		}
 	case manager.DeployComponent_CasV5:
 		// All CASv5 services will exist in a separate "app-cas" cluster
 		if cluster == "app-cas-"+string(e.env) {
 			if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
-				return &manager.Task{Name: manager.ContainerName_CasV5Scheduler}, true
+				return &manager.Task{Name: manager.ContainerName_CasV5Scheduler}
 			}
 		}
 	default:
 		log.Printf("componentTask: unknown component: %s", component)
 	}
-	return nil, false
+	return nil
 }
 
 func (e Ecs) componentEcrRepo(component manager.DeployComponent) (string, error) {
