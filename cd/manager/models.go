@@ -108,6 +108,7 @@ const (
 	ServiceSuffix_CasApi       string = "api"
 	ServiceSuffix_CasWorker    string = "anchor"
 	ServiceSuffix_CasScheduler string = "scheduler"
+	ServiceSuffix_Elp          string = "elp"
 )
 
 const (
