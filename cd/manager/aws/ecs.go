@@ -162,8 +162,9 @@ func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layo
 }
 
 func (e Ecs) componentTask(component manager.DeployComponent, cluster, service string) (*manager.Task, bool) {
-	// Skip any ELP nodes
-	if strings.Contains(service, manager.ServiceSuffix_Elp) {
+	// Skip any ELP services (e.g. "ceramic-elp-1-1-node")
+	serviceNameParts := strings.Split(service, "-")
+	if (len(serviceNameParts) >= 2) && (serviceNameParts[1] == manager.ServiceSuffix_Elp) {
 		return nil, false
 	}
 	switch component {
