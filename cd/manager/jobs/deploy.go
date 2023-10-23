@@ -106,7 +106,7 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("deployJob: error updating service: %v, %s", err, manager.PrintJob(d.state))
 		} else {
 			d.state.Stage = manager.JobStage_Started
-			d.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
+			d.state.Params[manager.JobParam_Start] = time.Now().UnixNano()
 			// For started deployments update the build commit hash in the DB.
 			if err = d.db.UpdateBuildHash(d.component, d.sha); err != nil {
 				// This isn't an error big enough to fail the job, just report and move on.
@@ -138,8 +138,10 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return d.state, fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
 	}
+	// Advance the timestamp
+	d.state.Ts = time.Now()
 	d.notifs.NotifyJob(d.state)
-	return d.state, d.db.AdvanceJob(d.state)
+	return d.state, d.db.WriteJob(d.state)
 }
 
 func (d deployJob) updateEnv(commitHash string) error {

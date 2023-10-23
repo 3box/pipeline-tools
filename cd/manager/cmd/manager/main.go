@@ -13,7 +13,8 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/3box/pipeline-tools/cd/manager"
-	"github.com/3box/pipeline-tools/cd/manager/aws"
+	"github.com/3box/pipeline-tools/cd/manager/common"
+	"github.com/3box/pipeline-tools/cd/manager/common/aws"
 	"github.com/3box/pipeline-tools/cd/manager/jobmanager"
 	"github.com/3box/pipeline-tools/cd/manager/notifs"
 	"github.com/3box/pipeline-tools/cd/manager/repository"
@@ -72,7 +73,7 @@ func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Man
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
 	}
-	cache := jobmanager.NewJobCache()
+	cache := common.NewJobCache()
 	db := aws.NewDynamoDb(cfg, cache)
 	if err = db.InitializeJobs(); err != nil {
 		log.Fatalf("failed to populate jobs from database: %q", err)

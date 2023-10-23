@@ -1,4 +1,4 @@
-package jobmanager
+package common
 
 import (
 	"sync"
@@ -18,11 +18,11 @@ func NewJobCache() manager.Cache {
 
 func (c JobCache) WriteJob(jobState manager.JobState) {
 	// Don't overwrite a newer state with an earlier one.
-	if cachedJobState, found := c.JobById(jobState.Id); found && cachedJobState.Ts.After(jobState.Ts) {
+	if cachedJobState, found := c.JobById(jobState.Job); found && cachedJobState.Ts.After(jobState.Ts) {
 		return
 	}
 	// Store a copy of the state, not a pointer to it.
-	c.jobs.Store(jobState.Id, jobState)
+	c.jobs.Store(jobState.Job, jobState)
 }
 
 func (c JobCache) DeleteJob(jobId string) {

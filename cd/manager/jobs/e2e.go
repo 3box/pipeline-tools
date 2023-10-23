@@ -33,7 +33,7 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 			log.Printf("e2eTestJob: error starting tests: %v, %s", err, manager.PrintJob(e.state))
 		} else {
 			e.state.Stage = manager.JobStage_Started
-			e.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
+			e.state.Params[manager.JobParam_Start] = time.Now().UnixNano()
 		}
 	} else if manager.IsTimedOut(e.state, E2eFailureTime) { // Tests did not finish in time
 		e.state.Stage = manager.JobStage_Failed
@@ -71,8 +71,10 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return e.state, fmt.Errorf("e2eJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
+	// Advance the timestamp
+	e.state.Ts = time.Now()
 	e.notifs.NotifyJob(e.state)
-	return e.state, e.db.AdvanceJob(e.state)
+	return e.state, e.db.WriteJob(e.state)
 }
 
 func (e e2eTestJob) startE2eTests() error {

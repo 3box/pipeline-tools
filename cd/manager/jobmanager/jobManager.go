@@ -54,8 +54,8 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 func (m *JobManager) NewJob(jobState manager.JobState) (string, error) {
 	jobState.Stage = manager.JobStage_Queued
 	// Only set the job ID/time if not already set by the caller
-	if len(jobState.Id) == 0 {
-		jobState.Id = uuid.New().String()
+	if len(jobState.Job) == 0 {
+		jobState.Job = uuid.New().String()
 	}
 	if jobState.Ts.IsZero() {
 		jobState.Ts = time.Now()
@@ -63,7 +63,7 @@ func (m *JobManager) NewJob(jobState manager.JobState) (string, error) {
 	if jobState.Params == nil {
 		jobState.Params = make(map[string]interface{}, 0)
 	}
-	return jobState.Id, m.db.QueueJob(jobState)
+	return jobState.Job, m.db.QueueJob(jobState)
 }
 
 func (m *JobManager) CheckJob(jobId string) string {
@@ -122,7 +122,7 @@ func (m *JobManager) processJobs() {
 		for _, job := range oldJobs {
 			// Delete the job from the cache
 			log.Printf("processJobs: aging out job: %s", manager.PrintJob(job))
-			m.cache.DeleteJob(job.Id)
+			m.cache.DeleteJob(job.Job)
 		}
 	}
 	// Find all jobs in progress and advance their state before looking for new jobs
@@ -290,7 +290,7 @@ func (m *JobManager) processForceDeployJobs(dequeuedJobs []manager.JobState) boo
 		// Skip any dequeued jobs for components being force deployed
 		for _, dequeuedJob := range dequeuedJobs {
 			if dequeuedJob.Type == manager.JobType_Deploy {
-				if forceDeploy, found := forceDeploys[dequeuedJob.Params[manager.JobParam_Component].(string)]; found && (dequeuedJob.Id != forceDeploy.Id) {
+				if forceDeploy, found := forceDeploys[dequeuedJob.Params[manager.JobParam_Component].(string)]; found && (dequeuedJob.Job != forceDeploy.Job) {
 					if err := m.updateJobStage(dequeuedJob, manager.JobStage_Skipped); err != nil {
 						// Return `true` from here so that no state is changed and the loop can restart cleanly. Any
 						// jobs already skipped won't be picked up again, which is ok.
@@ -566,7 +566,7 @@ func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) 
 func (m *JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
 	jobState.Stage = jobStage
 	// Update the job in the database before sending any notification - we should just come back and try again.
-	if err := m.db.AdvanceJob(jobState); err != nil {
+	if err := m.db.WriteJob(jobState); err != nil {
 		log.Printf("updateJobStage: failed to update %s job: %v, %s", jobStage, err, manager.PrintJob(jobState))
 		return err
 	}

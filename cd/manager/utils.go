@@ -121,7 +121,7 @@ func IsTimedOut(jobState JobState, delay time.Duration) bool {
 	// If no timestamp was stored, use the timestamp from the last update.
 	startTime := jobState.Ts
 	if s, found := jobState.Params[JobParam_Start].(float64); found {
-		startTime = time.UnixMilli(int64(s))
+		startTime = time.Unix(0, int64(s))
 	}
 	return time.Now().Add(-delay).After(startTime)
 }

@@ -52,7 +52,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 			// Update the job stage and spawned task identifier
 			a.state.Stage = manager.JobStage_Started
 			a.state.Params[manager.JobParam_Id] = id
-			a.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
+			a.state.Params[manager.JobParam_Start] = time.Now().UnixNano()
 		}
 	} else if a.state.Stage == manager.JobStage_Started {
 		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[manager.JobParam_Id].(string)); err != nil {
@@ -92,6 +92,8 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return a.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
+	// Advance the timestamp
+	a.state.Ts = time.Now()
 	a.notifs.NotifyJob(a.state)
-	return a.state, a.db.AdvanceJob(a.state)
+	return a.state, a.db.WriteJob(a.state)
 }

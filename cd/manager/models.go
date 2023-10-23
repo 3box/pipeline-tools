@@ -158,17 +158,20 @@ const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
 const DefaultCasMaxAnchorWorkers = 1
 const DefaultCasMinAnchorWorkers = 0
+const DefaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
 
 // For CASv5 workers
 const CasV5Version = "5"
 
 // JobState represents the state of a job in the database
 type JobState struct {
+	Job    string                 `dynamodbav:"job"` // Job ID, same for all stages of an individual Job
 	Stage  JobStage               `dynamodbav:"stage"`
-	Ts     time.Time              `dynamodbav:"ts"`
-	Id     string                 `dynamodbav:"id"`
 	Type   JobType                `dynamodbav:"type"`
+	Ts     time.Time              `dynamodbav:"ts"`
 	Params map[string]interface{} `dynamodbav:"params"`
+	Id     string                 `dynamodbav:"id" json:"-"`           // Globally unique ID for each job update
+	Ttl    time.Time              `dynamodbav:"ttl,unixtime" json:"-"` // Record expiration
 }
 
 // BuildState represents build/deploy commit hash information. This information is maintained in a legacy DynamoDB table
@@ -221,7 +224,6 @@ type Database interface {
 	InitializeJobs() error
 	QueueJob(JobState) error
 	DequeueJobs() []JobState
-	AdvanceJob(JobState) error
 	WriteJob(JobState) error
 	IterateByType(JobType, bool, func(JobState) bool) error
 	UpdateBuildHash(DeployComponent, string) error
