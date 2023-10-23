@@ -29,7 +29,7 @@ dagger.#Plan & {
 				AWS_REGION:            Region
 				ENV_TAG:               EnvTag
 			}
-			job: type: Test
+			spec: type: Test
 		}
 	}
 }

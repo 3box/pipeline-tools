@@ -32,22 +32,28 @@ import (
 }
 
 #EpochTs: {
-	_cli: alpine.#Build & {
+	_deltaDays: string | *"+0"
+	_cli:       alpine.#Build & {
 		packages: {
 			bash: {}
+			coreutils: {}
 		}
 	}
 	run: bash.#Run & {
 		input:  _cli.output
 		always: true
+		env: DELTA_DAYS: _deltaDays
 		script: contents: #"""
-				echo -n "$(date +%s)000" > /epochTs
+				echo -n $(date +%s%N -d "$DELTA_DAYS days") > /epochNs
+				echo -n $(date +%s   -d "$DELTA_DAYS days") > /epochS
 			"""#
 		export: files: {
-			"/epochTs": string
+			"/epochNs": string
+			"/epochS":  string
 		}
 	}
-	epochTs: run.export.files["/epochTs"]
+	epochNs: run.export.files["/epochNs"]
+	epochS:  run.export.files["/epochS"]
 }
 
 #Job: {
@@ -58,7 +64,7 @@ import (
 		ENV_TAG:               string
 	}
 
-	job: {
+	spec: {
 		type: "deploy" | "anchor" | "test_e2e" | "test_smoke"
 		params: {
 			component: "ceramic" | "cas" | "ipfs" | *null
@@ -68,11 +74,14 @@ import (
 		}
 	}
 
-	_uuid:    #Uuid
-	_epochTs: #EpochTs
-	_job: {
+	_uuid: #Uuid
+	_ts:   #EpochTs
+	_ttl:  #EpochTs & {
+		_deltaDays: "+14" // Two weeks
+	}
+	_spec: {
 		type: {
-			S: job.type
+			S: spec.type
 		}
 		stage: {
 			S: "queued"
@@ -80,29 +89,35 @@ import (
 		id: {
 			S: "\(_uuid.uuid)"
 		}
+		job: {
+			S: "\(_uuid.uuid)"
+		}
 		ts: {
-			N: "\(_epochTs.epochTs)"
+			N: "\(_ts.epochNs)"
+		}
+		ttl: {
+			N: "\(_ttl.epochS)"
 		}
 		params: {
 			M: {
-				if job.params.component != null {
+				if spec.params.component != null {
 					component: {
-						S: job.params.component
+						S: spec.params.component
 					}
 				}
-				if job.params.sha != null {
+				if spec.params.sha != null {
 					sha: {
-						S: job.params.sha
+						S: spec.params.sha
 					}
 				}
-				if job.params.shaTag != null {
+				if spec.params.shaTag != null {
 					shaTag: {
-						S: job.params.shaTag
+						S: spec.params.shaTag
 					}
 				}
-				if job.params.version != null {
+				if spec.params.version != null {
 					version: {
-						S: job.params.version
+						S: spec.params.version
 					}
 				}
 			}
@@ -125,7 +140,7 @@ import (
 				"--table-name",
 				"ceramic-\(env.ENV_TAG)-ops",
 				"--item",
-				"'\(json.Marshal(_job))'",
+				"'\(json.Marshal(_spec))'",
 			]
 		}
 	}
