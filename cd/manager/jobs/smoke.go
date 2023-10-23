@@ -47,7 +47,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 			// Update the job stage and spawned task identifier
 			s.state.Stage = manager.JobStage_Started
 			s.state.Params[manager.JobParam_Id] = id
-			s.state.Params[manager.JobParam_Start] = time.Now().UnixMilli()
+			s.state.Params[manager.JobParam_Start] = time.Now().UnixNano()
 		}
 	} else if manager.IsTimedOut(s.state, SmokeTestFailureTime) { // Smoke test did not finish in time
 		s.state.Stage = manager.JobStage_Failed
@@ -83,6 +83,8 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return s.state, fmt.Errorf("smokeTestJob: unexpected state: %s", manager.PrintJob(s.state))
 	}
+	// Advance the timestamp
+	s.state.Ts = time.Now()
 	s.notifs.NotifyJob(s.state)
-	return s.state, s.db.AdvanceJob(s.state)
+	return s.state, s.db.WriteJob(s.state)
 }

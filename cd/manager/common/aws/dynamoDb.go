@@ -7,19 +7,23 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/mitchellh/mapstructure"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/mitchellh/mapstructure"
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
 
 const TableCreationRetries = 3
 const TableCreationWait = 3 * time.Second
+const StageTsIndex = "stage-ts-index"
 const TypeTsIndex = "type-ts-index"
-const IdTsIndex = "id-ts-index"
+const JobTsIndex = "job-ts-index"
 
 var _ manager.Database = &DynamoDb{}
 
@@ -51,7 +55,7 @@ func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
 		jobTable,
 		buildTable,
 		cache,
-		time.UnixMilli(0),
+		time.Unix(0, 0),
 	}
 	if err = db.createJobTable(); err != nil {
 		log.Fatalf("dynamodb: job table creation failed: %v", err)
@@ -69,40 +73,53 @@ func (db DynamoDb) createJobTable() error {
 		defer cancel()
 
 		createTableInput := dynamodb.CreateTableInput{
+			BillingMode: types.BillingModePayPerRequest,
 			AttributeDefinitions: []types.AttributeDefinition{
 				{
-					AttributeName: aws.String("stage"),
+					AttributeName: aws.String("id"),
 					AttributeType: "S",
 				},
 				{
-					AttributeName: aws.String("ts"),
-					AttributeType: "N",
+					AttributeName: aws.String("job"),
+					AttributeType: "S",
 				},
 				{
-					AttributeName: aws.String("id"),
+					AttributeName: aws.String("stage"),
 					AttributeType: "S",
 				},
 				{
 					AttributeName: aws.String("type"),
 					AttributeType: "S",
 				},
+				{
+					AttributeName: aws.String("ts"),
+					AttributeType: "N",
+				},
 			},
 			KeySchema: []types.KeySchemaElement{
 				{
-					AttributeName: aws.String("stage"),
+					AttributeName: aws.String("id"),
 					KeyType:       "HASH",
-				},
-				{
-					AttributeName: aws.String("ts"),
-					KeyType:       "RANGE",
 				},
 			},
 			TableName: aws.String(db.jobTable),
-			ProvisionedThroughput: &types.ProvisionedThroughput{
-				ReadCapacityUnits:  aws.Int64(1),
-				WriteCapacityUnits: aws.Int64(1),
-			},
 			GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+				{
+					IndexName: aws.String(StageTsIndex),
+					KeySchema: []types.KeySchemaElement{
+						{
+							AttributeName: aws.String("stage"),
+							KeyType:       "HASH",
+						},
+						{
+							AttributeName: aws.String("ts"),
+							KeyType:       "RANGE",
+						},
+					},
+					Projection: &types.Projection{
+						ProjectionType: types.ProjectionTypeAll,
+					},
+				},
 				{
 					IndexName: aws.String(TypeTsIndex),
 					KeySchema: []types.KeySchemaElement{
@@ -118,16 +135,12 @@ func (db DynamoDb) createJobTable() error {
 					Projection: &types.Projection{
 						ProjectionType: types.ProjectionTypeAll,
 					},
-					ProvisionedThroughput: &types.ProvisionedThroughput{
-						ReadCapacityUnits:  aws.Int64(1),
-						WriteCapacityUnits: aws.Int64(1),
-					},
 				},
 				{
-					IndexName: aws.String(IdTsIndex),
+					IndexName: aws.String(JobTsIndex),
 					KeySchema: []types.KeySchemaElement{
 						{
-							AttributeName: aws.String("id"),
+							AttributeName: aws.String("job"),
 							KeyType:       "HASH",
 						},
 						{
@@ -137,10 +150,6 @@ func (db DynamoDb) createJobTable() error {
 					},
 					Projection: &types.Projection{
 						ProjectionType: types.ProjectionTypeAll,
-					},
-					ProvisionedThroughput: &types.ProvisionedThroughput{
-						ReadCapacityUnits:  aws.Int64(1),
-						WriteCapacityUnits: aws.Int64(1),
 					},
 				},
 			},
@@ -244,8 +253,8 @@ func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 	// Only write this job to the database since that's where our de/queueing is expected to happen from. The cache is
 	// just a hash-map from job IDs to job state for ACTIVE jobs (jobs are not added to the cache until they are in
 	// progress). This also means that we don't need to write jobs to the database if they're already in the cache.
-	if _, found := db.cache.JobById(jobState.Id); !found {
-		return db.WriteJob(jobState)
+	if _, found := db.cache.JobById(jobState.Job); !found {
+		return db.writeJob(jobState)
 	}
 	return nil
 }
@@ -266,7 +275,7 @@ func (db DynamoDb) DequeueJobs() []manager.JobState {
 	cursorSet := false
 	if err := db.iterateByStage(manager.JobStage_Queued, cursor, true, func(jobState manager.JobState) bool {
 		// If a job is not already in the cache, append it since it hasn't been dequeued yet.
-		if _, found := db.cache.JobById(jobState.Id); !found {
+		if _, found := db.cache.JobById(jobState.Job); !found {
 			jobs = append(jobs, jobState)
 			// Set the cursor to the timestamp of the first job that is not already in processing (see `iterateByStage`
 			// for explanation why).
@@ -298,11 +307,12 @@ func (db DynamoDb) iterateByStage(jobStage manager.JobStage, cursor time.Time, a
 	// start a few minutes after a deployment is complete).
 	return db.iterateEvents(&dynamodb.QueryInput{
 		TableName:              aws.String(db.jobTable),
+		IndexName:              aws.String(StageTsIndex),
 		KeyConditionExpression: aws.String("#stage = :stage and #ts between :ts and :now"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":stage": &types.AttributeValueMemberS{Value: string(jobStage)},
-			":ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(cursor.UnixMilli(), 10)},
-			":now":   &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().UnixMilli(), 10)},
+			":ts":    &types.AttributeValueMemberN{Value: strconv.FormatInt(cursor.UnixNano(), 10)},
+			":now":   &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().UnixNano(), 10)},
 		},
 		ExpressionAttributeNames: map[string]string{
 			"#stage": "stage",
@@ -321,8 +331,8 @@ func (db DynamoDb) iterateByType(jobType manager.JobType, cursor time.Time, asc 
 		KeyConditionExpression: aws.String("#type = :type and #ts between :ts and :now"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":type": &types.AttributeValueMemberS{Value: string(jobType)},
-			":ts":   &types.AttributeValueMemberN{Value: strconv.FormatInt(cursor.UnixMilli(), 10)},
-			":now":  &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().UnixMilli(), 10)},
+			":ts":   &types.AttributeValueMemberN{Value: strconv.FormatInt(cursor.UnixNano(), 10)},
+			":now":  &types.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().UnixNano(), 10)},
 		},
 		ExpressionAttributeNames: map[string]string{
 			"#type": "type",
@@ -345,11 +355,11 @@ func (db DynamoDb) iterateEvents(queryInput *dynamodb.QueryInput, iter func(mana
 			}
 			var jobsPage []manager.JobState
 			tsDecode := func(ts string) (time.Time, error) {
-				msec, err := strconv.ParseInt(ts, 10, 64)
+				nsec, err := strconv.ParseInt(ts, 10, 64)
 				if err != nil {
 					return time.Time{}, err
 				}
-				return time.UnixMilli(msec), nil
+				return time.Unix(0, nsec), nil
 			}
 			err = attributevalue.UnmarshalListOfMapsWithOptions(page.Items, &jobsPage, func(options *attributevalue.DecoderOptions) {
 				options.DecodeTime = attributevalue.DecodeTimeAttributes{
@@ -385,20 +395,22 @@ func (db DynamoDb) iterateEvents(queryInput *dynamodb.QueryInput, iter func(mana
 	return nil
 }
 
-func (db DynamoDb) AdvanceJob(jobState manager.JobState) error {
-	// Update the timestamp
-	jobState.Ts = time.Now()
-	if err := db.WriteJob(jobState); err != nil {
+func (db DynamoDb) WriteJob(jobState manager.JobState) error {
+	if err := db.writeJob(jobState); err != nil {
 		return err
 	}
 	db.cache.WriteJob(jobState)
 	return nil
 }
 
-func (db DynamoDb) WriteJob(jobState manager.JobState) error {
+func (db DynamoDb) writeJob(jobState manager.JobState) error {
+	// Generate a new UUID for every job update
+	jobState.Id = uuid.New().String()
+	// Set entry expiration
+	jobState.Ttl = time.Now().Add(manager.DefaultJobStateTtl)
 	if attributeValues, err := attributevalue.MarshalMapWithOptions(jobState, func(options *attributevalue.EncoderOptions) {
 		options.EncodeTime = func(time time.Time) (types.AttributeValue, error) {
-			return &types.AttributeValueMemberN{Value: strconv.FormatInt(time.UnixMilli(), 10)}, nil
+			return &types.AttributeValueMemberN{Value: strconv.FormatInt(time.UnixNano(), 10)}, nil
 		}
 	}); err != nil {
 		return err

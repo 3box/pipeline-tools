@@ -201,7 +201,7 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 	fields := []discord.EmbedField{
 		{
 			Name:  manager.NotifField_JobId,
-			Value: jobState.Id,
+			Value: jobState.Job,
 		},
 	}
 	// Return deploy hashes for all jobs, if we were able to retrieve them successfully.
@@ -315,8 +315,8 @@ func (n JobNotifs) getActiveJobsByType(jobState manager.JobState, jobType manage
 	message := ""
 	for _, activeJob := range activeJobs {
 		// Exclude job for which this notification is being generated
-		if activeJob.Id != jobState.Id {
-			message += fmt.Sprintf("%s (%s)\n", activeJob.Id, activeJob.Stage)
+		if activeJob.Job != jobState.Job {
+			message += fmt.Sprintf("%s (%s)\n", activeJob.Job, activeJob.Stage)
 		}
 	}
 	return discord.EmbedField{

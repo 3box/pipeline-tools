@@ -73,7 +73,7 @@ func jobHandler(m manager.Manager) http.HandlerFunc {
 				message = jobId
 			}
 		} else if r.Method == http.MethodGet {
-			message = m.CheckJob(jobState.Id)
+			message = m.CheckJob(jobState.Job)
 		}
 		writeJsonResponse(w, message, status)
 	}
