@@ -78,6 +78,8 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 			} else {
 				jobState.Params[manager.JobParam_Layout] = *envLayout
 			}
+			// Advance the timestamp
+			jobState.Ts = time.Now()
 			if err := db.WriteJob(jobState); err != nil {
 				return nil, err
 			}
