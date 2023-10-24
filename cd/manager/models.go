@@ -224,8 +224,8 @@ type ApiGw interface {
 type Database interface {
 	InitializeJobs() error
 	QueueJob(JobState) error
-	GetQueuedJobs() []JobState
-	GetDequeuedJobs() []JobState
+	QueuedJobs() []JobState
+	OrderedJobs(JobStage) []JobState
 	AdvanceJob(JobState) error
 	WriteJob(JobState) error
 	IterateByType(JobType, bool, func(JobState) bool) error

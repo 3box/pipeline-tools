@@ -261,7 +261,10 @@ func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 	return nil
 }
 
-func (db DynamoDb) GetQueuedJobs() []manager.JobState {
+// QueuedJobs returns jobs in order of their DB timestamps that have not yet been picked up from the database and are
+// thus not in the cache. We use the fact that a new job is not in the cache yet to determine whether a job is truly new
+// or if it has already started being processed.
+func (db DynamoDb) QueuedJobs() []manager.JobState {
 	// If available, use the timestamp of the previously found first job not already in processing as the start of the
 	// current database search. We can't know for sure that all subsequent jobs are unprocessed (e.g. force deploys or
 	// anchors could mess up that assumption), but what we can say for sure is that all prior jobs have at least entered
@@ -300,17 +303,17 @@ func (db DynamoDb) GetQueuedJobs() []manager.JobState {
 	return jobs
 }
 
-func (db DynamoDb) GetDequeuedJobs() []manager.JobState {
+// OrderedJobs returns jobs in order of their DB timestamps that are in the cache in a certain stage of processing
+func (db DynamoDb) OrderedJobs(jobStage manager.JobStage) []manager.JobState {
 	jobs := make([]manager.JobState, 0, 0)
-	if err := db.iterateByStage(manager.JobStage_Dequeued, db.cursor, true, func(jobState manager.JobState) bool {
-		// Append the job if it's in the cache but hasn't been started yet
-		if cachedJob, found := db.cache.JobById(jobState.Job); found && cachedJob.Stage == manager.JobStage_Dequeued {
+	if err := db.iterateByStage(jobStage, db.cursor, true, func(jobState manager.JobState) bool {
+		if cachedJob, found := db.cache.JobById(jobState.Job); found && cachedJob.Stage == jobStage {
 			jobs = append(jobs, jobState)
 		}
 		// Return true so that we keep on iterating.
 		return true
 	}); err != nil {
-		log.Printf("dequeuedJobs: failed iteration through jobs: %v", err)
+		log.Printf("orderedJobs: failed iteration through jobs: %v", err)
 	}
 	return jobs
 }

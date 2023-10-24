@@ -141,11 +141,8 @@ func (m *JobManager) processJobs() {
 	}
 	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
 	if !m.paused {
-		// Always attempt to check if we have anchor jobs, even if none were dequeued. This is because we might have a
-		// configured minimum number of jobs to run.
-		processAnchorJobs := true
 		// Advance each freshly discovered "queued" job to the "dequeued" stage
-		queuedJobs := m.db.GetQueuedJobs()
+		queuedJobs := m.db.QueuedJobs()
 		if len(queuedJobs) > 0 {
 			log.Printf("processJobs: found queued %d jobs...", len(queuedJobs))
 			for _, jobState := range queuedJobs {
@@ -154,16 +151,20 @@ func (m *JobManager) processJobs() {
 			// Wait for any running job advancement goroutines to finish before processing jobs
 			m.waitGroup.Wait()
 		}
-		// Try to start multiple jobs and collapse similar ones:
-		// - one deploy at a time
-		// - any number of anchor workers (compatible with with smoke/E2E tests)
-		// - one smoke test at a time (compatible with anchor workers, E2E tests)
-		// - one E2E test at a time (compatible with anchor workers, smoke tests)
-		//
-		// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs to
-		// complete.
-		dequeuedJobs := m.db.GetDequeuedJobs()
+		// Always attempt to check if we have anchor jobs, even if none were dequeued. This is because we might have a
+		// configured minimum number of jobs to run.
+		processAnchorJobs := true
+		// Jobs in the "dequeued" stage are in the cache but haven't been "started" yet and can thus begin processing
+		dequeuedJobs := m.db.OrderedJobs(manager.JobStage_Dequeued)
 		if len(dequeuedJobs) > 0 {
+			// Try to start multiple jobs and collapse similar ones:
+			// - one deploy at a time
+			// - any number of anchor workers (compatible with with smoke/E2E tests)
+			// - one smoke test at a time (compatible with anchor workers, E2E tests)
+			// - one E2E test at a time (compatible with anchor workers, smoke tests)
+			//
+			// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs to
+			// complete.
 			log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
 			// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked off.
 			if m.processForceDeployJobs(dequeuedJobs) {
