@@ -235,6 +235,8 @@ func (db DynamoDb) InitializeJobs() error {
 		return err
 	} else if err = db.loadJobs(manager.JobStage_Started, ttlCursor); err != nil {
 		return err
+	} else if err = db.loadJobs(manager.JobStage_Dequeued, ttlCursor); err != nil {
+		return err
 	} else {
 		return db.loadJobs(manager.JobStage_Skipped, ttlCursor)
 	}
@@ -254,12 +256,12 @@ func (db DynamoDb) QueueJob(jobState manager.JobState) error {
 	// just a hash-map from job IDs to job state for ACTIVE jobs (jobs are not added to the cache until they are in
 	// progress). This also means that we don't need to write jobs to the database if they're already in the cache.
 	if _, found := db.cache.JobById(jobState.Job); !found {
-		return db.writeJob(jobState)
+		return db.WriteJob(jobState)
 	}
 	return nil
 }
 
-func (db DynamoDb) DequeueJobs() []manager.JobState {
+func (db DynamoDb) GetQueuedJobs() []manager.JobState {
 	// If available, use the timestamp of the previously found first job not already in processing as the start of the
 	// current database search. We can't know for sure that all subsequent jobs are unprocessed (e.g. force deploys or
 	// anchors could mess up that assumption), but what we can say for sure is that all prior jobs have at least entered
@@ -287,13 +289,28 @@ func (db DynamoDb) DequeueJobs() []manager.JobState {
 		// Return true so that we keep on iterating.
 		return true
 	}); err != nil {
-		log.Printf("dequeueJobs: failed iteration through jobs: %v", err)
+		log.Printf("queuedJobs: failed iteration through jobs: %v", err)
 	}
 	// If the cursor is still unset, then we found no jobs that weren't already in processing or done. In that case, set
 	// the cursor to "now" so we know to search from this point in time onwards. There's no point looking up jobs from
 	// the past that we know no longer need any processing.
 	if !cursorSet {
 		db.cursor = time.Now()
+	}
+	return jobs
+}
+
+func (db DynamoDb) GetDequeuedJobs() []manager.JobState {
+	jobs := make([]manager.JobState, 0, 0)
+	if err := db.iterateByStage(manager.JobStage_Dequeued, db.cursor, true, func(jobState manager.JobState) bool {
+		// Append the job if it's in the cache but hasn't been started yet
+		if cachedJob, found := db.cache.JobById(jobState.Job); found && cachedJob.Stage == manager.JobStage_Dequeued {
+			jobs = append(jobs, jobState)
+		}
+		// Return true so that we keep on iterating.
+		return true
+	}); err != nil {
+		log.Printf("dequeuedJobs: failed iteration through jobs: %v", err)
 	}
 	return jobs
 }
@@ -395,15 +412,15 @@ func (db DynamoDb) iterateEvents(queryInput *dynamodb.QueryInput, iter func(mana
 	return nil
 }
 
-func (db DynamoDb) WriteJob(jobState manager.JobState) error {
-	if err := db.writeJob(jobState); err != nil {
+func (db DynamoDb) AdvanceJob(jobState manager.JobState) error {
+	if err := db.WriteJob(jobState); err != nil {
 		return err
 	}
 	db.cache.WriteJob(jobState)
 	return nil
 }
 
-func (db DynamoDb) writeJob(jobState manager.JobState) error {
+func (db DynamoDb) WriteJob(jobState manager.JobState) error {
 	// Generate a new UUID for every job update
 	jobState.Id = uuid.New().String()
 	// Set entry expiration

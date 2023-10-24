@@ -28,6 +28,12 @@ func AnchorJob(db manager.Database, d manager.Deployment, notifs manager.Notifs,
 
 func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 	if a.state.Stage == manager.JobStage_Queued {
+		// No preparation needed so advance the job directly to "dequeued"
+		a.state.Stage = manager.JobStage_Dequeued
+		// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline as
+		// the "queued" event.
+		return a.state, a.db.AdvanceJob(a.state)
+	} else if a.state.Stage == manager.JobStage_Dequeued {
 		var overrides map[string]string = nil
 		// Check if this is a CASv5 anchor job
 		if manager.IsV5WorkerJob(a.state) {
@@ -92,8 +98,7 @@ func (a anchorJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return a.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
-	// Advance the timestamp
 	a.state.Ts = time.Now()
 	a.notifs.NotifyJob(a.state)
-	return a.state, a.db.WriteJob(a.state)
+	return a.state, a.db.AdvanceJob(a.state)
 }

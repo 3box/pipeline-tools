@@ -28,6 +28,7 @@ type JobStage string
 
 const (
 	JobStage_Queued    JobStage = "queued"
+	JobStage_Dequeued  JobStage = "dequeued"
 	JobStage_Skipped   JobStage = "skipped"
 	JobStage_Started   JobStage = "started"
 	JobStage_Waiting   JobStage = "waiting"
@@ -223,7 +224,9 @@ type ApiGw interface {
 type Database interface {
 	InitializeJobs() error
 	QueueJob(JobState) error
-	DequeueJobs() []JobState
+	GetQueuedJobs() []JobState
+	GetDequeuedJobs() []JobState
+	AdvanceJob(JobState) error
 	WriteJob(JobState) error
 	IterateByType(JobType, bool, func(JobState) bool) error
 	UpdateBuildHash(DeployComponent, string) error

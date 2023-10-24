@@ -29,80 +29,42 @@ func DeployJob(db manager.Database, d manager.Deployment, repo manager.Repositor
 	} else if sha, found := jobState.Params[manager.JobParam_Sha].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
-		c := manager.DeployComponent(component)
 		manual, _ := jobState.Params[manager.JobParam_Manual].(bool)
 		rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool)
-		// If "layout" is absent, this job has been dequeued for the first time and we need to do some preprocessing.
-		if _, found := jobState.Params[manager.JobParam_Layout]; !found {
-			if rollback {
-				// Use the latest successfully deployed commit hash when rolling back
-				deployHashes, err := db.GetDeployHashes()
-				if err != nil {
-					return nil, err
-				}
-				sha = deployHashes[c]
-			} else
-			// - If the specified commit hash is "latest", fetch the latest branch commit hash from GitHub.
-			// - Else if it's a valid hash, use it.
-			// - Else use the latest build hash from the database.
-			//
-			// The last two cases will only happen when redeploying manually, so we can note that in the notification.
-			if sha == manager.BuildHashLatest {
-				shaTag, _ := jobState.Params[manager.JobParam_ShaTag].(string)
-				latestSha, err := repo.GetLatestCommitHash(
-					manager.ComponentRepo(c),
-					manager.EnvBranch(c, manager.EnvType(os.Getenv("ENV"))),
-					shaTag,
-				)
-				if err != nil {
-					return nil, err
-				}
-				sha = latestSha
-			} else {
-				if !manager.IsValidSha(sha) {
-					// Get the latest build commit hash from the database when making a fresh deployment
-					buildHashes, err := db.GetBuildHashes()
-					if err != nil {
-						return nil, err
-					}
-					sha = buildHashes[c]
-				}
-				manual = true
-			}
-			jobState.Params[manager.JobParam_Sha] = sha
-			if manual {
-				jobState.Params[manager.JobParam_Manual] = true
-			}
-			if envLayout, err := d.GenerateEnvLayout(c); err != nil {
-				return nil, err
-			} else {
-				jobState.Params[manager.JobParam_Layout] = *envLayout
-			}
-			// Advance the timestamp
-			jobState.Ts = time.Now()
-			if err := db.WriteJob(jobState); err != nil {
-				return nil, err
-			}
-			// Send notification for job dequeued for the first time
-			notifs.NotifyJob(jobState)
-		}
-		return &deployJob{jobState, db, d, repo, notifs, c, sha, manual, rollback}, nil
+		return &deployJob{jobState, db, d, repo, notifs, manager.DeployComponent(component), sha, manual, rollback}, nil
 	}
 }
 
-func (d deployJob) AdvanceJob() (manager.JobState, error) {
+func (d *deployJob) AdvanceJob() (manager.JobState, error) {
 	if d.state.Stage == manager.JobStage_Queued {
 		if deployHashes, err := d.db.GetDeployHashes(); err != nil {
 			d.state.Stage = manager.JobStage_Failed
 			d.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("deployJob: error fetching deploy hashes: %v, %s", err, manager.PrintJob(d.state))
+		} else if err := d.prepareJob(deployHashes); err != nil {
+			d.state.Stage = manager.JobStage_Failed
+			d.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("deployJob: error preparing job: %v, %s", err, manager.PrintJob(d.state))
 		} else if !d.manual && !d.rollback && (d.sha == deployHashes[d.component]) {
 			// Skip automated jobs if the commit hash being deployed is the same as the commit hash already deployed. We
 			// don't do this for manual jobs because deploying an already deployed hash might be intentional, or for
 			// rollbacks because we WANT to redeploy the last successfully deployed hash.
 			d.state.Stage = manager.JobStage_Skipped
 			log.Printf("deployJob: commit hash same as deployed hash: %s", manager.PrintJob(d.state))
-		} else if err := d.updateEnv(d.sha); err != nil {
+		} else if envLayout, err := d.d.GenerateEnvLayout(d.component); err != nil {
+			d.state.Stage = manager.JobStage_Failed
+			d.state.Params[manager.JobParam_Error] = err.Error()
+			log.Printf("deployJob: error preparing job: %v, %s", err, manager.PrintJob(d.state))
+		} else {
+			d.state.Stage = manager.JobStage_Dequeued
+			d.state.Params[manager.JobParam_Layout] = *envLayout
+		}
+		// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline as
+		// the "queued" event.
+		d.notifs.NotifyJob(d.state)
+		return d.state, d.db.AdvanceJob(d.state)
+	} else if d.state.Stage == manager.JobStage_Dequeued {
+		if err := d.updateEnv(d.sha); err != nil {
 			d.state.Stage = manager.JobStage_Failed
 			d.state.Params[manager.JobParam_Error] = err.Error()
 			log.Printf("deployJob: error updating service: %v, %s", err, manager.PrintJob(d.state))
@@ -140,20 +102,58 @@ func (d deployJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return d.state, fmt.Errorf("deployJob: unexpected state: %s", manager.PrintJob(d.state))
 	}
-	// Advance the timestamp
 	d.state.Ts = time.Now()
 	d.notifs.NotifyJob(d.state)
-	return d.state, d.db.WriteJob(d.state)
+	return d.state, d.db.AdvanceJob(d.state)
 }
 
-func (d deployJob) updateEnv(commitHash string) error {
+func (d *deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) error {
+	if d.rollback {
+		// Use the latest successfully deployed commit hash when rolling back
+		d.sha = deployHashes[d.component]
+	} else
+	// - If the specified commit hash is "latest", fetch the latest branch commit hash from GitHub.
+	// - Else if it's a valid hash, use it.
+	// - Else use the latest build hash from the database.
+	//
+	// The last two cases will only happen when redeploying manually, so we can note that in the notification.
+	if d.sha == manager.BuildHashLatest {
+		shaTag, _ := d.state.Params[manager.JobParam_ShaTag].(string)
+		if latestSha, err := d.repo.GetLatestCommitHash(
+			manager.ComponentRepo(d.component),
+			manager.EnvBranch(d.component, manager.EnvType(os.Getenv("ENV"))),
+			shaTag,
+		); err != nil {
+			return err
+		} else {
+			d.sha = latestSha
+		}
+	} else {
+		if !manager.IsValidSha(d.sha) {
+			// Get the latest build commit hash from the database when making a fresh deployment
+			if buildHashes, err := d.db.GetBuildHashes(); err != nil {
+				return err
+			} else {
+				d.sha = buildHashes[d.component]
+			}
+		}
+		d.manual = true
+	}
+	d.state.Params[manager.JobParam_Sha] = d.sha
+	if d.manual {
+		d.state.Params[manager.JobParam_Manual] = true
+	}
+	return nil
+}
+
+func (d *deployJob) updateEnv(commitHash string) error {
 	if layout, found := d.state.Params[manager.JobParam_Layout].(manager.Layout); found {
 		return d.d.UpdateEnv(&layout, commitHash)
 	}
 	return fmt.Errorf("updateEnv: missing env layout")
 }
 
-func (d deployJob) checkEnv() (bool, error) {
+func (d *deployJob) checkEnv() (bool, error) {
 	if layout, found := d.state.Params[manager.JobParam_Layout].(manager.Layout); !found {
 		return false, fmt.Errorf("checkEnv: missing env layout")
 	} else if deployed, err := d.d.CheckEnv(&layout); err != nil {

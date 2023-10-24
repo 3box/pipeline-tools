@@ -224,7 +224,7 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 
 func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 	switch jobState.Stage {
-	case manager.JobStage_Queued:
+	case manager.JobStage_Dequeued:
 		return DiscordColor_Info
 	case manager.JobStage_Skipped:
 		return DiscordColor_Warning

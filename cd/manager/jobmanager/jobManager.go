@@ -144,7 +144,17 @@ func (m *JobManager) processJobs() {
 		// Always attempt to check if we have anchor jobs, even if none were dequeued. This is because we might have a
 		// configured minimum number of jobs to run.
 		processAnchorJobs := true
-		// Try to dequeue multiple jobs and collapse similar ones:
+		// Advance each freshly discovered "queued" job to the "dequeued" stage
+		queuedJobs := m.db.GetQueuedJobs()
+		if len(queuedJobs) > 0 {
+			log.Printf("processJobs: found queued %d jobs...", len(queuedJobs))
+			for _, jobState := range queuedJobs {
+				m.advanceJob(jobState)
+			}
+			// Wait for any running job advancement goroutines to finish before processing jobs
+			m.waitGroup.Wait()
+		}
+		// Try to start multiple jobs and collapse similar ones:
 		// - one deploy at a time
 		// - any number of anchor workers (compatible with with smoke/E2E tests)
 		// - one smoke test at a time (compatible with anchor workers, E2E tests)
@@ -152,52 +162,37 @@ func (m *JobManager) processJobs() {
 		//
 		// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs to
 		// complete.
-		dequeuedJobs := m.db.DequeueJobs()
+		dequeuedJobs := m.db.GetDequeuedJobs()
 		if len(dequeuedJobs) > 0 {
 			log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
-			// Preprocess dequeued jobs, and filter successfully prepared ones.
-			// Ref: https://github.com/golang/go/wiki/SliceTricks#filtering-without-allocating
-			tempSlice := dequeuedJobs[:0]
-			for _, jobState := range dequeuedJobs {
-				if _, err := m.prepareJob(jobState); err != nil {
-					log.Printf("processJobs: job generation failed: %v, %s", err, manager.PrintJob(jobState))
-				} else {
-					tempSlice = append(tempSlice, jobState)
-				}
-			}
-			dequeuedJobs = tempSlice
-			// Recheck the length of `dequeuedJobs` in case any job(s) failed preprocessing and got filtered out
-			if len(dequeuedJobs) > 0 {
-				// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked
-				// off.
-				if m.processForceDeployJobs(dequeuedJobs) {
-					processAnchorJobs = false
-				} else
-				// Decide how to proceed based on the first job from the list
-				if dequeuedJobs[0].Type == manager.JobType_Deploy {
-					m.processDeployJobs(dequeuedJobs)
-					// There are two scenarios for anchor jobs on encountering a deploy job at the head of the queue:
-					// - Anchor jobs are started if no deployment was *started*, even if this deploy job was ahead of
-					//   anchor jobs in the queue.
-					// - Anchor jobs are not started since a deploy job was *dequeued* ahead of them. (This would be the
-					//   normal behavior for a job queue, i.e. jobs get processed in the order they were scheduled.)
-					//
-					// The first scenario only applies to the QA environment that is used for running the E2E tests. E2E
-					// tests need anchor jobs to run, but if all jobs are processed sequentially, anchor jobs required
-					// for processing test streams can get blocked by deploy jobs, which are in turn blocked by the E2E
-					// tests themselves. Letting anchor jobs "skip the queue" prevents this "deadlock".
-					//
-					// Testing for this scenario can be simplified by checking whether E2E tests were in progress. So,
-					// anchor jobs will only be able to "skip the queue" if E2E tests were running but fallback to
-					// sequential processing otherwise. Since E2E tests only run in QA, all other environments (and QA
-					// for all other scenarios besides active E2E tests) will have the default (sequential) behavior.
-					e2eTestJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
-						return manager.IsActiveJob(js) && (js.Type == manager.JobType_TestE2E)
-					})
-					processAnchorJobs = len(e2eTestJobs) > 0
-				} else {
-					m.processTestJobs(dequeuedJobs)
-				}
+			// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked off.
+			if m.processForceDeployJobs(dequeuedJobs) {
+				processAnchorJobs = false
+			} else
+			// Decide how to proceed based on the first job from the list
+			if dequeuedJobs[0].Type == manager.JobType_Deploy {
+				m.processDeployJobs(dequeuedJobs)
+				// There are two scenarios for anchor jobs on encountering a deploy job at the head of the queue:
+				// - Anchor jobs are started if no deployment was *started*, even if this deploy job was ahead of
+				//   anchor jobs in the queue.
+				// - Anchor jobs are not started since a deploy job was *dequeued* ahead of them. (This would be the
+				//   normal behavior for a job queue, i.e. jobs get processed in the order they were scheduled.)
+				//
+				// The first scenario only applies to the QA environment that is used for running the E2E tests. E2E
+				// tests need anchor jobs to run, but if all jobs are processed sequentially, anchor jobs required
+				// for processing test streams can get blocked by deploy jobs, which are in turn blocked by the E2E
+				// tests themselves. Letting anchor jobs "skip the queue" prevents this "deadlock".
+				//
+				// Testing for this scenario can be simplified by checking whether E2E tests were in progress. So,
+				// anchor jobs will only be able to "skip the queue" if E2E tests were running but fallback to
+				// sequential processing otherwise. Since E2E tests only run in QA, all other environments (and QA
+				// for all other scenarios besides active E2E tests) will have the default (sequential) behavior.
+				e2eTestJobs := m.cache.JobsByMatcher(func(js manager.JobState) bool {
+					return manager.IsActiveJob(js) && (js.Type == manager.JobType_TestE2E)
+				})
+				processAnchorJobs = len(e2eTestJobs) > 0
+			} else {
+				m.processTestJobs(dequeuedJobs)
 			}
 		}
 		// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to anchor jobs queued
@@ -564,9 +559,11 @@ func (m *JobManager) prepareJob(jobState manager.JobState) (manager.Job, error) 
 }
 
 func (m *JobManager) updateJobStage(jobState manager.JobState, jobStage manager.JobStage) error {
+	// Update job stage and timestamp
 	jobState.Stage = jobStage
+	jobState.Ts = time.Now()
 	// Update the job in the database before sending any notification - we should just come back and try again.
-	if err := m.db.WriteJob(jobState); err != nil {
+	if err := m.db.AdvanceJob(jobState); err != nil {
 		log.Printf("updateJobStage: failed to update %s job: %v, %s", jobStage, err, manager.PrintJob(jobState))
 		return err
 	}

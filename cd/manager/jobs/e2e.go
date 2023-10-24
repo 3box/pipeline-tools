@@ -27,6 +27,12 @@ func E2eTestJob(db manager.Database, d manager.Deployment, notifs manager.Notifs
 
 func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 	if e.state.Stage == manager.JobStage_Queued {
+		// No preparation needed so advance the job directly to "dequeued"
+		e.state.Stage = manager.JobStage_Dequeued
+		// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline as
+		// the "queued" event.
+		return e.state, e.db.AdvanceJob(e.state)
+	} else if e.state.Stage == manager.JobStage_Dequeued {
 		if err := e.startE2eTests(); err != nil {
 			e.state.Stage = manager.JobStage_Failed
 			e.state.Params[manager.JobParam_Error] = err.Error()
@@ -71,10 +77,9 @@ func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return e.state, fmt.Errorf("e2eJob: unexpected state: %s", manager.PrintJob(e.state))
 	}
-	// Advance the timestamp
 	e.state.Ts = time.Now()
 	e.notifs.NotifyJob(e.state)
-	return e.state, e.db.WriteJob(e.state)
+	return e.state, e.db.AdvanceJob(e.state)
 }
 
 func (e e2eTestJob) startE2eTests() error {

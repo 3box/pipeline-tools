@@ -33,6 +33,12 @@ func SmokeTestJob(db manager.Database, d manager.Deployment, notifs manager.Noti
 
 func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 	if s.state.Stage == manager.JobStage_Queued {
+		// No preparation needed so advance the job directly to "dequeued"
+		s.state.Stage = manager.JobStage_Dequeued
+		// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline as
+		// the "queued" event.
+		return s.state, s.db.AdvanceJob(s.state)
+	} else if s.state.Stage == manager.JobStage_Dequeued {
 		// Launch smoke test
 		if id, err := s.d.LaunchTask(
 			ClusterName,
@@ -83,8 +89,7 @@ func (s smokeTestJob) AdvanceJob() (manager.JobState, error) {
 		// There's nothing left to do so we shouldn't have reached here
 		return s.state, fmt.Errorf("smokeTestJob: unexpected state: %s", manager.PrintJob(s.state))
 	}
-	// Advance the timestamp
 	s.state.Ts = time.Now()
 	s.notifs.NotifyJob(s.state)
-	return s.state, s.db.WriteJob(s.state)
+	return s.state, s.db.AdvanceJob(s.state)
 }
