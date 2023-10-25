@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
 // Allow up to 3 hours for anchor workers to run
@@ -15,90 +16,105 @@ const AnchorStalledTime = 3 * time.Hour
 var _ manager.Job = &anchorJob{}
 
 type anchorJob struct {
-	state  manager.JobState
-	db     manager.Database
-	d      manager.Deployment
-	notifs manager.Notifs
-	env    string
+	baseJob
+	env string
+	d   manager.Deployment
 }
 
-func AnchorJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) manager.Job {
-	return &anchorJob{jobState, db, d, notifs, os.Getenv("ENV")}
+func AnchorJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.Job {
+	return &anchorJob{baseJob{jobState, db, notifs}, os.Getenv("ENV"), d}
 }
 
-func (a anchorJob) AdvanceJob() (manager.JobState, error) {
-	if a.state.Stage == manager.JobStage_Queued {
-		// No preparation needed so advance the job directly to "dequeued"
-		a.state.Stage = manager.JobStage_Dequeued
-		// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline as
-		// the "queued" event.
-		return a.state, a.db.AdvanceJob(a.state)
-	} else if a.state.Stage == manager.JobStage_Dequeued {
-		var overrides map[string]string = nil
-		// Check if this is a CASv5 anchor job
-		if manager.IsV5WorkerJob(a.state) {
-			if parsedOverrides, found := a.state.Params[manager.JobParam_Overrides].(map[string]interface{}); found {
-				overrides = make(map[string]string, len(parsedOverrides))
-				for k, v := range parsedOverrides {
-					overrides[k] = v.(string)
-				}
+func (a *anchorJob) Advance() (job.JobState, error) {
+	now := time.Now()
+	switch a.state.Stage {
+	case job.JobStage_Queued:
+		{
+			// No preparation needed so advance the job directly to "dequeued".
+			//
+			// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline
+			// as the "queued" event.
+			return a.advance(job.JobStage_Dequeued, a.state.Ts, nil)
+		}
+	case job.JobStage_Dequeued:
+		{
+			if err := a.launchWorker(); err != nil {
+				return a.advance(job.JobStage_Failed, now, err)
+			}
+			return a.advance(job.JobStage_Started, now, nil)
+		}
+	case job.JobStage_Started:
+		{
+			if started, err := a.checkWorker(true); err != nil {
+				return a.advance(job.JobStage_Failed, now, err)
+			} else if started {
+				return a.advance(job.JobStage_Waiting, now, nil)
+			} else {
+				// Return so we come back again to check
+				return a.state, nil
 			}
 		}
-		// Launch anchor worker
-		if id, err := a.d.LaunchTask(
-			"ceramic-"+a.env+"-cas",
-			"ceramic-"+a.env+"-cas-anchor",
-			"cas_anchor",
-			"/ceramic-"+a.env+"-cas/anchor_network_configuration",
-			overrides); err != nil {
-			a.state.Stage = manager.JobStage_Failed
-			a.state.Params[manager.JobParam_Error] = err.Error()
-			log.Printf("anchorJob: error starting task: %v, %s", err, manager.PrintJob(a.state))
-		} else {
-			// Update the job stage and spawned task identifier
-			a.state.Stage = manager.JobStage_Started
-			a.state.Params[manager.JobParam_Id] = id
-			a.state.Params[manager.JobParam_Start] = time.Now().UnixNano()
-		}
-	} else if a.state.Stage == manager.JobStage_Started {
-		if running, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", true, false, a.state.Params[manager.JobParam_Id].(string)); err != nil {
-			a.state.Stage = manager.JobStage_Failed
-			a.state.Params[manager.JobParam_Error] = err.Error()
-			log.Printf("anchorJob: error checking task running status: %v, %s", err, manager.PrintJob(a.state))
-		} else if running {
-			a.state.Stage = manager.JobStage_Waiting
-		} else if manager.IsTimedOut(a.state, manager.DefaultWaitTime) { // Anchor worker did not start running in time
-			a.state.Stage = manager.JobStage_Failed
-			a.state.Params[manager.JobParam_Error] = manager.Error_Timeout
-			log.Printf("anchorJob: job startup timed out: %s", manager.PrintJob(a.state))
-		} else {
+	case job.JobStage_Waiting:
+		{
+			if stopped, err := a.checkWorker(false); err != nil {
+				return a.advance(job.JobStage_Failed, now, err)
+			} else if stopped {
+				return a.advance(job.JobStage_Completed, now, nil)
+			} else if delayed, _ := a.state.Params[job.JobParam_Delayed].(bool); !delayed && job.IsTimedOut(a.state, AnchorStalledTime/2) {
+				// If the job has been running for > 1.5 hours, mark it "delayed".
+				a.state.Params[job.JobParam_Delayed] = true
+				return a.advance(job.JobStage_Waiting, now, nil)
+			} else if stalled, _ := a.state.Params[job.JobParam_Stalled].(bool); !stalled && job.IsTimedOut(a.state, AnchorStalledTime) {
+				// If the job has been running for > 3 hours, mark it "stalled".
+				a.state.Params[job.JobParam_Stalled] = true
+				return a.advance(job.JobStage_Waiting, now, nil)
+			}
 			// Return so we come back again to check
 			return a.state, nil
 		}
-	} else if a.state.Stage == manager.JobStage_Waiting {
-		if stopped, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", false, false, a.state.Params[manager.JobParam_Id].(string)); err != nil {
-			a.state.Stage = manager.JobStage_Failed
-			a.state.Params[manager.JobParam_Error] = err.Error()
-			log.Printf("anchorJob: error checking task stopped status: %v, %s", err, manager.PrintJob(a.state))
-		} else if stopped {
-			a.state.Stage = manager.JobStage_Completed
-		} else if delayed, _ := a.state.Params[manager.JobParam_Delayed].(bool); !delayed && manager.IsTimedOut(a.state, AnchorStalledTime/2) {
-			// If the job has been running for > 1.5 hours, mark it "delayed".
-			a.state.Params[manager.JobParam_Delayed] = true
-			log.Printf("anchorJob: job delayed: %s", manager.PrintJob(a.state))
-		} else if stalled, _ := a.state.Params[manager.JobParam_Stalled].(bool); !stalled && manager.IsTimedOut(a.state, AnchorStalledTime) {
-			// If the job has been running for > 3 hours, mark it "stalled".
-			a.state.Params[manager.JobParam_Stalled] = true
-			log.Printf("anchorJob: job stalled: %s", manager.PrintJob(a.state))
-		} else {
-			// Return so we come back again to check
-			return a.state, nil
+	default:
+		{
+			return a.advance(job.JobStage_Failed, now, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state)))
 		}
-	} else {
-		// There's nothing left to do so we shouldn't have reached here
-		return a.state, fmt.Errorf("anchorJob: unexpected state: %s", manager.PrintJob(a.state))
 	}
-	a.state.Ts = time.Now()
-	a.notifs.NotifyJob(a.state)
-	return a.state, a.db.AdvanceJob(a.state)
+}
+
+func (a *anchorJob) launchWorker() error {
+	var overrides map[string]string = nil
+	// Check if this is a CASv5 anchor job
+	if manager.IsV5WorkerJob(a.state) {
+		if parsedOverrides, found := a.state.Params[job.JobParam_Overrides].(map[string]interface{}); found {
+			overrides = make(map[string]string, len(parsedOverrides))
+			for k, v := range parsedOverrides {
+				overrides[k] = v.(string)
+			}
+		}
+	}
+	// Launch anchor worker
+	if id, err := a.d.LaunchTask(
+		"ceramic-"+a.env+"-cas",
+		"ceramic-"+a.env+"-cas-anchor",
+		"cas_anchor",
+		"/ceramic-"+a.env+"-cas/anchor_network_configuration",
+		overrides); err != nil {
+		log.Printf("anchorJob: error starting task: %v, %s", err, manager.PrintJob(a.state))
+		return err
+	} else {
+		// Record the spawned task identifier and its start time
+		a.state.Params[job.JobParam_Id] = id
+		a.state.Params[job.JobParam_Start] = time.Now().UnixNano()
+		return nil
+	}
+}
+
+func (a *anchorJob) checkWorker(expectedToBeRunning bool) (bool, error) {
+	if status, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", expectedToBeRunning, false, a.state.Params[job.JobParam_Id].(string)); err != nil {
+		return false, err
+	} else if status {
+		return true, nil
+	} else if expectedToBeRunning && job.IsTimedOut(a.state, manager.DefaultWaitTime) { // Worker did not start in time
+		return false, manager.Error_StartupTimeout
+	} else {
+		return false, nil
+	}
 }

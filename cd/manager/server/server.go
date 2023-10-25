@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
 func Setup(addr string, m manager.Manager) http.Server {
@@ -53,7 +54,7 @@ func jobHandler(m manager.Manager) http.HandlerFunc {
 		decoder := json.NewDecoder(r.Body)
 		// Allow unknown fields so that we ignore unneeded params sent by calling services
 		//decoder.DisallowUnknownFields()
-		jobState := manager.JobState{}
+		jobState := job.JobState{}
 		if r.Header.Get("Content-Type") != "application/json" {
 			status = http.StatusUnsupportedMediaType
 			message = "content-type is not application/json"

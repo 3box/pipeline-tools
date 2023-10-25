@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/3box/pipeline-tools/cd/manager"
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
 var _ manager.Cache = &JobCache{}
@@ -16,7 +17,7 @@ func NewJobCache() manager.Cache {
 	return &JobCache{new(sync.Map)}
 }
 
-func (c JobCache) WriteJob(jobState manager.JobState) {
+func (c JobCache) WriteJob(jobState job.JobState) {
 	// Don't overwrite a newer state with an earlier one.
 	if cachedJobState, found := c.JobById(jobState.Job); found && cachedJobState.Ts.After(jobState.Ts) {
 		return
@@ -29,17 +30,17 @@ func (c JobCache) DeleteJob(jobId string) {
 	c.jobs.Delete(jobId)
 }
 
-func (c JobCache) JobById(jobId string) (manager.JobState, bool) {
-	if job, found := c.jobs.Load(jobId); found {
-		return job.(manager.JobState), true
+func (c JobCache) JobById(jobId string) (job.JobState, bool) {
+	if j, found := c.jobs.Load(jobId); found {
+		return j.(job.JobState), true
 	}
-	return manager.JobState{}, false
+	return job.JobState{}, false
 }
 
-func (c JobCache) JobsByMatcher(matcher func(jobStage manager.JobState) bool) []manager.JobState {
-	jobs := make([]manager.JobState, 0, 0)
+func (c JobCache) JobsByMatcher(matcher func(jobStage job.JobState) bool) []job.JobState {
+	jobs := make([]job.JobState, 0, 0)
 	c.jobs.Range(func(_, value interface{}) bool {
-		jobState := value.(manager.JobState)
+		jobState := value.(job.JobState)
 		if matcher(jobState) {
 			jobs = append(jobs, jobState)
 		}
