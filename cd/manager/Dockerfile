@@ -10,8 +10,9 @@ ENV SRC_DIR /cd-manager
 
 # Download packages first so they can be cached.
 COPY go.mod go.sum $SRC_DIR/
-RUN cd $SRC_DIR \
-  && go mod download
+COPY common/aws/utils/go.mod common/aws/utils/go.sum $SRC_DIR/common/aws/utils/
+COPY common/job/go.mod common/job/go.sum $SRC_DIR/common/job/
+RUN cd $SRC_DIR && go mod download
 
 COPY . $SRC_DIR
 
