@@ -6,9 +6,11 @@ import (
 	"os"
 	"regexp"
 	"time"
+
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
-func PrintJob(jobStates ...JobState) string {
+func PrintJob(jobStates ...job.JobState) string {
 	prettyString := ""
 	for _, jobState := range jobStates {
 		prettyBytes, err := json.Marshal(jobState)
@@ -75,30 +77,15 @@ func ComponentRepo(component DeployComponent) DeployRepo {
 	}
 }
 
-func JobName(job JobType) string {
-	switch job {
-	case JobType_Deploy:
-		return JobName_Deploy
-	case JobType_Anchor:
-		return JobName_Anchor
-	case JobType_TestE2E:
-		return JobName_TestE2E
-	case JobType_TestSmoke:
-		return JobName_TestSmoke
-	default:
-		return ""
-	}
-}
-
-func NotifField(job JobType) string {
-	switch job {
-	case JobType_Deploy:
+func NotifField(jt job.JobType) string {
+	switch jt {
+	case job.JobType_Deploy:
 		return NotifField_Deploy
-	case JobType_Anchor:
+	case job.JobType_Anchor:
 		return NotifField_Anchor
-	case JobType_TestE2E:
+	case job.JobType_TestE2E:
 		return NotifField_TestE2E
-	case JobType_TestSmoke:
+	case job.JobType_TestSmoke:
 		return NotifField_TestSmoke
 	default:
 		return ""
@@ -109,33 +96,29 @@ func CeramicEnvPfx() string {
 	return "ceramic-" + os.Getenv("ENV")
 }
 
-func IsFinishedJob(jobState JobState) bool {
-	return (jobState.Stage == JobStage_Skipped) || (jobState.Stage == JobStage_Canceled) || (jobState.Stage == JobStage_Failed) || (jobState.Stage == JobStage_Completed)
-}
-
-func IsActiveJob(jobState JobState) bool {
-	return (jobState.Stage == JobStage_Started) || (jobState.Stage == JobStage_Waiting)
-}
-
-func IsTimedOut(jobState JobState, delay time.Duration) bool {
-	// If no timestamp was stored, use the timestamp from the last update.
-	startTime := jobState.Ts
-	if s, found := jobState.Params[JobParam_Start].(float64); found {
-		startTime = time.Unix(0, int64(s))
-	}
-	return time.Now().Add(-delay).After(startTime)
-}
-
 func IsValidSha(sha string) bool {
 	isValidSha, err := regexp.MatchString(CommitHashRegex, sha)
 	return err == nil && isValidSha
 }
 
-func IsV5WorkerJob(jobState JobState) bool {
-	if jobState.Type == JobType_Anchor {
-		if version, found := jobState.Params[JobParam_Version].(string); found && (version == CasV5Version) {
+func IsV5WorkerJob(jobState job.JobState) bool {
+	if jobState.Type == job.JobType_Anchor {
+		if version, found := jobState.Params[job.JobParam_Version].(string); found && (version == CasV5Version) {
 			return true
 		}
 	}
 	return false
+}
+
+// AdvanceJob will move a JobState to a new JobStage in the Database and send an appropriate notification
+func AdvanceJob(jobState *job.JobState, jobStage job.JobStage, ts time.Time, err error, db Database, notifs Notifs) (job.JobState, error) {
+	jobState.Stage = jobStage
+	jobState.Ts = ts
+	if err != nil {
+		jobState.Params[job.JobParam_Error] = err.Error()
+	}
+	if err = db.AdvanceJob(*jobState); err != nil {
+		notifs.NotifyJob(*jobState)
+	}
+	return *jobState, err
 }

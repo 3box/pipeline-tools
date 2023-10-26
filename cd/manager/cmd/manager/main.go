@@ -14,7 +14,10 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/common"
-	"github.com/3box/pipeline-tools/cd/manager/common/aws"
+	"github.com/3box/pipeline-tools/cd/manager/common/aws/apigw"
+	"github.com/3box/pipeline-tools/cd/manager/common/aws/config"
+	"github.com/3box/pipeline-tools/cd/manager/common/aws/ddb"
+	"github.com/3box/pipeline-tools/cd/manager/common/aws/ecs"
 	"github.com/3box/pipeline-tools/cd/manager/jobmanager"
 	"github.com/3box/pipeline-tools/cd/manager/notifs"
 	"github.com/3box/pipeline-tools/cd/manager/repository"
@@ -69,17 +72,17 @@ func startServer(waitGroup *sync.WaitGroup, m manager.Manager) *http.Server {
 }
 
 func createJobQueue(waitGroup *sync.WaitGroup, shutdownCh chan bool) manager.Manager {
-	cfg, err := aws.Config()
+	cfg, err := config.Config()
 	if err != nil {
 		log.Fatalf("Failed to create AWS cfg: %q", err)
 	}
 	cache := common.NewJobCache()
-	db := aws.NewDynamoDb(cfg, cache)
+	db := ddb.NewDynamoDb(cfg, cache)
 	if err = db.InitializeJobs(); err != nil {
 		log.Fatalf("failed to populate jobs from database: %q", err)
 	}
-	deployment := aws.NewEcs(cfg)
-	apiGw := aws.NewApiGw(cfg)
+	deployment := ecs.NewEcs(cfg)
+	apiGw := apigw.NewApiGw(cfg)
 	repo := repository.NewRepository()
 	n, err := notifs.NewJobNotifs(db, cache)
 	if err != nil {

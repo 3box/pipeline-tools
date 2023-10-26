@@ -2,97 +2,91 @@ package jobs
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
 // Allow up to 4 hours for E2E tests to run
-const E2eFailureTime = 4 * time.Hour
+const e2eFailureTime = 4 * time.Hour
 
 var _ manager.Job = &e2eTestJob{}
 
 type e2eTestJob struct {
-	state  manager.JobState
-	db     manager.Database
-	d      manager.Deployment
-	notifs manager.Notifs
+	baseJob
+	d manager.Deployment
 }
 
-func E2eTestJob(db manager.Database, d manager.Deployment, notifs manager.Notifs, jobState manager.JobState) manager.Job {
-	return &e2eTestJob{jobState, db, d, notifs}
+func E2eTestJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.Job {
+	return &e2eTestJob{baseJob{jobState, db, notifs}, d}
 }
 
-func (e e2eTestJob) AdvanceJob() (manager.JobState, error) {
-	if e.state.Stage == manager.JobStage_Queued {
-		// No preparation needed so advance the job directly to "dequeued"
-		e.state.Stage = manager.JobStage_Dequeued
-		// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline as
-		// the "queued" event.
-		return e.state, e.db.AdvanceJob(e.state)
-	} else if e.state.Stage == manager.JobStage_Dequeued {
-		if err := e.startE2eTests(); err != nil {
-			e.state.Stage = manager.JobStage_Failed
-			e.state.Params[manager.JobParam_Error] = err.Error()
-			log.Printf("e2eTestJob: error starting tests: %v, %s", err, manager.PrintJob(e.state))
-		} else {
-			e.state.Stage = manager.JobStage_Started
-			e.state.Params[manager.JobParam_Start] = time.Now().UnixNano()
+func (e *e2eTestJob) Advance() (job.JobState, error) {
+	now := time.Now()
+	switch e.state.Stage {
+	case job.JobStage_Queued:
+		{
+			// No preparation needed so advance the job directly to "dequeued".
+			//
+			// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline
+			// as the "queued" event.
+			return e.advance(job.JobStage_Dequeued, e.state.Ts, nil)
 		}
-	} else if manager.IsTimedOut(e.state, E2eFailureTime) { // Tests did not finish in time
-		e.state.Stage = manager.JobStage_Failed
-		e.state.Params[manager.JobParam_Error] = manager.Error_Timeout
-		log.Printf("e2eTestJob: job run timed out: %s", manager.PrintJob(e.state))
-	} else if e.state.Stage == manager.JobStage_Started {
-		// Check if all suites started successfully
-		if running, err := e.checkE2eTests(true); err != nil {
-			e.state.Stage = manager.JobStage_Failed
-			e.state.Params[manager.JobParam_Error] = err.Error()
-			log.Printf("e2eTestJob: error checking tests running status: %v, %s", err, manager.PrintJob(e.state))
-		} else if running {
-			e.state.Stage = manager.JobStage_Waiting
-		} else if manager.IsTimedOut(e.state, manager.DefaultWaitTime) { // Tests did not start running in time
-			e.state.Stage = manager.JobStage_Failed
-			e.state.Params[manager.JobParam_Error] = manager.Error_Timeout
-			log.Printf("e2eTestJob: job startup timed out: %s", manager.PrintJob(e.state))
-		} else {
-			// Return so we come back again to check
-			return e.state, nil
+	case job.JobStage_Dequeued:
+		{
+			if err := e.startAllTests(); err != nil {
+				return e.advance(job.JobStage_Failed, now, err)
+			} else {
+				e.state.Params[job.JobParam_Start] = time.Now().UnixNano()
+				return e.advance(job.JobStage_Started, now, nil)
+			}
 		}
-	} else if e.state.Stage == manager.JobStage_Waiting {
-		// Check if all suites completed
-		if stopped, err := e.checkE2eTests(false); err != nil {
-			e.state.Stage = manager.JobStage_Failed
-			e.state.Params[manager.JobParam_Error] = err.Error()
-			log.Printf("e2eTestJob: error checking tests stopped status: %v, %s", err, manager.PrintJob(e.state))
-		} else if stopped {
-			e.state.Stage = manager.JobStage_Completed
-		} else {
-			// Return so we come back again to check
-			return e.state, nil
+	case job.JobStage_Started:
+		{
+			if running, err := e.checkAllTests(true); err != nil {
+				return e.advance(job.JobStage_Failed, now, err)
+			} else if running {
+				return e.advance(job.JobStage_Waiting, now, nil)
+			} else if job.IsTimedOut(e.state, manager.DefaultWaitTime) { // Tests did not start in time
+				return e.advance(job.JobStage_Failed, now, manager.Error_StartupTimeout)
+			} else {
+				// Return so we come back again to check
+				return e.state, nil
+			}
 		}
-	} else {
-		// There's nothing left to do so we shouldn't have reached here
-		return e.state, fmt.Errorf("e2eJob: unexpected state: %s", manager.PrintJob(e.state))
-	}
-	e.state.Ts = time.Now()
-	e.notifs.NotifyJob(e.state)
-	return e.state, e.db.AdvanceJob(e.state)
-}
-
-func (e e2eTestJob) startE2eTests() error {
-	if err := e.startE2eTest(manager.E2eTest_PrivatePublic); err != nil {
-		return err
-	} else if err = e.startE2eTest(manager.E2eTest_LocalClientPublic); err != nil {
-		return err
-	} else {
-		return e.startE2eTest(manager.E2eTest_LocalNodePrivate)
+	case job.JobStage_Waiting:
+		{
+			if stopped, err := e.checkAllTests(false); err != nil {
+				return e.advance(job.JobStage_Failed, now, err)
+			} else if stopped {
+				return e.advance(job.JobStage_Completed, now, nil)
+			} else if job.IsTimedOut(e.state, e2eFailureTime) { // Tests did not finish in time
+				return e.advance(job.JobStage_Failed, now, manager.Error_CompletionTimeout)
+			} else {
+				// Return so we come back again to check
+				return e.state, nil
+			}
+		}
+	default:
+		{
+			return e.advance(job.JobStage_Failed, now, fmt.Errorf("e2eTestJob: unexpected state: %s", manager.PrintJob(e.state)))
+		}
 	}
 }
 
-func (e e2eTestJob) startE2eTest(config string) error {
+func (e *e2eTestJob) startAllTests() error {
+	if err := e.startTests(manager.E2eTest_PrivatePublic); err != nil {
+		return err
+	} else if err = e.startTests(manager.E2eTest_LocalClientPublic); err != nil {
+		return err
+	} else {
+		return e.startTests(manager.E2eTest_LocalNodePrivate)
+	}
+}
+
+func (e *e2eTestJob) startTests(config string) error {
 	if id, err := e.d.LaunchServiceTask(
 		"ceramic-qa-tests",
 		"ceramic-qa-tests-e2e_tests",
@@ -113,15 +107,29 @@ func (e e2eTestJob) startE2eTest(config string) error {
 	}
 }
 
-func (e e2eTestJob) checkE2eTests(isRunning bool) (bool, error) {
-	if privatePublic, err := e.d.CheckTask("ceramic-qa-tests", "", isRunning, false, e.state.Params[manager.E2eTest_PrivatePublic].(string)); err != nil {
+func (e *e2eTestJob) checkAllTests(expectedToBeRunning bool) (bool, error) {
+	if privatePublicStatus, err := e.checkTests(e.state.Params[manager.E2eTest_PrivatePublic].(string), expectedToBeRunning); err != nil {
 		return false, err
-	} else if localClientPublic, err := e.d.CheckTask("ceramic-qa-tests", "", isRunning, false, e.state.Params[manager.E2eTest_LocalClientPublic].(string)); err != nil {
+	} else if localClientPublicStatus, err := e.checkTests(e.state.Params[manager.E2eTest_LocalClientPublic].(string), expectedToBeRunning); err != nil {
 		return false, err
-	} else if localNodePrivate, err := e.d.CheckTask("ceramic-qa-tests", "", isRunning, false, e.state.Params[manager.E2eTest_LocalNodePrivate].(string)); err != nil {
+	} else if localNodePrivateStatus, err := e.checkTests(e.state.Params[manager.E2eTest_LocalNodePrivate].(string), expectedToBeRunning); err != nil {
 		return false, err
-	} else if privatePublic && localClientPublic && localNodePrivate {
+	} else if privatePublicStatus && localClientPublicStatus && localNodePrivateStatus {
 		return true, nil
 	}
 	return false, nil
+}
+
+func (e *e2eTestJob) checkTests(taskId string, expectedToBeRunning bool) (bool, error) {
+	if status, err := e.d.CheckTask("ceramic-qa-tests", "", expectedToBeRunning, false, taskId); err != nil {
+		return false, err
+	} else if status {
+		return true, nil
+	} else if expectedToBeRunning && job.IsTimedOut(e.state, manager.DefaultWaitTime) { // Tests did not start in time
+		return false, manager.Error_StartupTimeout
+	} else if !expectedToBeRunning && job.IsTimedOut(e.state, e2eFailureTime) { // Tests did not finish in time
+		return false, manager.Error_CompletionTimeout
+	} else {
+		return false, nil
+	}
 }

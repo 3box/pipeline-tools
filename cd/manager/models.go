@@ -1,41 +1,17 @@
 package manager
 
-import "time"
+import (
+	"fmt"
+	"time"
+
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
+)
 
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
 const DefaultFailureTime = 30 * time.Minute
 const DefaultHttpWaitTime = 30 * time.Second
 const DefaultWaitTime = 5 * time.Minute
-
-type JobType string
-
-const (
-	JobType_Deploy    JobType = "deploy"
-	JobType_Anchor    JobType = "anchor"
-	JobType_TestE2E   JobType = "test_e2e"
-	JobType_TestSmoke JobType = "test_smoke"
-)
-
-const (
-	JobName_Deploy    = "Deployment"
-	JobName_Anchor    = "Anchor Worker"
-	JobName_TestE2E   = "E2E Tests"
-	JobName_TestSmoke = "Smoke Tests"
-)
-
-type JobStage string
-
-const (
-	JobStage_Queued    JobStage = "queued"
-	JobStage_Dequeued  JobStage = "dequeued"
-	JobStage_Skipped   JobStage = "skipped"
-	JobStage_Started   JobStage = "started"
-	JobStage_Waiting   JobStage = "waiting"
-	JobStage_Failed    JobStage = "failed"
-	JobStage_Canceled  JobStage = "canceled"
-	JobStage_Completed JobStage = "completed"
-)
 
 type EnvType string
 
@@ -58,24 +34,6 @@ const (
 	EnvBranch_Qa   string = "qa"
 	EnvBranch_Tnet string = "release-candidate"
 	EnvBranch_Prod string = "main"
-)
-
-const (
-	JobParam_Component string = "component"
-	JobParam_Id        string = "id"
-	JobParam_Sha       string = "sha"
-	JobParam_ShaTag    string = "shaTag"
-	JobParam_Error     string = "error"
-	JobParam_Layout    string = "layout"
-	JobParam_Manual    string = "manual"
-	JobParam_Force     string = "force"
-	JobParam_Start     string = "start"
-	JobParam_Rollback  string = "rollback"
-	JobParam_Delayed   string = "delayed"
-	JobParam_Stalled   string = "stalled"
-	JobParam_Source    string = "source"
-	JobParam_Version   string = "version"
-	JobParam_Overrides string = "overrides"
 )
 
 type DeployComponent string
@@ -127,8 +85,9 @@ const (
 	ContainerName_CasV5Scheduler string = "scheduler"
 )
 
-const (
-	Error_Timeout string = "Timeout"
+var (
+	Error_StartupTimeout    = fmt.Errorf("startup timeout")
+	Error_CompletionTimeout = fmt.Errorf("completion timeout")
 )
 
 const (
@@ -163,17 +122,6 @@ const DefaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
 
 // For CASv5 workers
 const CasV5Version = "5"
-
-// JobState represents the state of a job in the database
-type JobState struct {
-	Job    string                 `dynamodbav:"job"` // Job ID, same for all stages of an individual Job
-	Stage  JobStage               `dynamodbav:"stage"`
-	Type   JobType                `dynamodbav:"type"`
-	Ts     time.Time              `dynamodbav:"ts"`
-	Params map[string]interface{} `dynamodbav:"params"`
-	Id     string                 `dynamodbav:"id" json:"-"`           // Globally unique ID for each job update
-	Ttl    time.Time              `dynamodbav:"ttl,unixtime" json:"-"` // Record expiration
-}
 
 // BuildState represents build/deploy commit hash information. This information is maintained in a legacy DynamoDB table
 // used by our utility AWS Lambdas.
@@ -210,7 +158,7 @@ type Task struct {
 
 // Job represents job state machine objects processed by the job manager
 type Job interface {
-	AdvanceJob() (JobState, error)
+	Advance() (job.JobState, error)
 }
 
 // ApiGw represents an API Gateway service containing APIs we wish to invoke directly, i.e. not through an API call
@@ -223,12 +171,12 @@ type ApiGw interface {
 // databases provide the primitives for them to be used in this fashion.
 type Database interface {
 	InitializeJobs() error
-	QueueJob(JobState) error
-	QueuedJobs() []JobState
-	OrderedJobs(JobStage) []JobState
-	AdvanceJob(JobState) error
-	WriteJob(JobState) error
-	IterateByType(JobType, bool, func(JobState) bool) error
+	QueueJob(job.JobState) error
+	QueuedJobs() []job.JobState
+	OrderedJobs(job.JobStage) []job.JobState
+	AdvanceJob(job.JobState) error
+	WriteJob(job.JobState) error
+	IterateByType(job.JobType, bool, func(job.JobState) bool) error
 	UpdateBuildHash(DeployComponent, string) error
 	UpdateDeployHash(DeployComponent, string) error
 	GetBuildHashes() (map[DeployComponent]string, error)
@@ -237,10 +185,10 @@ type Database interface {
 
 // Cache represents an in-memory cache for job states
 type Cache interface {
-	WriteJob(JobState)
+	WriteJob(job.JobState)
 	DeleteJob(string)
-	JobById(string) (JobState, bool)
-	JobsByMatcher(func(JobState) bool) []JobState
+	JobById(string) (job.JobState, bool)
+	JobsByMatcher(func(job.JobState) bool) []job.JobState
 }
 
 // Deployment represents a container orchestration service (e.g. AWS ECS)
@@ -255,13 +203,13 @@ type Deployment interface {
 
 // Notifs represents a notification service (e.g. Discord)
 type Notifs interface {
-	NotifyJob(...JobState)
+	NotifyJob(...job.JobState)
 	SendAlert(string, string)
 }
 
 // Manager represents the job manager, which is the central job orchestrator of this service.
 type Manager interface {
-	NewJob(JobState) (string, error)
+	NewJob(job.JobState) (string, error)
 	CheckJob(string) string
 	ProcessJobs(chan bool)
 	Pause()

@@ -18,6 +18,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/3box/pipeline-tools/cd/manager"
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
 type DiscordColor int
@@ -80,7 +81,7 @@ func parseDiscordWebhookUrl(urlEnv string) (webhook.Client, error) {
 	return nil, nil
 }
 
-func (n JobNotifs) NotifyJob(jobs ...manager.JobState) {
+func (n JobNotifs) NotifyJob(jobs ...job.JobState) {
 	for _, jobState := range jobs {
 		for _, channel := range n.getNotifChannels(jobState) {
 			if channel != nil {
@@ -131,10 +132,10 @@ func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color Di
 	}
 }
 
-func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client {
+func (n JobNotifs) getNotifChannels(jobState job.JobState) []webhook.Client {
 	webhooks := make([]webhook.Client, 0, 1)
 	switch jobState.Type {
-	case manager.JobType_Deploy:
+	case job.JobType_Deploy:
 		{
 			webhooks = append(webhooks, n.deploymentsWebhook)
 			// Don't send Dev/QA notifications to the community channel.
@@ -142,14 +143,14 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 				webhooks = append(webhooks, n.communityWebhook)
 			}
 		}
-	case manager.JobType_Anchor:
+	case job.JobType_Anchor:
 		{
 			// We only care about "waiting" notifications from the CD manager for the time being. Other notifications
 			// are sent directly from the anchor worker.
-			if jobState.Stage == manager.JobStage_Waiting {
-				if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+			if jobState.Stage == job.JobStage_Waiting {
+				if stalled, _ := jobState.Params[job.JobParam_Stalled].(bool); stalled {
 					webhooks = append(webhooks, n.alertWebhook)
-				} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+				} else if delayed, _ := jobState.Params[job.JobParam_Delayed].(bool); delayed {
 					webhooks = append(webhooks, n.warningWebhook)
 				}
 			}
@@ -160,21 +161,21 @@ func (n JobNotifs) getNotifChannels(jobState manager.JobState) []webhook.Client 
 	return webhooks
 }
 
-func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
-	notifTitlePfx := manager.JobName(jobState.Type)
+func (n JobNotifs) getNotifTitle(jobState job.JobState) string {
+	notifTitlePfx := job.JobName(jobState.Type)
 	jobStageRepr := string(jobState.Stage)
 	switch jobState.Type {
-	case manager.JobType_Deploy:
+	case job.JobType_Deploy:
 		{
-			component := jobState.Params[manager.JobParam_Component].(string)
+			component := jobState.Params[job.JobParam_Component].(string)
 			qualifier := ""
 			// A rollback is always a force job, while a non-rollback force job is always manual, so we can optimize.
-			if rollback, _ := jobState.Params[manager.JobParam_Rollback].(bool); rollback {
-				qualifier = manager.JobParam_Rollback
-			} else if force, _ := jobState.Params[manager.JobParam_Force].(bool); force {
-				qualifier = manager.JobParam_Force
-			} else if manual, _ := jobState.Params[manager.JobParam_Manual].(bool); manual {
-				qualifier = manager.JobParam_Manual
+			if rollback, _ := jobState.Params[job.JobParam_Rollback].(bool); rollback {
+				qualifier = job.JobParam_Rollback
+			} else if force, _ := jobState.Params[job.JobParam_Force].(bool); force {
+				qualifier = job.JobParam_Force
+			} else if manual, _ := jobState.Params[job.JobParam_Manual].(bool); manual {
+				qualifier = job.JobParam_Manual
 			}
 			notifTitlePfx = fmt.Sprintf(
 				"3Box Labs `%s` %s %s %s",
@@ -184,20 +185,20 @@ func (n JobNotifs) getNotifTitle(jobState manager.JobState) string {
 				notifTitlePfx,
 			)
 		}
-	case manager.JobType_Anchor:
+	case job.JobType_Anchor:
 		// If "waiting", update the job stage representation to qualify the severity of the delay, if applicable.
-		if jobState.Stage == manager.JobStage_Waiting {
-			if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
-				jobStageRepr = manager.JobParam_Stalled
-			} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
-				jobStageRepr = manager.JobParam_Delayed
+		if jobState.Stage == job.JobStage_Waiting {
+			if stalled, _ := jobState.Params[job.JobParam_Stalled].(bool); stalled {
+				jobStageRepr = job.JobParam_Stalled
+			} else if delayed, _ := jobState.Params[job.JobParam_Delayed].(bool); delayed {
+				jobStageRepr = job.JobParam_Delayed
 			}
 		}
 	}
 	return fmt.Sprintf("%s %s", notifTitlePfx, strings.ToUpper(jobStageRepr))
 }
 
-func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedField {
+func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 	fields := []discord.EmbedField{
 		{
 			Name:  manager.NotifField_JobId,
@@ -222,27 +223,27 @@ func (n JobNotifs) getNotifFields(jobState manager.JobState) []discord.EmbedFiel
 	return fields
 }
 
-func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
+func (n JobNotifs) getNotifColor(jobState job.JobState) DiscordColor {
 	switch jobState.Stage {
-	case manager.JobStage_Dequeued:
+	case job.JobStage_Dequeued:
 		return DiscordColor_Info
-	case manager.JobStage_Skipped:
+	case job.JobStage_Skipped:
 		return DiscordColor_Warning
-	case manager.JobStage_Started:
+	case job.JobStage_Started:
 		return DiscordColor_None
-	case manager.JobStage_Waiting:
-		if stalled, _ := jobState.Params[manager.JobParam_Stalled].(bool); stalled {
+	case job.JobStage_Waiting:
+		if stalled, _ := jobState.Params[job.JobParam_Stalled].(bool); stalled {
 			return DiscordColor_Alert
-		} else if delayed, _ := jobState.Params[manager.JobParam_Delayed].(bool); delayed {
+		} else if delayed, _ := jobState.Params[job.JobParam_Delayed].(bool); delayed {
 			return DiscordColor_Warning
 		} else {
 			return DiscordColor_Info
 		}
-	case manager.JobStage_Failed:
+	case job.JobStage_Failed:
 		return DiscordColor_Alert
-	case manager.JobStage_Canceled:
+	case job.JobStage_Canceled:
 		return DiscordColor_Warning
-	case manager.JobStage_Completed:
+	case job.JobStage_Completed:
 		return DiscordColor_Ok
 	default:
 		log.Printf("sendNotif: unknown job stage: %s", manager.PrintJob(jobState))
@@ -250,15 +251,15 @@ func (n JobNotifs) getNotifColor(jobState manager.JobState) DiscordColor {
 	}
 }
 
-func (n JobNotifs) getDeployHashes(jobState manager.JobState) string {
+func (n JobNotifs) getDeployHashes(jobState job.JobState) string {
 	if commitHashes, err := n.db.GetDeployHashes(); err != nil {
 		return ""
 	} else {
-		if jobState.Type == manager.JobType_Deploy {
-			sha := jobState.Params[manager.JobParam_Sha].(string)
+		if jobState.Type == job.JobType_Deploy {
+			sha := jobState.Params[job.JobParam_Sha].(string)
 			// If the specified hash is valid, overwrite the previous hash from the database.
 			if isValidSha, _ := regexp.MatchString(manager.CommitHashRegex, sha); isValidSha {
-				commitHashes[manager.DeployComponent(jobState.Params[manager.JobParam_Component].(string))] = sha
+				commitHashes[manager.DeployComponent(jobState.Params[job.JobParam_Component].(string))] = sha
 			}
 		}
 		// Prepare component messages with GitHub commit hashes and hyperlinks
@@ -291,26 +292,26 @@ func (n JobNotifs) combineComponentMsgs(msgs ...string) string {
 	return message
 }
 
-func (n JobNotifs) getActiveJobs(jobState manager.JobState) []discord.EmbedField {
+func (n JobNotifs) getActiveJobs(jobState job.JobState) []discord.EmbedField {
 	fields := make([]discord.EmbedField, 0, 0)
-	if field, found := n.getActiveJobsByType(jobState, manager.JobType_Deploy); found {
+	if field, found := n.getActiveJobsByType(jobState, job.JobType_Deploy); found {
 		fields = append(fields, field)
 	}
-	if field, found := n.getActiveJobsByType(jobState, manager.JobType_Anchor); found {
+	if field, found := n.getActiveJobsByType(jobState, job.JobType_Anchor); found {
 		fields = append(fields, field)
 	}
-	if field, found := n.getActiveJobsByType(jobState, manager.JobType_TestE2E); found {
+	if field, found := n.getActiveJobsByType(jobState, job.JobType_TestE2E); found {
 		fields = append(fields, field)
 	}
-	if field, found := n.getActiveJobsByType(jobState, manager.JobType_TestSmoke); found {
+	if field, found := n.getActiveJobsByType(jobState, job.JobType_TestSmoke); found {
 		fields = append(fields, field)
 	}
 	return fields
 }
 
-func (n JobNotifs) getActiveJobsByType(jobState manager.JobState, jobType manager.JobType) (discord.EmbedField, bool) {
-	activeJobs := n.cache.JobsByMatcher(func(js manager.JobState) bool {
-		return manager.IsActiveJob(js) && (js.Type == jobType)
+func (n JobNotifs) getActiveJobsByType(jobState job.JobState, jobType job.JobType) (discord.EmbedField, bool) {
+	activeJobs := n.cache.JobsByMatcher(func(js job.JobState) bool {
+		return job.IsActiveJob(js) && (js.Type == jobType)
 	})
 	message := ""
 	for _, activeJob := range activeJobs {
