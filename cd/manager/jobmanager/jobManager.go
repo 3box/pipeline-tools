@@ -136,10 +136,6 @@ func (m *JobManager) processJobs() {
 	}
 	// Wait for any running job advancement goroutines to finish before kicking off more jobs
 	m.waitGroup.Wait()
-	// Schedule tests and check anchor job interval
-	if err := m.scheduleTests(); err != nil {
-		log.Printf("processJobs: error scheduling tests: %v", err)
-	}
 	// Don't start any new jobs if the job manager is paused. Existing jobs will continue to be advanced.
 	if !m.paused {
 		// Advance each freshly discovered "queued" job to the "dequeued" stage
@@ -208,38 +204,6 @@ func (m *JobManager) processJobs() {
 	// Wait for all of this iteration's job advancement goroutines to finish before we iterate again. The ticker will
 	// automatically drop ticks then pick back up later if a round of processing takes longer than 1 tick.
 	m.waitGroup.Wait()
-}
-
-func (m *JobManager) scheduleTests() error {
-	scheduleTest := func(testType job.JobType) error {
-		newJob := job.JobState{
-			Ts:   time.Now(),
-			Type: testType,
-			Params: map[string]interface{}{
-				job.JobParam_Source: manager.ServiceName,
-			},
-		}
-		if _, err := m.NewJob(newJob); err != nil {
-			log.Printf("scheduleTest: failed to queue test: %v, %s, %s", err, testType, manager.PrintJob(newJob))
-			return err
-		}
-		log.Printf("scheduleTest: scheduled test: %s", manager.PrintJob(newJob))
-		return nil
-	}
-	if err := m.checkJobInterval(job.JobType_TestSmoke, job.JobStage_Queued, "SMOKE_TEST_INTERVAL", func(time.Time) error {
-		return scheduleTest(job.JobType_TestSmoke)
-	}); err != nil {
-		log.Printf("scheduleTests: failed to queue smoke tests: %v", err)
-		return err
-	} else if m.env == manager.EnvType_Qa { // Only schedule E2E tests in QA
-		if err = m.checkJobInterval(job.JobType_TestE2E, job.JobStage_Queued, "E2E_TEST_INTERVAL", func(time.Time) error {
-			return scheduleTest(job.JobType_TestE2E)
-		}); err != nil {
-			log.Printf("scheduleTests: failed to queue e2e tests: %v", err)
-			return err
-		}
-	}
-	return nil
 }
 
 func (m *JobManager) checkJobInterval(jobType job.JobType, jobStage job.JobStage, intervalEnv string, processFn func(time.Time) error) error {
