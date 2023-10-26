@@ -12,14 +12,14 @@ import (
 // Allow up to 4 hours for E2E tests to run
 const e2eFailureTime = 4 * time.Hour
 
-var _ manager.Job = &e2eTestJob{}
+var _ manager.JobSm = &e2eTestJob{}
 
 type e2eTestJob struct {
 	baseJob
 	d manager.Deployment
 }
 
-func E2eTestJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.Job {
+func E2eTestJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.JobSm {
 	return &e2eTestJob{baseJob{jobState, db, notifs}, d}
 }
 

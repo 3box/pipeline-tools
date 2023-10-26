@@ -17,7 +17,7 @@ const FamilyPrefix = "ceramic-qa-tests-smoke--"
 const ContainerName = "ceramic-qa-tests-smoke"
 const NetworkConfigurationParameter = "/ceramic-qa-tests-smoke/network_configuration"
 
-var _ manager.Job = &smokeTestJob{}
+var _ manager.JobSm = &smokeTestJob{}
 
 type smokeTestJob struct {
 	baseJob
@@ -25,7 +25,7 @@ type smokeTestJob struct {
 	d   manager.Deployment
 }
 
-func SmokeTestJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.Job {
+func SmokeTestJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.JobSm {
 	return &smokeTestJob{baseJob{jobState, db, notifs}, os.Getenv("ENV"), d}
 }
 

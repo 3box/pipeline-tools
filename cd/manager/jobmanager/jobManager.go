@@ -68,8 +68,8 @@ func (m *JobManager) NewJob(jobState job.JobState) (string, error) {
 }
 
 func (m *JobManager) CheckJob(jobId string) string {
-	if job, found := m.cache.JobById(jobId); found {
-		return string(job.Stage)
+	if cachedJob, found := m.cache.JobById(jobId); found {
+		return string(cachedJob.Stage)
 	}
 	return ""
 }
@@ -120,18 +120,18 @@ func (m *JobManager) processJobs() {
 	})
 	if len(oldJobs) > 0 {
 		log.Printf("processJobs: aging out %d jobs...", len(oldJobs))
-		for _, job := range oldJobs {
+		for _, oldJob := range oldJobs {
 			// Delete the job from the cache
-			log.Printf("processJobs: aging out job: %s", manager.PrintJob(job))
-			m.cache.DeleteJob(job.Job)
+			log.Printf("processJobs: aging out job: %s", manager.PrintJob(oldJob))
+			m.cache.DeleteJob(oldJob.Job)
 		}
 	}
 	// Find all jobs in progress and advance their state before looking for new jobs
 	activeJobs := m.cache.JobsByMatcher(job.IsActiveJob)
 	if len(activeJobs) > 0 {
 		log.Printf("processJobs: checking %d jobs in progress: %s", len(activeJobs), manager.PrintJob(activeJobs...))
-		for _, job := range activeJobs {
-			m.advanceJob(job)
+		for _, activeJob := range activeJobs {
+			m.advanceJob(activeJob)
 		}
 	}
 	// Wait for any running job advancement goroutines to finish before kicking off more jobs
@@ -446,9 +446,9 @@ func (m *JobManager) advanceJob(jobState job.JobState) {
 		}()
 
 		currentJobStage := jobState.Stage
-		if job, err := m.prepareJob(jobState); err != nil {
+		if jobSm, err := m.prepareJobSm(jobState); err != nil {
 			log.Printf("advanceJob: job generation failed: %v, %s", err, manager.PrintJob(jobState))
-		} else if newJobState, err := job.Advance(); err != nil {
+		} else if newJobState, err := jobSm.Advance(); err != nil {
 			// Advancing should automatically update the cache and database in case of failures
 			log.Printf("advanceJob: job advancement failed: %v, %s", err, manager.PrintJob(jobState))
 		} else if newJobState.Stage != currentJobStage {
@@ -503,27 +503,27 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 	}
 }
 
-func (m *JobManager) prepareJob(jobState job.JobState) (manager.Job, error) {
-	var j manager.Job
+func (m *JobManager) prepareJobSm(jobState job.JobState) (manager.JobSm, error) {
+	var jobSm manager.JobSm
 	var err error = nil
 	switch jobState.Type {
 	case job.JobType_Deploy:
-		j, err = jobs.DeployJob(jobState, m.db, m.notifs, m.d, m.repo)
+		jobSm, err = jobs.DeployJob(jobState, m.db, m.notifs, m.d, m.repo)
 	case job.JobType_Anchor:
-		j = jobs.AnchorJob(jobState, m.db, m.notifs, m.d)
+		jobSm = jobs.AnchorJob(jobState, m.db, m.notifs, m.d)
 	case job.JobType_TestE2E:
-		j = jobs.E2eTestJob(jobState, m.db, m.notifs, m.d)
+		jobSm = jobs.E2eTestJob(jobState, m.db, m.notifs, m.d)
 	case job.JobType_TestSmoke:
-		j = jobs.SmokeTestJob(jobState, m.db, m.notifs, m.d)
+		jobSm = jobs.SmokeTestJob(jobState, m.db, m.notifs, m.d)
 	default:
-		err = fmt.Errorf("prepareJob: unknown job type: %s", manager.PrintJob(jobState))
+		err = fmt.Errorf("prepareJobSm: unknown job type: %s", manager.PrintJob(jobState))
 	}
 	if err != nil {
 		if err := m.updateJobStage(jobState, job.JobStage_Failed, err); err != nil {
-			log.Printf("prepareJob: job update failed: %v, %s", err, manager.PrintJob(jobState))
+			log.Printf("prepareJobSm: job update failed: %v, %s", err, manager.PrintJob(jobState))
 		}
 	}
-	return j, err
+	return jobSm, err
 }
 
 func (m *JobManager) updateJobStage(jobState job.JobState, jobStage job.JobStage, e error) error {

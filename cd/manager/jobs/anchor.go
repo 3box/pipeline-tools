@@ -12,7 +12,7 @@ import (
 // Allow up to 3 hours for anchor workers to run
 const AnchorStalledTime = 3 * time.Hour
 
-var _ manager.Job = &anchorJob{}
+var _ manager.JobSm = &anchorJob{}
 
 type anchorJob struct {
 	baseJob
@@ -20,7 +20,7 @@ type anchorJob struct {
 	d   manager.Deployment
 }
 
-func AnchorJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.Job {
+func AnchorJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.JobSm {
 	return &anchorJob{baseJob{jobState, db, notifs}, os.Getenv("ENV"), d}
 }
 

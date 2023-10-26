@@ -156,8 +156,8 @@ type Task struct {
 	Name string `dynamodbav:"name,omitempty"` // Container name
 }
 
-// Job represents job state machine objects processed by the job manager
-type Job interface {
+// JobSm represents job state machine objects processed by the job manager
+type JobSm interface {
 	Advance() (job.JobState, error)
 }
 

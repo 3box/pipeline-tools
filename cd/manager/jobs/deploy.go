@@ -10,7 +10,7 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
-var _ manager.Job = &deployJob{}
+var _ manager.JobSm = &deployJob{}
 
 type deployJob struct {
 	baseJob
@@ -22,7 +22,7 @@ type deployJob struct {
 	repo      manager.Repository
 }
 
-func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment, repo manager.Repository) (manager.Job, error) {
+func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment, repo manager.Repository) (manager.JobSm, error) {
 	if component, found := jobState.Params[job.JobParam_Component].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
 	} else if sha, found := jobState.Params[job.JobParam_Sha].(string); !found {
