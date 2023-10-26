@@ -240,7 +240,7 @@ dagger.#Plan & {
 				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
 				AWS_REGION:            Region
 			}
-			jobParams: {
+			jobSpec: {
 				type: "deploy"
 				params: {
 					component: "ceramic"
@@ -252,14 +252,14 @@ dagger.#Plan & {
 				env: jobEnv & {
 					ENV_TAG: "\(EnvTag)"
 				}
-				job: jobParams
+				spec: jobSpec
 			}
 			if EnvTag == "dev" {
 				_deployQa: utils.#Job & {
 					env: jobEnv & {
 						ENV_TAG: "qa"
 					}
-					job: jobParams
+					spec: jobSpec
 				}
 			}
 		}

@@ -95,7 +95,7 @@ dagger.#Plan & {
 				AWS_SECRET_ACCESS_KEY: client.env.AWS_SECRET_ACCESS_KEY
 				AWS_REGION:            Region
 			}
-			jobParams: {
+			jobSpec: {
 				type: "deploy"
 				params: {
 					component: "ipfs"
@@ -107,7 +107,7 @@ dagger.#Plan & {
 				env: jobEnv & {
 					ENV_TAG: "\(EnvTag)"
 				}
-				job: jobParams
+				spec: jobSpec
 			}
 		}
 	}
