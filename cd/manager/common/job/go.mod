@@ -1,11 +1,11 @@
 module github.com/3box/pipeline-tools/cd/manager/common/job
 
-go 1.20
+go 1.19
 
-replace github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0 => ../aws/utils
+replace github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0-20231026113921-2d40ca35ce75 => ../aws/utils
 
 require (
-	github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0
+	github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0-20231026113921-2d40ca35ce75
 	github.com/aws/aws-sdk-go-v2 v1.21.2
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.23.0
 )

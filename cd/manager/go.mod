@@ -1,14 +1,14 @@
 module github.com/3box/pipeline-tools/cd/manager
 
-go 1.20
+go 1.19
 
-replace github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0 => ./common/aws/utils
+replace github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0-20231026113921-2d40ca35ce75 => ./common/aws/utils
 
-replace github.com/3box/pipeline-tools/cd/manager/common/job v0.0.0 => ./common/job
+replace github.com/3box/pipeline-tools/cd/manager/common/job v0.0.0-20231026113921-2d40ca35ce75 => ./common/job
 
 require (
-	github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0
-	github.com/3box/pipeline-tools/cd/manager/common/job v0.0.0
+	github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0-20231026113921-2d40ca35ce75
+	github.com/3box/pipeline-tools/cd/manager/common/job v0.0.0-20231026113921-2d40ca35ce75
 	github.com/aws/aws-sdk-go-v2 v1.21.2
 	github.com/aws/aws-sdk-go-v2/config v1.15.13
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.9.10
