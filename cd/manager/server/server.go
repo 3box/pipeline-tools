@@ -50,42 +50,42 @@ func timeHandler(format string) http.HandlerFunc {
 func jobHandler(m manager.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusOK
-		message := "Success"
+		var body any
 		decoder := json.NewDecoder(r.Body)
-		// Allow unknown fields so that we ignore unneeded params sent by calling services
-		//decoder.DisallowUnknownFields()
+		decoder.DisallowUnknownFields()
 		jobState := job.JobState{}
 		if r.Header.Get("Content-Type") != "application/json" {
 			status = http.StatusUnsupportedMediaType
-			message = "content-type is not application/json"
+			body = "content-type is not application/json"
 		} else if err := decoder.Decode(&jobState); err != nil {
 			status = http.StatusBadRequest
 			var unmarshalErr *json.UnmarshalTypeError
 			if errors.As(err, &unmarshalErr) {
-				message = "wrong type for field " + unmarshalErr.Field
+				body = "wrong type for field: " + unmarshalErr.Field
 			} else {
-				message = "bad request: " + err.Error()
+				body = "bad request: " + err.Error()
 			}
 		} else if r.Method == http.MethodPost {
-			if jobId, err := m.NewJob(jobState); err != nil {
-				status = http.StatusBadRequest
-				message = "could not queue job: " + err.Error()
+			if jobState, err = m.NewJob(jobState); err != nil {
+				status = http.StatusInternalServerError
+				body = "could not queue job: " + err.Error()
 			} else {
-				message = jobId
+				body = jobState
 			}
 		} else if r.Method == http.MethodGet {
-			message = m.CheckJob(jobState.Job)
+			body = m.CheckJob(jobState.JobId)
+		} else {
+			body = "unsupported method: " + r.Method
+			status = http.StatusMethodNotAllowed
 		}
-		writeJsonResponse(w, message, status)
+		writeJsonResponse(w, body, status)
 	}
 }
 
-func writeJsonResponse(w http.ResponseWriter, message string, httpStatusCode int) {
+func writeJsonResponse(w http.ResponseWriter, body any, httpStatusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatusCode)
-	resp := make(map[string]string)
-	resp["message"] = message
-	jsonResp, _ := json.Marshal(resp)
+	jsonResp, _ := json.Marshal(body)
 	w.Write(jsonResp)
 }
 

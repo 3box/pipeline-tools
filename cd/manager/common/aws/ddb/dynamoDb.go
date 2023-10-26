@@ -126,7 +126,7 @@ func (db DynamoDb) QueueJob(jobState job.JobState) error {
 	// Only write this job to the database since that's where our de/queueing is expected to happen from. The cache is
 	// just a hash-map from job IDs to job state for ACTIVE jobs (jobs are not added to the cache until they are in
 	// progress). This also means that we don't need to write jobs to the database if they're already in the cache.
-	if _, found := db.cache.JobById(jobState.Job); !found {
+	if _, found := db.cache.JobById(jobState.JobId); !found {
 		return db.WriteJob(jobState)
 	}
 	return nil
@@ -151,7 +151,7 @@ func (db DynamoDb) QueuedJobs() []job.JobState {
 	cursorSet := false
 	if err := db.iterateByStage(job.JobStage_Queued, cursor, true, func(jobState job.JobState) bool {
 		// If a job is not already in the cache, append it since it hasn't been dequeued yet.
-		if _, found := db.cache.JobById(jobState.Job); !found {
+		if _, found := db.cache.JobById(jobState.JobId); !found {
 			jobs = append(jobs, jobState)
 			// Set the cursor to the timestamp of the first job that is not already in processing (see `iterateByStage`
 			// for explanation why).
@@ -178,7 +178,7 @@ func (db DynamoDb) QueuedJobs() []job.JobState {
 func (db DynamoDb) OrderedJobs(jobStage job.JobStage) []job.JobState {
 	jobs := make([]job.JobState, 0, 0)
 	if err := db.iterateByStage(jobStage, db.cursor, true, func(jobState job.JobState) bool {
-		if cachedJob, found := db.cache.JobById(jobState.Job); found && cachedJob.Stage == jobStage {
+		if cachedJob, found := db.cache.JobById(jobState.JobId); found && cachedJob.Stage == jobStage {
 			jobs = append(jobs, jobState)
 		}
 		// Return true so that we keep on iterating.
@@ -258,12 +258,12 @@ func (db DynamoDb) iterateEvents(queryInput *dynamodb.QueryInput, iter func(job.
 			for _, jobState := range jobsPage {
 				if jobState.Type == job.JobType_Deploy {
 					// Marshal layout back into `Layout` structure
-					if layout, found := jobState.Params[job.JobParam_Layout].(map[string]interface{}); found {
+					if layout, found := jobState.Params[job.DeployJobParam_Layout].(map[string]interface{}); found {
 						var marshaledLayout manager.Layout
 						if err = mapstructure.Decode(layout, &marshaledLayout); err != nil {
 							return err
 						}
-						jobState.Params[job.JobParam_Layout] = marshaledLayout
+						jobState.Params[job.DeployJobParam_Layout] = marshaledLayout
 					}
 				}
 				if !iter(jobState) {

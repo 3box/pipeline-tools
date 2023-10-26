@@ -19,11 +19,11 @@ func NewJobCache() manager.Cache {
 
 func (c JobCache) WriteJob(jobState job.JobState) {
 	// Don't overwrite a newer state with an earlier one.
-	if cachedJobState, found := c.JobById(jobState.Job); found && cachedJobState.Ts.After(jobState.Ts) {
+	if cachedJobState, found := c.JobById(jobState.JobId); found && cachedJobState.Ts.After(jobState.Ts) {
 		return
 	}
 	// Store a copy of the state, not a pointer to it.
-	c.jobs.Store(jobState.Job, jobState)
+	c.jobs.Store(jobState.JobId, jobState)
 }
 
 func (c JobCache) DeleteJob(jobId string) {

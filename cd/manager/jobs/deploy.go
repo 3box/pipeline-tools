@@ -23,13 +23,13 @@ type deployJob struct {
 }
 
 func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment, repo manager.Repository) (manager.JobSm, error) {
-	if component, found := jobState.Params[job.JobParam_Component].(string); !found {
+	if component, found := jobState.Params[job.DeployJobParam_Component].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
-	} else if sha, found := jobState.Params[job.JobParam_Sha].(string); !found {
+	} else if sha, found := jobState.Params[job.DeployJobParam_Sha].(string); !found {
 		return nil, fmt.Errorf("deployJob: missing sha")
 	} else {
-		manual, _ := jobState.Params[job.JobParam_Manual].(bool)
-		rollback, _ := jobState.Params[job.JobParam_Rollback].(bool)
+		manual, _ := jobState.Params[job.DeployJobParam_Manual].(bool)
+		rollback, _ := jobState.Params[job.DeployJobParam_Rollback].(bool)
 		return &deployJob{baseJob{jobState, db, notifs}, manager.DeployComponent(component), sha, manual, rollback, d, repo}, nil
 	}
 }
@@ -51,10 +51,10 @@ func (d deployJob) Advance() (job.JobState, error) {
 			} else if envLayout, err := d.d.GenerateEnvLayout(d.component); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else {
-				d.state.Params[job.JobParam_Layout] = *envLayout
-				// Don't update the timestamp here so that the "dequeued" event remains at the same position on the
-				// timeline as the "queued" event.
-				return d.advance(job.JobStage_Dequeued, d.state.Ts, nil)
+				d.state.Params[job.DeployJobParam_Layout] = *envLayout
+				// Advance the timestamp by a tiny amount so that the "dequeued" event remains at the same position on
+				// the timeline as the "queued" event but still ahead of it.
+				return d.advance(job.JobStage_Dequeued, d.state.Ts.Add(time.Nanosecond), nil)
 			}
 		}
 	case job.JobStage_Dequeued:
@@ -62,7 +62,7 @@ func (d deployJob) Advance() (job.JobState, error) {
 			if err := d.updateEnv(d.sha); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else {
-				d.state.Params[job.JobParam_Start] = time.Now().UnixNano()
+				d.state.Params[job.JobParam_Start] = float64(time.Now().UnixNano())
 				// For started deployments update the build commit hash in the DB.
 				if err = d.db.UpdateBuildHash(d.component, d.sha); err != nil {
 					// This isn't an error big enough to fail the job, just report and move on.
@@ -111,7 +111,7 @@ func (d deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) e
 	//
 	// The last two cases will only happen when redeploying manually, so we can note that in the notification.
 	if d.sha == manager.BuildHashLatest {
-		shaTag, _ := d.state.Params[job.JobParam_ShaTag].(string)
+		shaTag, _ := d.state.Params[job.DeployJobParam_ShaTag].(string)
 		if latestSha, err := d.repo.GetLatestCommitHash(
 			manager.ComponentRepo(d.component),
 			manager.EnvBranch(d.component, manager.EnvType(os.Getenv("ENV"))),
@@ -132,22 +132,22 @@ func (d deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) e
 		}
 		d.manual = true
 	}
-	d.state.Params[job.JobParam_Sha] = d.sha
+	d.state.Params[job.DeployJobParam_Sha] = d.sha
 	if d.manual {
-		d.state.Params[job.JobParam_Manual] = true
+		d.state.Params[job.DeployJobParam_Manual] = true
 	}
 	return nil
 }
 
 func (d deployJob) updateEnv(commitHash string) error {
-	if layout, found := d.state.Params[job.JobParam_Layout].(manager.Layout); found {
+	if layout, found := d.state.Params[job.DeployJobParam_Layout].(manager.Layout); found {
 		return d.d.UpdateEnv(&layout, commitHash)
 	}
 	return fmt.Errorf("updateEnv: missing env layout")
 }
 
 func (d deployJob) checkEnv() (bool, error) {
-	if layout, found := d.state.Params[job.JobParam_Layout].(manager.Layout); !found {
+	if layout, found := d.state.Params[job.DeployJobParam_Layout].(manager.Layout); !found {
 		return false, fmt.Errorf("checkEnv: missing env layout")
 	} else if deployed, err := d.d.CheckEnv(&layout); err != nil {
 		return false, err

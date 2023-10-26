@@ -11,21 +11,6 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/common/aws/utils"
 )
 
-func JobName(jt JobType) string {
-	switch jt {
-	case JobType_Deploy:
-		return JobName_Deploy
-	case JobType_Anchor:
-		return JobName_Anchor
-	case JobType_TestE2E:
-		return JobName_TestE2E
-	case JobType_TestSmoke:
-		return JobName_TestSmoke
-	default:
-		return ""
-	}
-}
-
 func IsFinishedJob(jobState JobState) bool {
 	return (jobState.Stage == JobStage_Skipped) || (jobState.Stage == JobStage_Canceled) || (jobState.Stage == JobStage_Failed) || (jobState.Stage == JobStage_Completed)
 }

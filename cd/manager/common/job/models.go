@@ -15,13 +15,6 @@ const (
 	JobType_TestSmoke JobType = "test_smoke"
 )
 
-const (
-	JobName_Deploy    = "Deployment"
-	JobName_Anchor    = "Anchor Worker"
-	JobName_TestE2E   = "E2E Tests"
-	JobName_TestSmoke = "Smoke Tests"
-)
-
 type JobStage string
 
 const (
@@ -36,26 +29,32 @@ const (
 )
 
 const (
-	JobParam_Component string = "component"
-	JobParam_Id        string = "id"
-	JobParam_Sha       string = "sha"
-	JobParam_ShaTag    string = "shaTag"
-	JobParam_Error     string = "error"
-	JobParam_Layout    string = "layout"
-	JobParam_Manual    string = "manual"
-	JobParam_Force     string = "force"
-	JobParam_Start     string = "start"
-	JobParam_Rollback  string = "rollback"
-	JobParam_Delayed   string = "delayed"
-	JobParam_Stalled   string = "stalled"
-	JobParam_Source    string = "source"
-	JobParam_Version   string = "version"
-	JobParam_Overrides string = "overrides"
+	JobParam_Id     string = "id"
+	JobParam_Error  string = "error"
+	JobParam_Start  string = "start"
+	JobParam_Source string = "source"
+)
+
+const (
+	DeployJobParam_Component string = "component"
+	DeployJobParam_Sha       string = "sha"
+	DeployJobParam_ShaTag    string = "shaTag"
+	DeployJobParam_Layout    string = "layout"
+	DeployJobParam_Manual    string = "manual"
+	DeployJobParam_Force     string = "force"
+	DeployJobParam_Rollback  string = "rollback"
+)
+
+const (
+	AnchorJobParam_Delayed   string = "delayed"
+	AnchorJobParam_Stalled   string = "stalled"
+	AnchorJobParam_Version   string = "version"
+	AnchorJobParam_Overrides string = "overrides"
 )
 
 // JobState represents the state of a job in the database
 type JobState struct {
-	Job    string                 `dynamodbav:"job"` // Job ID, same for all stages of an individual Job
+	JobId  string                 `dynamodbav:"job"` // Job ID, same for all stages of an individual Job
 	Stage  JobStage               `dynamodbav:"stage"`
 	Type   JobType                `dynamodbav:"type"`
 	Ts     time.Time              `dynamodbav:"ts"`

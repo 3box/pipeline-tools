@@ -65,18 +65,18 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 	return e.runEcsTask(cluster, family, container, &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig}, overrides)
 }
 
-func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArns ...string) (bool, error) {
+func (e Ecs) CheckTask(cluster, taskDefId string, running, stable bool, taskIds ...string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
 	// Describe cluster tasks matching the specified ARNs
 	input := &ecs.DescribeTasksInput{
 		Cluster: aws.String(cluster),
-		Tasks:   taskArns,
+		Tasks:   taskIds,
 	}
 	output, err := e.ecsClient.DescribeTasks(ctx, input)
 	if err != nil {
-		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskArns, err)
+		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskIds, err)
 		return false, err
 	}
 	var checkStatus types.DesiredStatus
@@ -94,7 +94,7 @@ func (e Ecs) CheckTask(cluster, taskDefArn string, running, stable bool, taskArn
 		// few minutes.
 		for _, task := range output.Tasks {
 			// If a task definition ARN was specified, make sure that we found at least one task with that definition.
-			if (len(taskDefArn) == 0) || (*task.TaskDefinitionArn == taskDefArn) {
+			if (len(taskDefId) == 0) || (*task.TaskDefinitionArn == taskDefId) {
 				tasksFound = true
 				if (*task.LastStatus != string(checkStatus)) ||
 					(running && stable && time.Now().Add(-manager.DefaultWaitTime).Before(*task.StartedAt)) {

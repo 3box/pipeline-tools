@@ -36,9 +36,9 @@ func (s smokeTestJob) Advance() (job.JobState, error) {
 		{
 			// No preparation needed so advance the job directly to "dequeued".
 			//
-			// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline
-			// as the "queued" event.
-			return s.advance(job.JobStage_Dequeued, s.state.Ts, nil)
+			// Advance the timestamp by a tiny amount so that the "dequeued" event remains at the same position on the
+			// timeline as the "queued" event but still ahead of it.
+			return s.advance(job.JobStage_Dequeued, s.state.Ts.Add(time.Nanosecond), nil)
 		}
 	case job.JobStage_Dequeued:
 		{
@@ -47,7 +47,7 @@ func (s smokeTestJob) Advance() (job.JobState, error) {
 			} else {
 				// Update the job stage and spawned task identifier
 				s.state.Params[job.JobParam_Id] = id
-				s.state.Params[job.JobParam_Start] = time.Now().UnixNano()
+				s.state.Params[job.JobParam_Start] = float64(time.Now().UnixNano())
 				return s.advance(job.JobStage_Started, now, nil)
 			}
 		}

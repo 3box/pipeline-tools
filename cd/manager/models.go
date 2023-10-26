@@ -164,7 +164,7 @@ type JobSm interface {
 // ApiGw represents an API Gateway service containing APIs we wish to invoke directly, i.e. not through an API call
 // (e.g. AWS API Gateway).
 type ApiGw interface {
-	Invoke(string, string, string, string) (string, error)
+	Invoke(method, resourceId, restApiId, pathWithQueryString string) (string, error)
 }
 
 // Database represents a database service that can be used as a job queue (e.g. AWS DynamoDB). Most popular document
@@ -186,16 +186,16 @@ type Database interface {
 // Cache represents an in-memory cache for job states
 type Cache interface {
 	WriteJob(job.JobState)
-	DeleteJob(string)
-	JobById(string) (job.JobState, bool)
+	DeleteJob(jobId string)
+	JobById(jobId string) (job.JobState, bool)
 	JobsByMatcher(func(job.JobState) bool) []job.JobState
 }
 
 // Deployment represents a container orchestration service (e.g. AWS ECS)
 type Deployment interface {
-	LaunchServiceTask(string, string, string, string, map[string]string) (string, error)
-	LaunchTask(string, string, string, string, map[string]string) (string, error)
-	CheckTask(string, string, bool, bool, ...string) (bool, error)
+	LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error)
+	LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error)
+	CheckTask(cluster, taskDefId string, running, stable bool, taskIds ...string) (bool, error)
 	GenerateEnvLayout(DeployComponent) (*Layout, error)
 	UpdateEnv(*Layout, string) error
 	CheckEnv(*Layout) (bool, error)
@@ -204,18 +204,17 @@ type Deployment interface {
 // Notifs represents a notification service (e.g. Discord)
 type Notifs interface {
 	NotifyJob(...job.JobState)
-	SendAlert(string, string)
 }
 
 // Manager represents the job manager, which is the central job orchestrator of this service.
 type Manager interface {
-	NewJob(job.JobState) (string, error)
-	CheckJob(string) string
-	ProcessJobs(chan bool)
+	NewJob(job.JobState) (job.JobState, error)
+	CheckJob(jobId string) job.JobState
+	ProcessJobs(shutdownCh chan bool)
 	Pause()
 }
 
 // Repository represents a git service hosting our repositories (e.g. GitHub)
 type Repository interface {
-	GetLatestCommitHash(DeployRepo, string, string) (string, error)
+	GetLatestCommitHash(repo DeployRepo, branch, shaTag string) (string, error)
 }

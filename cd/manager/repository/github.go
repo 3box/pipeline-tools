@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
+
+	"github.com/google/go-github/v56/github"
 
 	"github.com/3box/pipeline-tools/cd/manager"
 )
@@ -45,7 +46,7 @@ func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch, shaTag stri
 	}); err != nil {
 		return "", err
 	} else {
-		log.Printf("getLatestCommitHash: list commits rate limit=%d, remaining=%d, resetAt=%s", resp.Limit, resp.Remaining, resp.Reset)
+		log.Printf("getLatestCommitHash: list commits rate limit=%d, remaining=%d, resetAt=%s", resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
 		for _, commit := range commits {
 			sha := *commit.SHA
 			if checksPassed, err := g.checkRefStatus(repo, sha); err != nil {
@@ -68,7 +69,7 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 		defer cancel()
 
 		status, resp, err := g.client.Repositories.GetCombinedStatus(ctx, manager.GitHubOrg, string(repo), ref, &github.ListOptions{PerPage: 100})
-		log.Printf("checkRefStatus: status=%s, rate limit=%d, remaining=%d, resetAt=%s", status, resp.Limit, resp.Remaining, resp.Reset)
+		log.Printf("checkRefStatus: status=%s, rate limit=%d, remaining=%d, resetAt=%s", status, resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
 		return status, err
 	}
 	// Wait a few minutes for the status to finalize if it is currently "pending"

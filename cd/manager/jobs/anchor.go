@@ -31,9 +31,9 @@ func (a anchorJob) Advance() (job.JobState, error) {
 		{
 			// No preparation needed so advance the job directly to "dequeued".
 			//
-			// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline
-			// as the "queued" event.
-			return a.advance(job.JobStage_Dequeued, a.state.Ts, nil)
+			// Advance the timestamp by a tiny amount so that the "dequeued" event remains at the same position on the
+			// timeline as the "queued" event but still ahead of it.
+			return a.advance(job.JobStage_Dequeued, a.state.Ts.Add(time.Nanosecond), nil)
 		}
 	case job.JobStage_Dequeued:
 		{
@@ -42,7 +42,7 @@ func (a anchorJob) Advance() (job.JobState, error) {
 			} else {
 				// Record the worker task identifier and its start time
 				a.state.Params[job.JobParam_Id] = taskId
-				a.state.Params[job.JobParam_Start] = time.Now().UnixNano()
+				a.state.Params[job.JobParam_Start] = float64(time.Now().UnixNano())
 				return a.advance(job.JobStage_Started, now, nil)
 			}
 		}
@@ -63,13 +63,13 @@ func (a anchorJob) Advance() (job.JobState, error) {
 				return a.advance(job.JobStage_Failed, now, err)
 			} else if stopped {
 				return a.advance(job.JobStage_Completed, now, nil)
-			} else if delayed, _ := a.state.Params[job.JobParam_Delayed].(bool); !delayed && job.IsTimedOut(a.state, AnchorStalledTime/2) {
+			} else if delayed, _ := a.state.Params[job.AnchorJobParam_Delayed].(bool); !delayed && job.IsTimedOut(a.state, AnchorStalledTime/2) {
 				// If the job has been running for > 1.5 hours, mark it "delayed".
-				a.state.Params[job.JobParam_Delayed] = true
+				a.state.Params[job.AnchorJobParam_Delayed] = true
 				return a.advance(job.JobStage_Waiting, now, nil)
-			} else if stalled, _ := a.state.Params[job.JobParam_Stalled].(bool); !stalled && job.IsTimedOut(a.state, AnchorStalledTime) {
+			} else if stalled, _ := a.state.Params[job.AnchorJobParam_Stalled].(bool); !stalled && job.IsTimedOut(a.state, AnchorStalledTime) {
 				// If the job has been running for > 3 hours, mark it "stalled".
-				a.state.Params[job.JobParam_Stalled] = true
+				a.state.Params[job.AnchorJobParam_Stalled] = true
 				return a.advance(job.JobStage_Waiting, now, nil)
 			} else {
 				// Return so we come back again to check
@@ -87,7 +87,7 @@ func (a anchorJob) launchWorker() (string, error) {
 	var overrides map[string]string = nil
 	// Check if this is a CASv5 anchor job
 	if manager.IsV5WorkerJob(a.state) {
-		if parsedOverrides, found := a.state.Params[job.JobParam_Overrides].(map[string]interface{}); found {
+		if parsedOverrides, found := a.state.Params[job.AnchorJobParam_Overrides].(map[string]interface{}); found {
 			overrides = make(map[string]string, len(parsedOverrides))
 			for k, v := range parsedOverrides {
 				overrides[k] = v.(string)
