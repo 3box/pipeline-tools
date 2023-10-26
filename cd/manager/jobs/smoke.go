@@ -48,7 +48,7 @@ func (s *smokeTestJob) Advance() (job.JobState, error) {
 				// Update the job stage and spawned task identifier
 				s.state.Params[job.JobParam_Id] = id
 				s.state.Params[job.JobParam_Start] = time.Now().UnixNano()
-				return s.advance(job.JobStage_Started, now, err)
+				return s.advance(job.JobStage_Started, now, nil)
 			}
 		}
 	case job.JobStage_Started:

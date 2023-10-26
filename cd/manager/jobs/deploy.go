@@ -44,16 +44,16 @@ func (d *deployJob) Advance() (job.JobState, error) {
 			} else if err = d.prepareJob(deployHashes); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else if !d.manual && !d.rollback && (d.sha == deployHashes[d.component]) {
-				// Skip automated jobs if the commit hash being deployed is the same as the commit hash already deployed. We
-				// don't do this for manual jobs because deploying an already deployed hash might be intentional, or for
-				// rollbacks because we WANT to redeploy the last successfully deployed hash.
+				// Skip automated jobs if the commit hash being deployed is the same as the commit hash already
+				// deployed. We don't do this for manual jobs because deploying an already deployed hash might be
+				// intentional, or for rollbacks because we WANT to redeploy the last successfully deployed hash.
 				return d.advance(job.JobStage_Skipped, now, nil)
 			} else if envLayout, err := d.d.GenerateEnvLayout(d.component); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else {
 				d.state.Params[job.JobParam_Layout] = *envLayout
-				// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline as
-				// the "queued" event.
+				// Don't update the timestamp here so that the "dequeued" event remains at the same position on the
+				// timeline as the "queued" event.
 				return d.advance(job.JobStage_Dequeued, d.state.Ts, nil)
 			}
 		}
@@ -73,10 +73,10 @@ func (d *deployJob) Advance() (job.JobState, error) {
 		}
 	case job.JobStage_Started:
 		{
-			if running, err := d.checkEnv(); err != nil {
+			if deployed, err := d.checkEnv(); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
-			} else if running {
-				// For completed deployments update the deploy commit hash in the DB.
+			} else if deployed {
+				// For completed deployments update the deployed commit hash in the DB.
 				if err = d.db.UpdateDeployHash(d.component, d.sha); err != nil {
 					// This isn't an error big enough to fail the job, just report and move on.
 					log.Printf("deployJob: failed to update deploy hash: %v, %s", err, manager.PrintJob(d.state))

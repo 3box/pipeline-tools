@@ -40,7 +40,7 @@ func (e *e2eTestJob) Advance() (job.JobState, error) {
 				return e.advance(job.JobStage_Failed, now, err)
 			} else {
 				e.state.Params[job.JobParam_Start] = time.Now().UnixNano()
-				return e.advance(job.JobStage_Started, now, err)
+				return e.advance(job.JobStage_Started, now, nil)
 			}
 		}
 	case job.JobStage_Started:

@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -38,10 +37,14 @@ func (a *anchorJob) Advance() (job.JobState, error) {
 		}
 	case job.JobStage_Dequeued:
 		{
-			if err := a.launchWorker(); err != nil {
+			if taskId, err := a.launchWorker(); err != nil {
 				return a.advance(job.JobStage_Failed, now, err)
+			} else {
+				// Record the worker task identifier and its start time
+				a.state.Params[job.JobParam_Id] = taskId
+				a.state.Params[job.JobParam_Start] = time.Now().UnixNano()
+				return a.advance(job.JobStage_Started, now, nil)
 			}
-			return a.advance(job.JobStage_Started, now, nil)
 		}
 	case job.JobStage_Started:
 		{
@@ -68,9 +71,10 @@ func (a *anchorJob) Advance() (job.JobState, error) {
 				// If the job has been running for > 3 hours, mark it "stalled".
 				a.state.Params[job.JobParam_Stalled] = true
 				return a.advance(job.JobStage_Waiting, now, nil)
+			} else {
+				// Return so we come back again to check
+				return a.state, nil
 			}
-			// Return so we come back again to check
-			return a.state, nil
 		}
 	default:
 		{
@@ -79,7 +83,7 @@ func (a *anchorJob) Advance() (job.JobState, error) {
 	}
 }
 
-func (a *anchorJob) launchWorker() error {
+func (a *anchorJob) launchWorker() (string, error) {
 	var overrides map[string]string = nil
 	// Check if this is a CASv5 anchor job
 	if manager.IsV5WorkerJob(a.state) {
@@ -90,20 +94,15 @@ func (a *anchorJob) launchWorker() error {
 			}
 		}
 	}
-	// Launch anchor worker
-	if id, err := a.d.LaunchTask(
+	if taskId, err := a.d.LaunchTask(
 		"ceramic-"+a.env+"-cas",
 		"ceramic-"+a.env+"-cas-anchor",
 		"cas_anchor",
 		"/ceramic-"+a.env+"-cas/anchor_network_configuration",
 		overrides); err != nil {
-		log.Printf("anchorJob: error starting task: %v, %s", err, manager.PrintJob(a.state))
-		return err
+		return "", err
 	} else {
-		// Record the spawned task identifier and its start time
-		a.state.Params[job.JobParam_Id] = id
-		a.state.Params[job.JobParam_Start] = time.Now().UnixNano()
-		return nil
+		return taskId, nil
 	}
 }
 
