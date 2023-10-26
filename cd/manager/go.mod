@@ -1,10 +1,10 @@
 module github.com/3box/pipeline-tools/cd/manager
 
-go 1.18
+go 1.20
 
-replace github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0 => ../manager/common/aws/utils
+replace github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0 => ./common/aws/utils
 
-replace github.com/3box/pipeline-tools/cd/manager/common/job v0.0.0 => ../manager/common/job
+replace github.com/3box/pipeline-tools/cd/manager/common/job v0.0.0 => ./common/job
 
 require (
 	github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0

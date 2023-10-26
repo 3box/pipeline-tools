@@ -1,6 +1,6 @@
 module github.com/3box/pipeline-tools/cd/manager/common/job
 
-go 1.19
+go 1.20
 
 replace github.com/3box/pipeline-tools/cd/manager/common/aws/utils v0.0.0 => ../aws/utils
 

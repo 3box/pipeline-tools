@@ -1,4 +1,4 @@
-FROM golang:1.18.3-buster as builder
+FROM golang:1.20.5-buster as builder
 
 # Install deps
 RUN apt-get update && apt-get install -y \
@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y \
 ENV SRC_DIR /cd-manager
 
 # Download packages first so they can be cached.
-COPY go.mod go.sum $SRC_DIR/
 COPY common/aws/utils/go.mod common/aws/utils/go.sum $SRC_DIR/common/aws/utils/
 COPY common/job/go.mod common/job/go.sum $SRC_DIR/common/job/
+COPY go.mod go.sum $SRC_DIR/
 RUN cd $SRC_DIR && go mod download
 
 COPY . $SRC_DIR
