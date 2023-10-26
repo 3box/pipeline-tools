@@ -204,7 +204,6 @@ type Deployment interface {
 // Notifs represents a notification service (e.g. Discord)
 type Notifs interface {
 	NotifyJob(...job.JobState)
-	SendAlert(string, string)
 }
 
 // Manager represents the job manager, which is the central job orchestrator of this service.

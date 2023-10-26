@@ -18,10 +18,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.27.12
 	github.com/disgoorg/disgo v0.13.16
 	github.com/disgoorg/snowflake/v2 v2.0.0
-	github.com/google/go-github v17.0.0+incompatible
+	github.com/google/go-github/v56 v56.0.0
 	github.com/google/uuid v1.3.0
 	github.com/joho/godotenv v1.4.0
 	github.com/mitchellh/mapstructure v1.5.0
+	golang.org/x/exp v0.0.0-20220325121720-054d8573a5d8
 	golang.org/x/oauth2 v0.1.0
 	golang.org/x/text v0.6.0
 )

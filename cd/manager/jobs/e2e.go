@@ -30,16 +30,16 @@ func (e e2eTestJob) Advance() (job.JobState, error) {
 		{
 			// No preparation needed so advance the job directly to "dequeued".
 			//
-			// Don't update the timestamp here so that the "dequeued" event remains at the same position on the timeline
-			// as the "queued" event.
-			return e.advance(job.JobStage_Dequeued, e.state.Ts, nil)
+			// Advance the timestamp by a tiny amount so that the "dequeued" event remains at the same position on the
+			// timeline as the "queued" event but still ahead of it.
+			return e.advance(job.JobStage_Dequeued, e.state.Ts.Add(time.Nanosecond), nil)
 		}
 	case job.JobStage_Dequeued:
 		{
 			if err := e.startAllTests(); err != nil {
 				return e.advance(job.JobStage_Failed, now, err)
 			} else {
-				e.state.Params[job.JobParam_Start] = time.Now().UnixNano()
+				e.state.Params[job.JobParam_Start] = float64(time.Now().UnixNano())
 				return e.advance(job.JobStage_Started, now, nil)
 			}
 		}

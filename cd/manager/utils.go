@@ -103,7 +103,7 @@ func IsValidSha(sha string) bool {
 
 func IsV5WorkerJob(jobState job.JobState) bool {
 	if jobState.Type == job.JobType_Anchor {
-		if version, found := jobState.Params[job.JobParam_Version].(string); found && (version == CasV5Version) {
+		if version, found := jobState.Params[job.AnchorJobParam_Version].(string); found && (version == CasV5Version) {
 			return true
 		}
 	}

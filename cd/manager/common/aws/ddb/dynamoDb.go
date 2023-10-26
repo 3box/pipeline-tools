@@ -258,12 +258,12 @@ func (db DynamoDb) iterateEvents(queryInput *dynamodb.QueryInput, iter func(job.
 			for _, jobState := range jobsPage {
 				if jobState.Type == job.JobType_Deploy {
 					// Marshal layout back into `Layout` structure
-					if layout, found := jobState.Params[job.JobParam_Layout].(map[string]interface{}); found {
+					if layout, found := jobState.Params[job.DeployJobParam_Layout].(map[string]interface{}); found {
 						var marshaledLayout manager.Layout
 						if err = mapstructure.Decode(layout, &marshaledLayout); err != nil {
 							return err
 						}
-						jobState.Params[job.JobParam_Layout] = marshaledLayout
+						jobState.Params[job.DeployJobParam_Layout] = marshaledLayout
 					}
 				}
 				if !iter(jobState) {
