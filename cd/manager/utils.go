@@ -117,7 +117,8 @@ func AdvanceJob(jobState *job.JobState, jobStage job.JobStage, ts time.Time, err
 	if err != nil {
 		jobState.Params[job.JobParam_Error] = err.Error()
 	}
-	if err = db.AdvanceJob(*jobState); err != nil {
+	if err = db.AdvanceJob(*jobState); err == nil {
+		// Only send a notification if the DB update was successful
 		notifs.NotifyJob(*jobState)
 	}
 	return *jobState, err
