@@ -34,7 +34,7 @@ func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs
 	}
 }
 
-func (d *deployJob) Advance() (job.JobState, error) {
+func (d deployJob) Advance() (job.JobState, error) {
 	now := time.Now()
 	switch d.state.Stage {
 	case job.JobStage_Queued:
@@ -100,7 +100,7 @@ func (d *deployJob) Advance() (job.JobState, error) {
 	}
 }
 
-func (d *deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) error {
+func (d deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) error {
 	if d.rollback {
 		// Use the latest successfully deployed commit hash when rolling back
 		d.sha = deployHashes[d.component]
@@ -139,14 +139,14 @@ func (d *deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) 
 	return nil
 }
 
-func (d *deployJob) updateEnv(commitHash string) error {
+func (d deployJob) updateEnv(commitHash string) error {
 	if layout, found := d.state.Params[job.JobParam_Layout].(manager.Layout); found {
 		return d.d.UpdateEnv(&layout, commitHash)
 	}
 	return fmt.Errorf("updateEnv: missing env layout")
 }
 
-func (d *deployJob) checkEnv() (bool, error) {
+func (d deployJob) checkEnv() (bool, error) {
 	if layout, found := d.state.Params[job.JobParam_Layout].(manager.Layout); !found {
 		return false, fmt.Errorf("checkEnv: missing env layout")
 	} else if deployed, err := d.d.CheckEnv(&layout); err != nil {

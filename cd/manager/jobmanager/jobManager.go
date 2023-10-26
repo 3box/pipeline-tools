@@ -563,6 +563,6 @@ func (m *JobManager) prepareJob(jobState job.JobState) (manager.Job, error) {
 }
 
 func (m *JobManager) updateJobStage(jobState job.JobState, jobStage job.JobStage, e error) error {
-	_, err := manager.AdvanceJob(&jobState, jobStage, time.Now(), e, m.db, m.notifs)
+	_, err := manager.AdvanceJob(jobState, jobStage, time.Now(), e, m.db, m.notifs)
 	return err
 }

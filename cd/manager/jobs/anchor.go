@@ -24,7 +24,7 @@ func AnchorJob(jobState job.JobState, db manager.Database, notifs manager.Notifs
 	return &anchorJob{baseJob{jobState, db, notifs}, os.Getenv("ENV"), d}
 }
 
-func (a *anchorJob) Advance() (job.JobState, error) {
+func (a anchorJob) Advance() (job.JobState, error) {
 	now := time.Now()
 	switch a.state.Stage {
 	case job.JobStage_Queued:
@@ -83,7 +83,7 @@ func (a *anchorJob) Advance() (job.JobState, error) {
 	}
 }
 
-func (a *anchorJob) launchWorker() (string, error) {
+func (a anchorJob) launchWorker() (string, error) {
 	var overrides map[string]string = nil
 	// Check if this is a CASv5 anchor job
 	if manager.IsV5WorkerJob(a.state) {
@@ -106,7 +106,7 @@ func (a *anchorJob) launchWorker() (string, error) {
 	}
 }
 
-func (a *anchorJob) checkWorker(expectedToBeRunning bool) (bool, error) {
+func (a anchorJob) checkWorker(expectedToBeRunning bool) (bool, error) {
 	if status, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", expectedToBeRunning, false, a.state.Params[job.JobParam_Id].(string)); err != nil {
 		return false, err
 	} else if status {

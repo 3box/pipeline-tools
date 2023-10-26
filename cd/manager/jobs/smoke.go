@@ -29,7 +29,7 @@ func SmokeTestJob(jobState job.JobState, db manager.Database, notifs manager.Not
 	return &smokeTestJob{baseJob{jobState, db, notifs}, os.Getenv("ENV"), d}
 }
 
-func (s *smokeTestJob) Advance() (job.JobState, error) {
+func (s smokeTestJob) Advance() (job.JobState, error) {
 	now := time.Now()
 	switch s.state.Stage {
 	case job.JobStage_Queued:
@@ -80,7 +80,7 @@ func (s *smokeTestJob) Advance() (job.JobState, error) {
 	}
 }
 
-func (s *smokeTestJob) checkTests(expectedToBeRunning bool) (bool, error) {
+func (s smokeTestJob) checkTests(expectedToBeRunning bool) (bool, error) {
 	if status, err := s.d.CheckTask(ClusterName, "", expectedToBeRunning, false, s.state.Params[job.JobParam_Id].(string)); err != nil {
 		return false, err
 	} else if status {

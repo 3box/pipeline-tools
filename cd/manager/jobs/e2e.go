@@ -23,7 +23,7 @@ func E2eTestJob(jobState job.JobState, db manager.Database, notifs manager.Notif
 	return &e2eTestJob{baseJob{jobState, db, notifs}, d}
 }
 
-func (e *e2eTestJob) Advance() (job.JobState, error) {
+func (e e2eTestJob) Advance() (job.JobState, error) {
 	now := time.Now()
 	switch e.state.Stage {
 	case job.JobStage_Queued:
@@ -76,7 +76,7 @@ func (e *e2eTestJob) Advance() (job.JobState, error) {
 	}
 }
 
-func (e *e2eTestJob) startAllTests() error {
+func (e e2eTestJob) startAllTests() error {
 	if err := e.startTests(manager.E2eTest_PrivatePublic); err != nil {
 		return err
 	} else if err = e.startTests(manager.E2eTest_LocalClientPublic); err != nil {
@@ -86,7 +86,7 @@ func (e *e2eTestJob) startAllTests() error {
 	}
 }
 
-func (e *e2eTestJob) startTests(config string) error {
+func (e e2eTestJob) startTests(config string) error {
 	if id, err := e.d.LaunchServiceTask(
 		"ceramic-qa-tests",
 		"ceramic-qa-tests-e2e_tests",
@@ -107,7 +107,7 @@ func (e *e2eTestJob) startTests(config string) error {
 	}
 }
 
-func (e *e2eTestJob) checkAllTests(expectedToBeRunning bool) (bool, error) {
+func (e e2eTestJob) checkAllTests(expectedToBeRunning bool) (bool, error) {
 	if privatePublicStatus, err := e.checkTests(e.state.Params[manager.E2eTest_PrivatePublic].(string), expectedToBeRunning); err != nil {
 		return false, err
 	} else if localClientPublicStatus, err := e.checkTests(e.state.Params[manager.E2eTest_LocalClientPublic].(string), expectedToBeRunning); err != nil {
@@ -120,7 +120,7 @@ func (e *e2eTestJob) checkAllTests(expectedToBeRunning bool) (bool, error) {
 	return false, nil
 }
 
-func (e *e2eTestJob) checkTests(taskId string, expectedToBeRunning bool) (bool, error) {
+func (e e2eTestJob) checkTests(taskId string, expectedToBeRunning bool) (bool, error) {
 	if status, err := e.d.CheckTask("ceramic-qa-tests", "", expectedToBeRunning, false, taskId); err != nil {
 		return false, err
 	} else if status {

@@ -13,6 +13,6 @@ type baseJob struct {
 	notifs manager.Notifs
 }
 
-func (b *baseJob) advance(jobStage job.JobStage, ts time.Time, err error) (job.JobState, error) {
-	return manager.AdvanceJob(&b.state, jobStage, ts, err, b.db, b.notifs)
+func (b baseJob) advance(jobStage job.JobStage, ts time.Time, err error) (job.JobState, error) {
+	return manager.AdvanceJob(b.state, jobStage, ts, err, b.db, b.notifs)
 }
