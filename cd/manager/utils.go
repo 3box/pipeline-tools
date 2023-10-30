@@ -87,6 +87,8 @@ func NotifField(jt job.JobType) string {
 		return NotifField_TestE2E
 	case job.JobType_TestSmoke:
 		return NotifField_TestSmoke
+	case job.JobType_Workflow:
+		return NotifField_Workflow
 	default:
 		return ""
 	}
