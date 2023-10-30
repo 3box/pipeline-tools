@@ -98,6 +98,7 @@ const (
 	NotifField_Anchor       string = "Anchor Worker(s)"
 	NotifField_TestE2E      string = "E2E Tests"
 	NotifField_TestSmoke    string = "Smoke Tests"
+	NotifField_Workflow     string = "Workflow(s)"
 )
 
 // Repository
@@ -119,6 +120,14 @@ const ServiceName = "cd-manager"
 const DefaultCasMaxAnchorWorkers = 1
 const DefaultCasMinAnchorWorkers = 0
 const DefaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
+
+// Tests
+const (
+	Tests_Org      = "3box"
+	Tests_Repo     = "ceramic-tests"
+	Tests_Ref      = "main"
+	Tests_Workflow = "durable.yml"
+)
 
 // For CASv5 workers
 const CasV5Version = "5"

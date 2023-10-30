@@ -103,6 +103,8 @@ func (n JobNotifs) getJobNotif(jobState job.JobState) (jobNotif, error) {
 		return newE2eTestNotif(jobState)
 	case job.JobType_TestSmoke:
 		return newSmokeTestNotif(jobState)
+	case job.JobType_Workflow:
+		return newWorkflowNotif(jobState)
 	default:
 		return nil, fmt.Errorf("getJobNotif: unknown job type: %s", jobState.Type)
 	}
@@ -203,6 +205,9 @@ func (n JobNotifs) getActiveJobs(jobState job.JobState) []discord.EmbedField {
 		fields = append(fields, field)
 	}
 	if field, found := n.getActiveJobsByType(jobState, job.JobType_TestSmoke); found {
+		fields = append(fields, field)
+	}
+	if field, found := n.getActiveJobsByType(jobState, job.JobType_Workflow); found {
 		fields = append(fields, field)
 	}
 	return fields

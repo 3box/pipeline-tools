@@ -142,9 +142,10 @@ func (m *JobManager) processJobs() {
 		if len(dequeuedJobs) > 0 {
 			// Try to start multiple jobs and collapse similar ones:
 			// - one deploy at a time
-			// - any number of anchor workers (compatible with with smoke/E2E tests)
-			// - one smoke test at a time (compatible with anchor workers, E2E tests)
-			// - one E2E test at a time (compatible with anchor workers, smoke tests)
+			// - any number of anchor workers (compatible with non-deploy jobs)
+			// - one smoke test at a time (compatible with non-deploy jobs)
+			// - one E2E test at a time (compatible with non-deploy jobs)
+			// - one workflow at a time (compatible with non-deploy jobs)
 			//
 			// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs to
 			// complete.
@@ -177,6 +178,7 @@ func (m *JobManager) processJobs() {
 				processAnchorJobs = len(e2eTestJobs) > 0
 			} else {
 				m.processTestJobs(dequeuedJobs)
+				m.processWorkflowJobs(dequeuedJobs)
 			}
 		}
 		// If no deploy jobs were launched, process pending anchor jobs. We don't want to hold on to anchor jobs queued
@@ -194,7 +196,6 @@ func (m *JobManager) processJobs() {
 
 func (m *JobManager) advanceJobs(jobs []job.JobState) {
 	if len(jobs) > 0 {
-		log.Printf("advanceJobs: advancing %d jobs...", len(jobs))
 		for _, jobState := range jobs {
 			m.advanceJob(jobState)
 		}
@@ -412,6 +413,39 @@ func (m *JobManager) processTestJobs(dequeuedJobs []job.JobState) bool {
 	return false
 }
 
+func (m *JobManager) processWorkflowJobs(dequeuedJobs []job.JobState) bool {
+	// Check if there are any deploy jobs in progress
+	activeDeploys := m.cache.JobsByMatcher(func(js job.JobState) bool {
+		return job.IsActiveJob(js) && (js.Type == job.JobType_Deploy)
+	})
+	if len(activeDeploys) == 0 {
+		dequeuedWorkflow := dequeuedJobs[0]
+		// Collapse similar, back-to-back workflows into a single run and kick it off.
+		for i := 1; i < len(dequeuedJobs); i++ {
+			dequeuedJob := dequeuedJobs[i]
+			// Break out of the loop as soon as we find a deploy job. We don't want to collapse workflow jobs across
+			// deploy jobs.
+			if dequeuedJob.Type == job.JobType_Deploy {
+				break
+			} else if dequeuedJob.Type == job.JobType_Workflow {
+				// Skip the current workflow job, and replace it with a newer one.
+				if err := m.updateJobStage(dequeuedWorkflow, job.JobStage_Skipped, nil); err != nil {
+					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any jobs
+					// already skipped won't be picked up again, which is ok.
+					return true
+				}
+				dequeuedWorkflow = dequeuedJob
+			}
+		}
+		log.Printf("processWorkflowJobs: starting workflow job: %s", manager.PrintJob(dequeuedWorkflow))
+		m.advanceJob(dequeuedWorkflow)
+		return true
+	} else {
+		log.Printf("processWorkflowJobs: deployment in progress")
+	}
+	return false
+}
+
 func (m *JobManager) advanceJob(jobState job.JobState) {
 	m.waitGroup.Add(1)
 	go func() {
@@ -451,18 +485,25 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 	case job.JobType_Deploy:
 		{
 			switch jobState.Stage {
-			// For completed deployments, also add a smoke test job 5 minutes in the future to allow the deployment to
-			// stabilize.
+			// For completed deployments, also add a test workflow job 5 minutes in the future to allow the deployment
+			// to stabilize.
 			case job.JobStage_Completed:
 				{
 					if _, err := m.NewJob(job.JobState{
 						Ts:   time.Now().Add(manager.DefaultWaitTime),
-						Type: job.JobType_TestSmoke,
+						Type: job.JobType_Workflow,
 						Params: map[string]interface{}{
-							job.JobParam_Source: manager.ServiceName,
+							job.JobParam_Source:           manager.ServiceName,
+							job.WorkflowJobParam_Org:      manager.Tests_Org,
+							job.WorkflowJobParam_Repo:     manager.Tests_Repo,
+							job.WorkflowJobParam_Ref:      manager.Tests_Ref,
+							job.WorkflowJobParam_Workflow: manager.Tests_Workflow,
+							job.WorkflowJobParam_Inputs: map[string]interface{}{
+								job.WorkflowJobParam_Environment: m.env,
+							},
 						},
 					}); err != nil {
-						log.Printf("postProcessJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(jobState))
+						log.Printf("postProcessJob: failed to queue test workflow after deploy: %v, %s", err, manager.PrintJob(jobState))
 					}
 				}
 			// For failed deployments, rollback to the previously deployed commit hash.
@@ -503,6 +544,8 @@ func (m *JobManager) prepareJobSm(jobState job.JobState) (manager.JobSm, error) 
 		jobSm = jobs.E2eTestJob(jobState, m.db, m.notifs, m.d)
 	case job.JobType_TestSmoke:
 		jobSm = jobs.SmokeTestJob(jobState, m.db, m.notifs, m.d)
+	case job.JobType_Workflow:
+		jobSm, err = jobs.GitHubWorkflowJob(jobState, m.db, m.notifs)
 	default:
 		err = fmt.Errorf("prepareJobSm: unknown job type: %s", manager.PrintJob(jobState))
 	}
