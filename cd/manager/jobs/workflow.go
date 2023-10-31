@@ -61,7 +61,7 @@ func GitHubWorkflowJob(jobState job.JobState, db manager.Database, notifs manage
 		inputs[gitHub_WorkflowJobId] = jobState.Job
 		// Set the environment - it's ok to override it even if it was already set.
 		env := os.Getenv("ENV")
-		jobState.Params[job.WorkflowJobParam_Environment] = env
+		inputs[job.WorkflowJobParam_Environment] = env
 
 		var httpClient *http.Client = nil
 		if accessToken, found := os.LookupEnv("GITHUB_ACCESS_TOKEN"); found {
@@ -189,9 +189,10 @@ func (w githubWorkflowJob) getWorkflowRuns() ([]*github.WorkflowRun, int, error)
 	searchTime := time.Unix(0, int64(w.state.Params[job.JobParam_Start].(float64))).Add(-30 * time.Second)
 	if workflows, resp, err := w.client.Actions.ListWorkflowRunsByFileName(
 		ctx, w.org, w.repo, w.workflow, &github.ListWorkflowRunsOptions{
-			Branch:              w.ref,
-			Event:               gitHub_WorkflowEventType,
-			Created:             ">" + searchTime.Format(gitHub_WorkflowTimeFormat),
+			Branch: w.ref,
+			Event:  gitHub_WorkflowEventType,
+			// The time format assumes UTC, so we make sure to use the corresponding UTC time for the search.
+			Created:             ">" + searchTime.UTC().Format(gitHub_WorkflowTimeFormat),
 			ExcludePullRequests: true,
 		}); err != nil {
 		return nil, 0, err
@@ -208,7 +209,7 @@ func (w githubWorkflowJob) getWorkflowJobs(workflowRun *github.WorkflowRun) ([]*
 	if jobs, resp, err := w.client.Actions.ListWorkflowJobs(ctx, w.org, w.repo, workflowRun.GetID(), nil); err != nil {
 		return nil, 0, err
 	} else {
-		log.Printf("getWorkflowJobs: jobs=%d, rate limit=%d, remaining=%d, resetAt=%s", *jobs.TotalCount, resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
+		log.Printf("getWorkflowJobs: run=%s jobs=%d, rate limit=%d, remaining=%d, resetAt=%s", workflowRun.GetHTMLURL(), *jobs.TotalCount, resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
 		return jobs.Jobs, *jobs.TotalCount, nil
 	}
 }
@@ -230,7 +231,7 @@ func (w githubWorkflowJob) getWorkflowRun(workflowRunId int64) (*github.Workflow
 	if workflowRun, resp, err := w.client.Actions.GetWorkflowRunByID(ctx, w.org, w.repo, workflowRunId); err != nil {
 		return nil, err
 	} else {
-		log.Printf("getWorkflowRun: rate limit=%d, remaining=%d, resetAt=%s", resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
+		log.Printf("getWorkflowRun: run=%s, rate limit=%d, remaining=%d, resetAt=%s", workflowRun.GetHTMLURL(), resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
 		return workflowRun, nil
 	}
 }
