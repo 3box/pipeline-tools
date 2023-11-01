@@ -18,11 +18,17 @@ import (
 var _ manager.Repository = &Github{}
 
 const (
-	GitHub_WorkflowEventType     = "workflow_dispatch"
-	GitHub_WorkflowTimeFormat    = "2006-01-02T15:04:05.000Z" // ISO8601
-	GitHub_WorkflowJobId         = "job_id"
-	GitHub_WorkflowStatusSuccess = "success"
-	GitHub_WorkflowStatusFailure = "failure"
+	github_CommitStatus_Failure string = "failure"
+	github_CommitStatus_Success string = "success"
+)
+const (
+	gitHub_WorkflowEventType  = "workflow_dispatch"
+	gitHub_WorkflowTimeFormat = "2006-01-02T15:04:05.000Z" // ISO8601
+)
+const (
+	gitHub_WorkflowStatus_Success  = "success"
+	gitHub_WorkflowStatus_Failure  = "failure"
+	gitHub_WorkflowStatus_Canceled = "cancelled"
 )
 
 type Github struct {
@@ -88,7 +94,7 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 		} else {
 			// Return immediately for success/failure statuses
 			switch *status.State {
-			case manager.CommitStatus_Success:
+			case github_CommitStatus_Success:
 				// Make sure that image verification has run. We could reach here after CircleCI tests have passed but
 				// image verification has not started yet, and so the combined status would appear to be successful.
 				for _, statusCheck := range status.Statuses {
@@ -96,7 +102,7 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 						return true, nil
 					}
 				}
-			case manager.CommitStatus_Failure:
+			case github_CommitStatus_Failure:
 				return false, nil
 			}
 		}
@@ -122,28 +128,27 @@ func (g Github) StartWorkflow(workflow manager.Workflow) error {
 	return nil
 }
 
-func (g Github) FindMatchingWorkflowRun(workflow manager.Workflow, jobId string, searchTime time.Time) (*int64, error) {
+func (g Github) FindMatchingWorkflowRun(workflow manager.Workflow, jobId string, searchTime time.Time) (int64, string, error) {
 	if workflowRuns, count, err := g.getWorkflowRuns(workflow, searchTime); err != nil {
-		return nil, err
+		return -1, "", err
 	} else if count > 0 {
 		for _, workflowRun := range workflowRuns {
 			if workflowJobs, count, err := g.getWorkflowJobs(workflow.Org, workflow.Repo, workflowRun); err != nil {
-				return nil, err
+				return -1, "", err
 			} else if count > 0 {
 				for _, workflowJob := range workflowJobs {
 					for _, jobStep := range workflowJob.Steps {
 						// If we found a job step with our job ID, then we know this is the workflow we're looking for
 						// and need to monitor.
 						if jobStep.GetName() == jobId {
-							workflowRunId := workflowRun.GetID()
-							return &workflowRunId, nil
+							return workflowRun.GetID(), workflowRun.GetHTMLURL(), nil
 						}
 					}
 				}
 			}
 		}
 	}
-	return nil, nil
+	return -1, "", nil
 }
 
 func (g Github) getWorkflowRuns(workflow manager.Workflow, searchTime time.Time) ([]*github.WorkflowRun, int, error) {
@@ -153,9 +158,9 @@ func (g Github) getWorkflowRuns(workflow manager.Workflow, searchTime time.Time)
 	if workflows, resp, err := g.client.Actions.ListWorkflowRunsByFileName(
 		ctx, workflow.Org, workflow.Repo, workflow.Workflow, &github.ListWorkflowRunsOptions{
 			Branch: workflow.Ref,
-			Event:  GitHub_WorkflowEventType,
+			Event:  gitHub_WorkflowEventType,
 			// The time format assumes UTC, so we make sure to use the corresponding UTC time for the search.
-			Created:             ">" + searchTime.UTC().Format(GitHub_WorkflowTimeFormat),
+			Created:             ">" + searchTime.UTC().Format(gitHub_WorkflowTimeFormat),
 			ExcludePullRequests: true,
 		}); err != nil {
 		return nil, 0, err
@@ -177,15 +182,20 @@ func (g Github) getWorkflowJobs(org, repo string, workflowRun *github.WorkflowRu
 	}
 }
 
-func (g Github) CheckWorkflowStatus(workflow manager.Workflow, workflowRunId int64) (bool, bool, error) {
+func (g Github) CheckWorkflowStatus(workflow manager.Workflow, workflowRunId int64) (manager.WorkflowStatus, error) {
 	if workflowRun, err := g.getWorkflowRun(workflow.Org, workflow.Repo, workflowRunId); err != nil {
-		return false, false, err
-	} else if workflowRun.GetConclusion() == GitHub_WorkflowStatusSuccess {
-		return true, true, nil
-	} else if workflowRun.GetConclusion() == GitHub_WorkflowStatusFailure {
-		return false, true, nil
+		return manager.WorkflowStatus_Failure, err
 	} else {
-		return false, false, nil // Still in progress
+		switch workflowRun.GetConclusion() {
+		case gitHub_WorkflowStatus_Success:
+			return manager.WorkflowStatus_Success, nil
+		case gitHub_WorkflowStatus_Failure:
+			return manager.WorkflowStatus_Failure, nil
+		case gitHub_WorkflowStatus_Canceled:
+			return manager.WorkflowStatus_Canceled, nil
+		default:
+			return manager.WorkflowStatus_InProgress, nil // Still in progress
+		}
 	}
 }
 

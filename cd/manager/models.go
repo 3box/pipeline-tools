@@ -108,10 +108,13 @@ const BuildHashLatest = "latest"
 const GitHubOrg = "ceramicnetwork"
 const ImageVerificationStatusCheck = "ci/image: verify"
 
+type WorkflowStatus uint8
+
 const (
-	CommitStatus_Failure string = "failure"
-	CommitStatus_Pending string = "pending"
-	CommitStatus_Success string = "success"
+	WorkflowStatus_InProgress WorkflowStatus = iota
+	WorkflowStatus_Canceled
+	WorkflowStatus_Failure
+	WorkflowStatus_Success
 )
 
 // Miscellaneous
@@ -235,6 +238,6 @@ type Manager interface {
 type Repository interface {
 	GetLatestCommitHash(repo DeployRepo, branch, shaTag string) (string, error)
 	StartWorkflow(Workflow) error
-	FindMatchingWorkflowRun(workflow Workflow, jobId string, searchTime time.Time) (*int64, error)
-	CheckWorkflowStatus(workflow Workflow, workflowRunId int64) (bool, bool, error)
+	FindMatchingWorkflowRun(workflow Workflow, jobId string, searchTime time.Time) (int64, string, error)
+	CheckWorkflowStatus(workflow Workflow, workflowRunId int64) (WorkflowStatus, error)
 }

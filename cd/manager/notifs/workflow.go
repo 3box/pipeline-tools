@@ -22,7 +22,7 @@ type workflowNotif struct {
 }
 
 func newWorkflowNotif(jobState job.JobState) (jobNotif, error) {
-	if w, err := parseDiscordWebhookUrl("DISCORD_WORKFLOW_WEBHOOK"); err != nil {
+	if w, err := parseDiscordWebhookUrl("DISCORD_WORKFLOWS_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
 		return &workflowNotif{jobState, w}, nil

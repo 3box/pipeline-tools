@@ -13,7 +13,6 @@ import (
 
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/common/job"
-	"github.com/3box/pipeline-tools/cd/manager/repository"
 )
 
 // Allow up to 4 hours for a workflow to run
@@ -45,7 +44,7 @@ func GitHubWorkflowJob(jobState job.JobState, db manager.Database, notifs manage
 			inputs = make(map[string]interface{}, 1)
 		}
 		// Add the job ID to the inputs, so we can track the right workflow corresponding to this job.
-		inputs[repository.GitHub_WorkflowJobId] = jobState.JobId
+		inputs[job.WorkflowJobParam_JobId] = jobState.JobId
 		// Set the environment so that the workflow knows which environment to target
 		env := os.Getenv("ENV")
 		inputs[job.WorkflowJobParam_Environment] = env
@@ -93,11 +92,12 @@ func (w githubWorkflowJob) Advance() (job.JobState, error) {
 			// The start time should have been filled in by this point. Limit the search to runs after the start of the
 			// job (minus 30 seconds, so we avoid any races).
 			searchTime := time.Unix(0, int64(w.state.Params[job.JobParam_Start].(float64))).Add(-30 * time.Second)
-			if workflowRunId, err := w.r.FindMatchingWorkflowRun(w.workflow, w.state.JobId, searchTime); err != nil {
+			if workflowRunId, workflowRunUrl, err := w.r.FindMatchingWorkflowRun(w.workflow, w.state.JobId, searchTime); err != nil {
 				return w.advance(job.JobStage_Failed, now, err)
-			} else if workflowRunId != nil {
+			} else if workflowRunId != -1 {
 				// Record workflow details and advance the job
-				w.state.Params[job.JobParam_Id] = float64(*workflowRunId)
+				w.state.Params[job.JobParam_Id] = float64(workflowRunId)
+				w.state.Params[job.WorkflowJobParam_Url] = workflowRunUrl
 				return w.advance(job.JobStage_Waiting, now, nil)
 			} else if job.IsTimedOut(w.state, manager.DefaultWaitTime) { // Workflow did not start in time
 				return w.advance(job.JobStage_Failed, now, manager.Error_StartupTimeout)
@@ -110,13 +110,14 @@ func (w githubWorkflowJob) Advance() (job.JobState, error) {
 		{
 			// The workflow run ID should have been filled in by this point
 			workflowRunId, _ := w.state.Params[job.JobParam_Id].(float64)
-			if success, done, err := w.r.CheckWorkflowStatus(w.workflow, int64(workflowRunId)); err != nil {
+			if status, err := w.r.CheckWorkflowStatus(w.workflow, int64(workflowRunId)); err != nil {
 				return w.advance(job.JobStage_Failed, now, err)
-			} else if done {
-				if success {
-					return w.advance(job.JobStage_Completed, now, nil)
-				}
+			} else if status == manager.WorkflowStatus_Success {
+				return w.advance(job.JobStage_Completed, now, nil)
+			} else if status == manager.WorkflowStatus_Failure {
 				return w.advance(job.JobStage_Failed, now, nil)
+			} else if status == manager.WorkflowStatus_Canceled {
+				return w.advance(job.JobStage_Canceled, now, nil)
 			} else if job.IsTimedOut(w.state, workflowFailureTime) { // Workflow did not finish in time
 				return w.advance(job.JobStage_Failed, now, manager.Error_CompletionTimeout)
 			} else {
