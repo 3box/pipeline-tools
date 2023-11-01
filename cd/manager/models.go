@@ -98,6 +98,7 @@ const (
 	NotifField_Anchor       string = "Anchor Worker(s)"
 	NotifField_TestE2E      string = "E2E Tests"
 	NotifField_TestSmoke    string = "Smoke Tests"
+	NotifField_Workflow     string = "Workflow(s)"
 )
 
 // Repository
@@ -119,6 +120,14 @@ const ServiceName = "cd-manager"
 const DefaultCasMaxAnchorWorkers = 1
 const DefaultCasMinAnchorWorkers = 0
 const DefaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
+
+// Tests
+const (
+	Tests_Org      = "3box"
+	Tests_Repo     = "ceramic-tests"
+	Tests_Ref      = "main"
+	Tests_Workflow = "durable.yml"
+)
 
 // For CASv5 workers
 const CasV5Version = "5"
@@ -154,6 +163,14 @@ type Task struct {
 	Repo string `dynamodbav:"repo,omitempty"` // Task repo override
 	Temp bool   `dynamodbav:"temp,omitempty"` // Whether the task is meant to go down once it has completed
 	Name string `dynamodbav:"name,omitempty"` // Container name
+}
+
+type Workflow struct {
+	Org      string
+	Repo     string
+	Workflow string
+	Ref      string
+	Inputs   map[string]interface{}
 }
 
 // JobSm represents job state machine objects processed by the job manager
@@ -217,4 +234,7 @@ type Manager interface {
 // Repository represents a git service hosting our repositories (e.g. GitHub)
 type Repository interface {
 	GetLatestCommitHash(repo DeployRepo, branch, shaTag string) (string, error)
+	StartWorkflow(Workflow) error
+	FindMatchingWorkflowRun(workflow Workflow, jobId string, searchTime time.Time) (*int64, error)
+	CheckWorkflowStatus(workflow Workflow, workflowRunId int64) (bool, bool, error)
 }

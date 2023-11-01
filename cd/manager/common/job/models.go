@@ -8,11 +8,14 @@ const JobTsIndex = "job-ts-index"
 
 type JobType string
 
+// TODO: Clean up smoke/e2e test job types once the new GitHub test workflow is ready
+// Ref: https://linear.app/3boxlabs/issue/WS1-1298/clean-up-existing-smokee2e-test-cd-manager-job-types
 const (
 	JobType_Deploy    JobType = "deploy"
 	JobType_Anchor    JobType = "anchor"
 	JobType_TestE2E   JobType = "test_e2e"
 	JobType_TestSmoke JobType = "test_smoke"
+	JobType_Workflow  JobType = "workflow"
 )
 
 type JobStage string
@@ -50,6 +53,17 @@ const (
 	AnchorJobParam_Stalled   string = "stalled"
 	AnchorJobParam_Version   string = "version"
 	AnchorJobParam_Overrides string = "overrides"
+)
+
+const (
+	WorkflowJobParam_Name        string = "name"
+	WorkflowJobParam_Org         string = "org"
+	WorkflowJobParam_Repo        string = "repo"
+	WorkflowJobParam_Ref         string = "ref"
+	WorkflowJobParam_Workflow    string = "workflow"
+	WorkflowJobParam_Inputs      string = "inputs"
+	WorkflowJobParam_Environment string = "environment"
+	WorkflowJobParam_Url         string = "url"
 )
 
 // JobState represents the state of a job in the database

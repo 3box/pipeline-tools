@@ -17,6 +17,14 @@ import (
 
 var _ manager.Repository = &Github{}
 
+const (
+	GitHub_WorkflowEventType     = "workflow_dispatch"
+	GitHub_WorkflowTimeFormat    = "2006-01-02T15:04:05.000Z" // ISO8601
+	GitHub_WorkflowJobId         = "job_id"
+	GitHub_WorkflowStatusSuccess = "success"
+	GitHub_WorkflowStatusFailure = "failure"
+)
+
 type Github struct {
 	client *github.Client
 }
@@ -96,4 +104,99 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 		time.Sleep(manager.DefaultTick)
 	}
 	return false, nil
+}
+
+func (g Github) StartWorkflow(workflow manager.Workflow) error {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	resp, err := g.client.Actions.CreateWorkflowDispatchEventByFileName(
+		ctx, workflow.Org, workflow.Repo, workflow.Workflow, github.CreateWorkflowDispatchEventRequest{
+			Ref:    workflow.Ref,
+			Inputs: workflow.Inputs,
+		})
+	if err != nil {
+		return err
+	}
+	log.Printf("startWorkflow: rate limit=%d, remaining=%d, resetAt=%s", resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
+	return nil
+}
+
+func (g Github) FindMatchingWorkflowRun(workflow manager.Workflow, jobId string, searchTime time.Time) (*int64, error) {
+	if workflowRuns, count, err := g.getWorkflowRuns(workflow, searchTime); err != nil {
+		return nil, err
+	} else if count > 0 {
+		for _, workflowRun := range workflowRuns {
+			if workflowJobs, count, err := g.getWorkflowJobs(workflow.Org, workflow.Repo, workflowRun); err != nil {
+				return nil, err
+			} else if count > 0 {
+				for _, workflowJob := range workflowJobs {
+					for _, jobStep := range workflowJob.Steps {
+						// If we found a job step with our job ID, then we know this is the workflow we're looking for
+						// and need to monitor.
+						if jobStep.GetName() == jobId {
+							workflowRunId := workflowRun.GetID()
+							return &workflowRunId, nil
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (g Github) getWorkflowRuns(workflow manager.Workflow, searchTime time.Time) ([]*github.WorkflowRun, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	if workflows, resp, err := g.client.Actions.ListWorkflowRunsByFileName(
+		ctx, workflow.Org, workflow.Repo, workflow.Workflow, &github.ListWorkflowRunsOptions{
+			Branch: workflow.Ref,
+			Event:  GitHub_WorkflowEventType,
+			// The time format assumes UTC, so we make sure to use the corresponding UTC time for the search.
+			Created:             ">" + searchTime.UTC().Format(GitHub_WorkflowTimeFormat),
+			ExcludePullRequests: true,
+		}); err != nil {
+		return nil, 0, err
+	} else {
+		log.Printf("getWorkflowRuns: runs=%d, rate limit=%d, remaining=%d, resetAt=%s", *workflows.TotalCount, resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
+		return workflows.WorkflowRuns, *workflows.TotalCount, nil
+	}
+}
+
+func (g Github) getWorkflowJobs(org, repo string, workflowRun *github.WorkflowRun) ([]*github.WorkflowJob, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	if jobs, resp, err := g.client.Actions.ListWorkflowJobs(ctx, org, repo, workflowRun.GetID(), nil); err != nil {
+		return nil, 0, err
+	} else {
+		log.Printf("getWorkflowJobs: run=%s jobs=%d, rate limit=%d, remaining=%d, resetAt=%s", workflowRun.GetHTMLURL(), *jobs.TotalCount, resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
+		return jobs.Jobs, *jobs.TotalCount, nil
+	}
+}
+
+func (g Github) CheckWorkflowStatus(workflow manager.Workflow, workflowRunId int64) (bool, bool, error) {
+	if workflowRun, err := g.getWorkflowRun(workflow.Org, workflow.Repo, workflowRunId); err != nil {
+		return false, false, err
+	} else if workflowRun.GetConclusion() == GitHub_WorkflowStatusSuccess {
+		return true, true, nil
+	} else if workflowRun.GetConclusion() == GitHub_WorkflowStatusFailure {
+		return false, true, nil
+	} else {
+		return false, false, nil // Still in progress
+	}
+}
+
+func (g Github) getWorkflowRun(org, repo string, workflowRunId int64) (*github.WorkflowRun, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	if workflowRun, resp, err := g.client.Actions.GetWorkflowRunByID(ctx, org, repo, workflowRunId); err != nil {
+		return nil, err
+	} else {
+		log.Printf("getWorkflowRun: run=%s, rate limit=%d, remaining=%d, resetAt=%s", workflowRun.GetHTMLURL(), resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
+		return workflowRun, nil
+	}
 }
