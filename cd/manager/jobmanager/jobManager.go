@@ -543,7 +543,7 @@ func (m *JobManager) prepareJobSm(jobState job.JobState) (manager.JobSm, error) 
 	case job.JobType_TestSmoke:
 		jobSm = jobs.SmokeTestJob(jobState, m.db, m.notifs, m.d)
 	case job.JobType_Workflow:
-		jobSm, err = jobs.GitHubWorkflowJob(jobState, m.db, m.notifs)
+		jobSm, err = jobs.GitHubWorkflowJob(jobState, m.db, m.notifs, m.repo)
 	default:
 		err = fmt.Errorf("prepareJobSm: unknown job type: %s", manager.PrintJob(jobState))
 	}
