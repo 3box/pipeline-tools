@@ -147,8 +147,8 @@ func (m *JobManager) processJobs() {
 			// - one E2E test at a time (compatible with non-deploy jobs)
 			// - one workflow at a time (compatible with non-deploy jobs)
 			//
-			// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs to
-			// complete.
+			// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs
+			// to complete.
 			log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
 			// Check for any force deploy jobs, and only look at the remaining jobs if no deployments were kicked off.
 			if m.processForceDeployJobs(dequeuedJobs) {
@@ -280,8 +280,7 @@ func (m *JobManager) processForceDeployJobs(dequeuedJobs []job.JobState) bool {
 
 func (m *JobManager) processDeployJobs(dequeuedJobs []job.JobState) bool {
 	// Check if there are any jobs in progress
-	activeJobs := m.cache.JobsByMatcher(job.IsActiveJob)
-	if len(activeJobs) == 0 {
+	if len(m.cache.JobsByMatcher(job.IsActiveJob)) == 0 {
 		// We know the first job is a deploy, so pick out the component for that job, collapse as many back-to-back jobs
 		// as possible for that component, then run the final job.
 		deployJob := dequeuedJobs[0]
@@ -312,10 +311,7 @@ func (m *JobManager) processDeployJobs(dequeuedJobs []job.JobState) bool {
 
 func (m *JobManager) processAnchorJobs(dequeuedJobs []job.JobState) bool {
 	// Check if there are any deploy jobs in progress
-	activeDeploys := m.cache.JobsByMatcher(func(js job.JobState) bool {
-		return job.IsActiveJob(js) && (js.Type == job.JobType_Deploy)
-	})
-	if len(activeDeploys) == 0 {
+	if len(m.getActiveDeploys()) == 0 {
 		return m.processVxAnchorJobs(dequeuedJobs, true) || m.processVxAnchorJobs(dequeuedJobs, false)
 	} else {
 		log.Printf("processAnchorJobs: deployment in progress")
@@ -379,16 +375,12 @@ func (m *JobManager) processVxAnchorJobs(dequeuedJobs []job.JobState, processV5J
 
 func (m *JobManager) processTestJobs(dequeuedJobs []job.JobState) bool {
 	// Check if there are any deploy jobs in progress
-	activeDeploys := m.cache.JobsByMatcher(func(js job.JobState) bool {
-		return job.IsActiveJob(js) && (js.Type == job.JobType_Deploy)
-	})
-	if len(activeDeploys) == 0 {
+	if len(m.getActiveDeploys()) == 0 {
 		// - Collapse all smoke tests between deployments into a single run
 		// - Collapse all E2E tests between deployments into a single run
 		dequeuedTests := make(map[job.JobType]job.JobState, 0)
 		for _, dequeuedJob := range dequeuedJobs {
-			// Break out of the loop as soon as we find a deploy job. We don't want to collapse test jobs across deploy
-			// jobs.
+			// Break out of the loop as soon as we find a deploy job so that we don't collapse test jobs across deploys.
 			if dequeuedJob.Type == job.JobType_Deploy {
 				break
 			} else if (dequeuedJob.Type == job.JobType_TestE2E) || (dequeuedJob.Type == job.JobType_TestSmoke) {
@@ -414,30 +406,20 @@ func (m *JobManager) processTestJobs(dequeuedJobs []job.JobState) bool {
 
 func (m *JobManager) processWorkflowJobs(dequeuedJobs []job.JobState) bool {
 	// Check if there are any deploy jobs in progress
-	activeDeploys := m.cache.JobsByMatcher(func(js job.JobState) bool {
-		return job.IsActiveJob(js) && (js.Type == job.JobType_Deploy)
-	})
-	if len(activeDeploys) == 0 {
-		dequeuedWorkflow := dequeuedJobs[0]
-		// Collapse similar, back-to-back workflows into a single run and kick it off.
-		for i := 1; i < len(dequeuedJobs); i++ {
-			dequeuedJob := dequeuedJobs[i]
-			// Break out of the loop as soon as we find a deploy job. We don't want to collapse workflow jobs across
-			// deploy jobs.
+	if len(m.getActiveDeploys()) == 0 {
+		dequeuedWorkflows := make([]job.JobState, 0, 0)
+		// Do not collapse back-to-back workflow jobs because they could be pointing to different actual workflows
+		for _, dequeuedJob := range dequeuedJobs {
+			// Break out of the loop as soon as we find a deploy job so that we don't collapse workflow jobs across
+			// deploys.
 			if dequeuedJob.Type == job.JobType_Deploy {
 				break
 			} else if dequeuedJob.Type == job.JobType_Workflow {
-				// Skip the current workflow job, and replace it with a newer one.
-				if err := m.updateJobStage(dequeuedWorkflow, job.JobStage_Skipped, nil); err != nil {
-					// Return `true` from here so that no state is changed and the loop can restart cleanly. Any jobs
-					// already skipped won't be picked up again, which is ok.
-					return true
-				}
-				dequeuedWorkflow = dequeuedJob
+				dequeuedWorkflows = append(dequeuedWorkflows, dequeuedJob)
 			}
 		}
-		m.advanceJob(dequeuedWorkflow)
-		return true
+		m.advanceJobs(dequeuedWorkflows)
+		return len(dequeuedWorkflows) > 0
 	} else {
 		log.Printf("processWorkflowJobs: deployment in progress")
 	}
@@ -558,4 +540,10 @@ func (m *JobManager) prepareJobSm(jobState job.JobState) (manager.JobSm, error) 
 func (m *JobManager) updateJobStage(jobState job.JobState, jobStage job.JobStage, e error) error {
 	_, err := manager.AdvanceJob(jobState, jobStage, time.Now(), e, m.db, m.notifs)
 	return err
+}
+
+func (m *JobManager) getActiveDeploys() []job.JobState {
+	return m.cache.JobsByMatcher(func(js job.JobState) bool {
+		return job.IsActiveJob(js) && (js.Type == job.JobType_Deploy)
+	})
 }
