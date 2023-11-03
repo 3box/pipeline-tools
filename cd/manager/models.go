@@ -126,10 +126,12 @@ const DefaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
 
 // Tests
 const (
+	Tests_Name     = "Post-Deployment Tests"
 	Tests_Org      = "3box"
 	Tests_Repo     = "ceramic-tests"
 	Tests_Ref      = "main"
-	Tests_Workflow = "durable.yml"
+	Tests_Workflow = "run-durable.yml"
+	Tests_Selector = "fast"
 )
 
 // For CASv5 workers

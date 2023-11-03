@@ -56,15 +56,16 @@ const (
 )
 
 const (
-	WorkflowJobParam_Name        string = "name"
-	WorkflowJobParam_Org         string = "org"
-	WorkflowJobParam_Repo        string = "repo"
-	WorkflowJobParam_Ref         string = "ref"
-	WorkflowJobParam_Workflow    string = "workflow"
-	WorkflowJobParam_Inputs      string = "inputs"
-	WorkflowJobParam_Environment string = "environment"
-	WorkflowJobParam_Url         string = "url"
-	WorkflowJobParam_JobId       string = "job_id"
+	WorkflowJobParam_Name         string = "name"
+	WorkflowJobParam_Org          string = "org"
+	WorkflowJobParam_Repo         string = "repo"
+	WorkflowJobParam_Ref          string = "ref"
+	WorkflowJobParam_Workflow     string = "workflow"
+	WorkflowJobParam_Inputs       string = "inputs"
+	WorkflowJobParam_Environment  string = "environment"
+	WorkflowJobParam_Url          string = "url"
+	WorkflowJobParam_JobId        string = "job_id"
+	WorkflowJobParam_TestSelector string = "test_selector"
 )
 
 // JobState represents the state of a job in the database

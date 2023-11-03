@@ -474,12 +474,14 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 						Type: job.JobType_Workflow,
 						Params: map[string]interface{}{
 							job.JobParam_Source:           manager.ServiceName,
+							job.WorkflowJobParam_Name:     manager.Tests_Name,
 							job.WorkflowJobParam_Org:      manager.Tests_Org,
 							job.WorkflowJobParam_Repo:     manager.Tests_Repo,
 							job.WorkflowJobParam_Ref:      manager.Tests_Ref,
 							job.WorkflowJobParam_Workflow: manager.Tests_Workflow,
 							job.WorkflowJobParam_Inputs: map[string]interface{}{
-								job.WorkflowJobParam_Environment: m.env,
+								job.WorkflowJobParam_Environment:  m.env,
+								job.WorkflowJobParam_TestSelector: manager.Tests_Selector,
 							},
 						},
 					}); err != nil {
