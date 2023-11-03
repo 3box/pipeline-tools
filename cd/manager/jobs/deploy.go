@@ -18,6 +18,7 @@ type deployJob struct {
 	sha       string
 	manual    bool
 	rollback  bool
+	force     bool
 	d         manager.Deployment
 	repo      manager.Repository
 }
@@ -30,7 +31,8 @@ func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs
 	} else {
 		manual, _ := jobState.Params[job.DeployJobParam_Manual].(bool)
 		rollback, _ := jobState.Params[job.DeployJobParam_Rollback].(bool)
-		return &deployJob{baseJob{jobState, db, notifs}, manager.DeployComponent(component), sha, manual, rollback, d, repo}, nil
+		force, _ := jobState.Params[job.DeployJobParam_Force].(bool)
+		return &deployJob{baseJob{jobState, db, notifs}, manager.DeployComponent(component), sha, manual, rollback, force, d, repo}, nil
 	}
 }
 
@@ -43,10 +45,12 @@ func (d deployJob) Advance() (job.JobState, error) {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else if err = d.prepareJob(deployHashes); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
-			} else if !d.manual && !d.rollback && (d.sha == deployHashes[d.component]) {
+			} else if !d.manual && !d.force && (d.sha == deployHashes[d.component]) {
 				// Skip automated jobs if the commit hash being deployed is the same as the commit hash already
 				// deployed. We don't do this for manual jobs because deploying an already deployed hash might be
-				// intentional, or for rollbacks because we WANT to redeploy the last successfully deployed hash.
+				// intentional, or for force deploys/rollbacks because we WANT to push through such deployments.
+				// Rollbacks are also force deploys, so we don't need to check for the former explicitly since we're
+				// already checking for force deploys.
 				return d.advance(job.JobStage_Skipped, now, nil)
 			} else if envLayout, err := d.d.GenerateEnvLayout(d.component); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
