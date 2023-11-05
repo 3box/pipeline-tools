@@ -21,7 +21,7 @@ type anchorJob struct {
 }
 
 func AnchorJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.JobSm {
-	return &anchorJob{baseJob{jobState, db, notifs}, os.Getenv("ENV"), d}
+	return &anchorJob{baseJob{jobState, db, notifs}, os.Getenv(manager.EnvVar_Env), d}
 }
 
 func (a anchorJob) Advance() (job.JobState, error) {

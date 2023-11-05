@@ -33,5 +33,5 @@ func (s smokeTestNotif) getFields() []discord.EmbedField {
 }
 
 func (s smokeTestNotif) getColor() discordColor {
-	return getColorForStage(s.state.Stage)
+	return colorForStage(s.state.Stage)
 }

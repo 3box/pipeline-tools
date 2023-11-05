@@ -17,6 +17,10 @@ import (
 
 var _ manager.Repository = &Github{}
 
+type Github struct {
+	client *github.Client
+}
+
 const (
 	github_CommitStatus_Failure string = "failure"
 	github_CommitStatus_Success string = "success"
@@ -31,9 +35,7 @@ const (
 	gitHub_WorkflowStatus_Canceled = "cancelled"
 )
 
-type Github struct {
-	client *github.Client
-}
+const imageVerificationStatusCheck = "ci/image: verify"
 
 func NewRepository() manager.Repository {
 	var httpClient *http.Client = nil
@@ -98,7 +100,7 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 				// Make sure that image verification has run. We could reach here after CircleCI tests have passed but
 				// image verification has not started yet, and so the combined status would appear to be successful.
 				for _, statusCheck := range status.Statuses {
-					if *statusCheck.Context == manager.ImageVerificationStatusCheck {
+					if *statusCheck.Context == imageVerificationStatusCheck {
 						return true, nil
 					}
 				}

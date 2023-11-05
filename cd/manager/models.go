@@ -9,7 +9,6 @@ import (
 
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
-const DefaultFailureTime = 30 * time.Minute
 const DefaultHttpWaitTime = 30 * time.Second
 const DefaultWaitTime = 5 * time.Minute
 
@@ -20,20 +19,6 @@ const (
 	EnvType_Qa   EnvType = "qa"
 	EnvType_Tnet EnvType = "tnet"
 	EnvType_Prod EnvType = "prod"
-)
-
-const (
-	EnvName_Dev  string = "dev"
-	EnvName_Qa   string = "dev-qa"
-	EnvName_Tnet string = "testnet-clay"
-	EnvName_Prod string = "mainnet"
-)
-
-const (
-	EnvBranch_Dev  string = "develop"
-	EnvBranch_Qa   string = "qa"
-	EnvBranch_Tnet string = "release-candidate"
-	EnvBranch_Prod string = "main"
 )
 
 type DeployComponent string
@@ -54,59 +39,16 @@ const (
 	DeployRepo_Ipfs    DeployRepo = "go-ipfs-daemon"
 )
 
-type DeployType string
-
-const (
-	DeployType_Service DeployType = "service"
-	DeployType_Task    DeployType = "task"
-)
-
-const (
-	ServiceSuffix_CeramicNode  string = "node"
-	ServiceSuffix_IpfsNode     string = "ipfs-nd"
-	ServiceSuffix_CasApi       string = "api"
-	ServiceSuffix_CasWorker    string = "anchor"
-	ServiceSuffix_CasScheduler string = "scheduler"
-	ServiceSuffix_Elp          string = "elp"
-)
-
-const (
-	E2eTest_PrivatePublic     string = "private-public"
-	E2eTest_LocalClientPublic string = "local_client-public"
-	E2eTest_LocalNodePrivate  string = "local_node-private"
-)
-
-const (
-	ContainerName_CeramicNode    string = "ceramic_node"
-	ContainerName_IpfsNode       string = "go-ipfs"
-	ContainerName_CasApi         string = "cas_api"
-	ContainerName_CasWorker      string = "cas_anchor"
-	ContainerName_CasScheduler   string = "cas_scheduler"
-	ContainerName_CasV5Scheduler string = "scheduler"
-)
-
 var (
 	Error_StartupTimeout    = fmt.Errorf("startup timeout")
 	Error_CompletionTimeout = fmt.Errorf("completion timeout")
 )
 
-const (
-	NotifField_CommitHashes string = "Commit Hashes"
-	NotifField_JobId        string = "Job ID"
-	NotifField_Time         string = "Time"
-	NotifField_Deploy       string = "Deployment(s)"
-	NotifField_Anchor       string = "Anchor Worker(s)"
-	NotifField_TestE2E      string = "E2E Tests"
-	NotifField_TestSmoke    string = "Smoke Tests"
-	NotifField_Workflow     string = "Workflow(s)"
-)
-
-// Repository
-const CommitHashRegex = "[0-9a-f]{40}"
-const BuildHashTag = "sha_tag"
-const BuildHashLatest = "latest"
 const GitHubOrg = "ceramicnetwork"
-const ImageVerificationStatusCheck = "ci/image: verify"
+
+const (
+	EnvVar_Env = "ENV"
+)
 
 type WorkflowStatus uint8
 
@@ -117,33 +59,7 @@ const (
 	WorkflowStatus_Success
 )
 
-// Miscellaneous
-const ResourceTag = "Ceramic"
 const ServiceName = "cd-manager"
-const DefaultCasMaxAnchorWorkers = 1
-const DefaultCasMinAnchorWorkers = 0
-const DefaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
-
-// Tests
-const (
-	Tests_Name     = "Post-Deployment Tests"
-	Tests_Org      = "3box"
-	Tests_Repo     = "ceramic-tests"
-	Tests_Ref      = "main"
-	Tests_Workflow = "run-durable.yml"
-	Tests_Selector = "fast"
-)
-
-// For CASv5 workers
-const CasV5Version = "5"
-
-// BuildState represents build/deploy commit hash information. This information is maintained in a legacy DynamoDB table
-// used by our utility AWS Lambdas.
-type BuildState struct {
-	Key       DeployComponent        `dynamodbav:"key"`
-	DeployTag string                 `dynamodbav:"deployTag"`
-	BuildInfo map[string]interface{} `dynamodbav:"buildInfo"`
-}
 
 // Layout (as well as Cluster, TaskSet, and Task) are a generic representation of our service structure within an
 // orchestration service (e.g. AWS ECS).
@@ -218,9 +134,9 @@ type Deployment interface {
 	LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error)
 	LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error)
 	CheckTask(cluster, taskDefId string, running, stable bool, taskIds ...string) (bool, error)
-	GenerateEnvLayout(DeployComponent) (*Layout, error)
-	UpdateEnv(*Layout, string) error
-	CheckEnv(*Layout) (bool, error)
+	GetLayout(clusters []string) (*Layout, error)
+	UpdateLayout(*Layout, string) error
+	CheckLayout(*Layout) (bool, error)
 }
 
 // Notifs represents a notification service (e.g. Discord)

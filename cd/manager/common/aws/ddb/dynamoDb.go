@@ -32,8 +32,19 @@ type DynamoDb struct {
 	cursor     time.Time
 }
 
+const defaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
+const buildHashTag = "sha_tag"
+
+// buildState represents build/deploy commit hash information. This information is maintained in a legacy DynamoDB table
+// used by our utility AWS Lambdas.
+type buildState struct {
+	key       manager.DeployComponent `dynamodbav:"key"`
+	deployTag string                  `dynamodbav:"deployTag"`
+	buildInfo map[string]interface{}  `dynamodbav:"buildInfo"`
+}
+
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
-	env := os.Getenv("ENV")
+	env := os.Getenv(manager.EnvVar_Env)
 	// Use override endpoint, if specified, so that we can store jobs locally, while hitting regular AWS endpoints for
 	// other operations. This allows local testing without affecting CD manager instances running in AWS.
 	customEndpoint := os.Getenv("DB_AWS_ENDPOINT")
@@ -291,7 +302,7 @@ func (db DynamoDb) WriteJob(jobState job.JobState) error {
 	// Generate a new UUID for every job update
 	jobState.Id = uuid.New().String()
 	// Set entry expiration
-	jobState.Ttl = time.Now().Add(manager.DefaultJobStateTtl)
+	jobState.Ttl = time.Now().Add(defaultJobStateTtl)
 	if attributeValues, err := attributevalue.MarshalMapWithOptions(jobState, func(options *attributevalue.EncoderOptions) {
 		options.EncodeTime = func(time time.Time) (types.AttributeValue, error) {
 			return &types.AttributeValueMemberN{Value: strconv.FormatInt(time.UnixNano(), 10)}, nil
@@ -357,7 +368,7 @@ func (db DynamoDb) GetBuildHashes() (map[manager.DeployComponent]string, error) 
 	} else {
 		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
 		for _, state := range buildStates {
-			commitHashes[state.Key] = state.BuildInfo[manager.BuildHashTag].(string)
+			commitHashes[state.key] = state.buildInfo[buildHashTag].(string)
 		}
 		return commitHashes, nil
 	}
@@ -369,13 +380,13 @@ func (db DynamoDb) GetDeployHashes() (map[manager.DeployComponent]string, error)
 	} else {
 		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
 		for _, state := range buildStates {
-			commitHashes[state.Key] = state.DeployTag
+			commitHashes[state.key] = state.deployTag
 		}
 		return commitHashes, nil
 	}
 }
 
-func (db DynamoDb) getBuildStates() ([]manager.BuildState, error) {
+func (db DynamoDb) getBuildStates() ([]buildState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -385,7 +396,7 @@ func (db DynamoDb) getBuildStates() ([]manager.BuildState, error) {
 	}); err != nil {
 		return nil, err
 	} else {
-		var buildStates []manager.BuildState
+		var buildStates []buildState
 		if err = attributevalue.UnmarshalListOfMapsWithOptions(scanOutput.Items, &buildStates); err != nil {
 			return nil, err
 		}

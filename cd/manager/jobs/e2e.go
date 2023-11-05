@@ -9,15 +9,21 @@ import (
 	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
-// Allow up to 4 hours for E2E tests to run
-const e2eFailureTime = 4 * time.Hour
-
 var _ manager.JobSm = &e2eTestJob{}
 
 type e2eTestJob struct {
 	baseJob
 	d manager.Deployment
 }
+
+const (
+	e2eTest_PrivatePublic     string = "private-public"
+	e2eTest_LocalClientPublic string = "local_client-public"
+	e2eTest_LocalNodePrivate  string = "local_node-private"
+)
+
+// Allow up to 4 hours for E2E tests to run
+const e2eFailureTime = 4 * time.Hour
 
 func E2eTestJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.JobSm {
 	return &e2eTestJob{baseJob{jobState, db, notifs}, d}
@@ -77,12 +83,12 @@ func (e e2eTestJob) Advance() (job.JobState, error) {
 }
 
 func (e e2eTestJob) startAllTests() error {
-	if err := e.startTests(manager.E2eTest_PrivatePublic); err != nil {
+	if err := e.startTests(e2eTest_PrivatePublic); err != nil {
 		return err
-	} else if err = e.startTests(manager.E2eTest_LocalClientPublic); err != nil {
+	} else if err = e.startTests(e2eTest_LocalClientPublic); err != nil {
 		return err
 	} else {
-		return e.startTests(manager.E2eTest_LocalNodePrivate)
+		return e.startTests(e2eTest_LocalNodePrivate)
 	}
 }
 
@@ -108,11 +114,11 @@ func (e e2eTestJob) startTests(config string) error {
 }
 
 func (e e2eTestJob) checkAllTests(expectedToBeRunning bool) (bool, error) {
-	if privatePublicStatus, err := e.checkTests(e.state.Params[manager.E2eTest_PrivatePublic].(string), expectedToBeRunning); err != nil {
+	if privatePublicStatus, err := e.checkTests(e.state.Params[e2eTest_PrivatePublic].(string), expectedToBeRunning); err != nil {
 		return false, err
-	} else if localClientPublicStatus, err := e.checkTests(e.state.Params[manager.E2eTest_LocalClientPublic].(string), expectedToBeRunning); err != nil {
+	} else if localClientPublicStatus, err := e.checkTests(e.state.Params[e2eTest_LocalClientPublic].(string), expectedToBeRunning); err != nil {
 		return false, err
-	} else if localNodePrivateStatus, err := e.checkTests(e.state.Params[manager.E2eTest_LocalNodePrivate].(string), expectedToBeRunning); err != nil {
+	} else if localNodePrivateStatus, err := e.checkTests(e.state.Params[e2eTest_LocalNodePrivate].(string), expectedToBeRunning); err != nil {
 		return false, err
 	} else if privatePublicStatus && localClientPublicStatus && localNodePrivateStatus {
 		return true, nil

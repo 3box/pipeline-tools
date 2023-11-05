@@ -34,14 +34,26 @@ type JobManager struct {
 	waitGroup     *sync.WaitGroup
 }
 
+const (
+	tests_Name     = "Post-Deployment Tests"
+	tests_Org      = "3box"
+	tests_Repo     = "ceramic-tests"
+	tests_Ref      = "main"
+	tests_Workflow = "run-durable.yml"
+	tests_Selector = "fast"
+)
+
+const defaultCasMaxAnchorWorkers = 1
+const defaultCasMinAnchorWorkers = 0
+
 func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deployment, apiGw manager.ApiGw, repo manager.Repository, notifs manager.Notifs) (manager.Manager, error) {
-	maxAnchorJobs := manager.DefaultCasMaxAnchorWorkers
+	maxAnchorJobs := defaultCasMaxAnchorWorkers
 	if configMaxAnchorWorkers, found := os.LookupEnv("CAS_MAX_ANCHOR_WORKERS"); found {
 		if parsedMaxAnchorWorkers, err := strconv.Atoi(configMaxAnchorWorkers); err == nil {
 			maxAnchorJobs = parsedMaxAnchorWorkers
 		}
 	}
-	minAnchorJobs := manager.DefaultCasMinAnchorWorkers
+	minAnchorJobs := defaultCasMinAnchorWorkers
 	if configMinAnchorWorkers, found := os.LookupEnv("CAS_MIN_ANCHOR_WORKERS"); found {
 		if parsedMinAnchorWorkers, err := strconv.Atoi(configMinAnchorWorkers); err == nil {
 			minAnchorJobs = parsedMinAnchorWorkers
@@ -51,7 +63,7 @@ func NewJobManager(cache manager.Cache, db manager.Database, d manager.Deploymen
 		return nil, fmt.Errorf("newJobManager: invalid anchor worker config: %d, %d", minAnchorJobs, maxAnchorJobs)
 	}
 	paused, _ := strconv.ParseBool(os.Getenv("PAUSED"))
-	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, minAnchorJobs, paused, manager.EnvType(os.Getenv("ENV")), new(sync.WaitGroup)}, nil
+	return &JobManager{cache, db, d, apiGw, repo, notifs, maxAnchorJobs, minAnchorJobs, paused, manager.EnvType(os.Getenv(manager.EnvVar_Env)), new(sync.WaitGroup)}, nil
 }
 
 func (m *JobManager) NewJob(jobState job.JobState) (job.JobState, error) {
@@ -474,14 +486,14 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 						Type: job.JobType_Workflow,
 						Params: map[string]interface{}{
 							job.JobParam_Source:           manager.ServiceName,
-							job.WorkflowJobParam_Name:     manager.Tests_Name,
-							job.WorkflowJobParam_Org:      manager.Tests_Org,
-							job.WorkflowJobParam_Repo:     manager.Tests_Repo,
-							job.WorkflowJobParam_Ref:      manager.Tests_Ref,
-							job.WorkflowJobParam_Workflow: manager.Tests_Workflow,
+							job.WorkflowJobParam_Name:     tests_Name,
+							job.WorkflowJobParam_Org:      tests_Org,
+							job.WorkflowJobParam_Repo:     tests_Repo,
+							job.WorkflowJobParam_Ref:      tests_Ref,
+							job.WorkflowJobParam_Workflow: tests_Workflow,
 							job.WorkflowJobParam_Inputs: map[string]interface{}{
 								job.WorkflowJobParam_Environment:  m.env,
-								job.WorkflowJobParam_TestSelector: manager.Tests_Selector,
+								job.WorkflowJobParam_TestSelector: tests_Selector,
 							},
 						},
 					}); err != nil {

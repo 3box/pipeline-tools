@@ -33,5 +33,5 @@ func (e e2eTestNotif) getFields() []discord.EmbedField {
 }
 
 func (e e2eTestNotif) getColor() discordColor {
-	return getColorForStage(e.state.Stage)
+	return colorForStage(e.state.Stage)
 }

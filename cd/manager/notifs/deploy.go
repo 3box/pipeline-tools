@@ -24,13 +24,20 @@ type deployNotif struct {
 	env                manager.EnvType
 }
 
+const (
+	envName_Dev  string = "dev"
+	envName_Qa   string = "dev-qa"
+	envName_Tnet string = "testnet-clay"
+	envName_Prod string = "mainnet"
+)
+
 func newDeployNotif(jobState job.JobState) (jobNotif, error) {
 	if d, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &deployNotif{jobState, d, c, manager.EnvType(os.Getenv("ENV"))}, nil
+		return &deployNotif{jobState, d, c, manager.EnvType(os.Getenv(manager.EnvVar_Env))}, nil
 	}
 }
 
@@ -56,7 +63,7 @@ func (d deployNotif) getTitle() string {
 	}
 	return fmt.Sprintf(
 		"3Box Labs `%s` %s %s %s %s",
-		manager.EnvName(d.env),
+		envName(d.env),
 		strings.ToUpper(component),
 		cases.Title(language.English).String(qualifier),
 		"Deployment",
@@ -69,5 +76,20 @@ func (d deployNotif) getFields() []discord.EmbedField {
 }
 
 func (d deployNotif) getColor() discordColor {
-	return getColorForStage(d.state.Stage)
+	return colorForStage(d.state.Stage)
+}
+
+func envName(env manager.EnvType) string {
+	switch env {
+	case manager.EnvType_Dev:
+		return envName_Dev
+	case manager.EnvType_Qa:
+		return envName_Qa
+	case manager.EnvType_Tnet:
+		return envName_Tnet
+	case manager.EnvType_Prod:
+		return envName_Prod
+	default:
+		return ""
+	}
 }
