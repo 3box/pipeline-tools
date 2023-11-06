@@ -24,18 +24,20 @@ func PrintJob(jobStates ...job.JobState) string {
 	return prettyString
 }
 
-func ComponentRepo(component DeployComponent) DeployRepo {
+func ComponentRepo(component DeployComponent) (DeployRepo, error) {
 	switch component {
 	case DeployComponent_Ceramic:
-		return DeployRepo_Ceramic
+		return DeployRepo{Org: GitHubOrg_CeramicNetwork, Name: RepoName_Ceramic}, nil
 	case DeployComponent_Cas:
-		return DeployRepo_Cas
+		return DeployRepo{Org: GitHubOrg_CeramicNetwork, Name: RepoName_Cas}, nil
 	case DeployComponent_CasV5:
-		return DeployRepo_CasV5
+		return DeployRepo{Org: GitHubOrg_CeramicNetwork, Name: RepoName_CasV5}, nil
 	case DeployComponent_Ipfs:
-		return DeployRepo_Ipfs
+		return DeployRepo{Org: GitHubOrg_CeramicNetwork, Name: RepoName_Ipfs}, nil
+	case DeployComponent_RustCeramic:
+		return DeployRepo{Org: GitHubOrg_3Box, Name: RepoName_RustCeramic}, nil
 	default:
-		return ""
+		return DeployRepo{}, fmt.Errorf("componentRepo: unknown component: %s", component)
 	}
 }
 

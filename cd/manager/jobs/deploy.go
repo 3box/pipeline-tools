@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/exp/slices"
+
 	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
@@ -47,6 +49,7 @@ const (
 	containerName_CasApi         string = "cas_api"
 	containerName_CasWorker      string = "cas_anchor"
 	containerName_CasV5Scheduler string = "scheduler"
+	containerName_RustCeramic    string = "rust-ceramic"
 )
 
 const defaultFailureTime = 30 * time.Minute
@@ -146,8 +149,11 @@ func (d deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) e
 	// The last two cases will only happen when redeploying manually, so we can note that in the notification.
 	if d.sha == buildHashLatest {
 		shaTag, _ := d.state.Params[job.DeployJobParam_ShaTag].(string)
-		if latestSha, err := d.repo.GetLatestCommitHash(
-			manager.ComponentRepo(d.component),
+		if repo, err := manager.ComponentRepo(d.component); err != nil {
+			return err
+		} else if latestSha, err := d.repo.GetLatestCommitHash(
+			repo.Org,
+			repo.Name,
 			d.envBranch(d.component, manager.EnvType(os.Getenv(manager.EnvVar_Env))),
 			shaTag,
 		); err != nil {
@@ -205,12 +211,11 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 	publicCluster := "ceramic-" + d.env + "-ex"
 	casCluster := "ceramic-" + d.env + "-cas"
 	casV5Cluster := "app-cas-" + d.env
-	ecrRepo, err := d.componentEcrRepo(component)
-	if err != nil {
-		log.Printf("generateEnvLayout: ecr repo error: %s, %v", component, err)
-		return nil, err
-	}
 	clusters := []string{privateCluster, publicCluster, casCluster, casV5Cluster}
+	if ecrRepo, err := d.componentEcrRepo(component); err != nil {
+		log.Printf("generateEnvLayout: get ecr repo error: %s, %v", component, err)
+		return nil, err
+	} else
 	// Populate the service layout by retrieving the clusters/services from ECS
 	if currentLayout, err := d.d.GetLayout(clusters); err != nil {
 		log.Printf("generateEnvLayout: get layout error: %s, %v", component, err)
@@ -219,7 +224,7 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 		newLayout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: ecrRepo}
 		for cluster, clusterLayout := range currentLayout.Clusters {
 			for service, task := range clusterLayout.ServiceTasks.Tasks {
-				if newTask := d.componentTask(component, cluster, service); newTask != nil {
+				if newTask := d.componentTask(component, cluster, service, strings.Split(task.Name, ",")); newTask != nil {
 					if newLayout.Clusters[cluster] == nil {
 						// We found at least one matching task, so we can start populating the cluster layout.
 						newLayout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
@@ -237,7 +242,7 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 		if component == manager.DeployComponent_Cas {
 			newLayout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
 				casCluster + "-" + serviceSuffix_CasWorker: {
-					Repo: anchorWorkerRepo,
+					Repo: &manager.Repo{Name: anchorWorkerRepo},
 					Temp: true, // Anchor workers do not stay up permanently
 					Name: containerName_CasWorker,
 				},
@@ -247,7 +252,7 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 	}
 }
 
-func (d deployJob) componentTask(component manager.DeployComponent, cluster, service string) *manager.Task {
+func (d deployJob) componentTask(component manager.DeployComponent, cluster, service string, containerNames []string) *manager.Task {
 	// Skip any ELP services (e.g. "ceramic-elp-1-1-node")
 	serviceNameParts := strings.Split(service, "-")
 	if (len(serviceNameParts) >= 2) && (serviceNameParts[1] == serviceSuffix_Elp) {
@@ -260,8 +265,7 @@ func (d deployJob) componentTask(component manager.DeployComponent, cluster, ser
 			return &manager.Task{Name: containerName_CeramicNode}
 		}
 	case manager.DeployComponent_Ipfs:
-		// All clusters have IPFS nodes
-		if strings.Contains(service, serviceSuffix_IpfsNode) {
+		if strings.Contains(service, serviceSuffix_IpfsNode) && slices.Contains(containerNames, containerName_IpfsNode) {
 			return &manager.Task{Name: containerName_IpfsNode}
 		}
 	case manager.DeployComponent_Cas:
@@ -272,28 +276,38 @@ func (d deployJob) componentTask(component manager.DeployComponent, cluster, ser
 		if (cluster == "app-cas-"+d.env) && strings.Contains(service, serviceSuffix_CasScheduler) {
 			return &manager.Task{Name: containerName_CasV5Scheduler}
 		}
+	case manager.DeployComponent_RustCeramic:
+		if strings.Contains(service, serviceSuffix_IpfsNode) && slices.Contains(containerNames, containerName_RustCeramic) {
+			return &manager.Task{Name: containerName_RustCeramic}
+		}
 	default:
 		log.Printf("componentTask: unknown component: %s", component)
 	}
 	return nil
 }
 
-func (d deployJob) componentEcrRepo(component manager.DeployComponent) (string, error) {
+func (d deployJob) componentEcrRepo(component manager.DeployComponent) (*manager.Repo, error) {
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		return "ceramic-prod", nil
+		return &manager.Repo{Name: "ceramic-prod"}, nil
 	case manager.DeployComponent_Ipfs:
-		return "go-ipfs-prod", nil
+		return &manager.Repo{Name: "go-ipfs-prod"}, nil
 	case manager.DeployComponent_Cas:
-		return "ceramic-prod-cas", nil
+		return &manager.Repo{Name: "ceramic-prod-cas"}, nil
 	case manager.DeployComponent_CasV5:
-		return "app-cas-scheduler", nil
+		return &manager.Repo{Name: "app-cas-scheduler"}, nil
+	case manager.DeployComponent_RustCeramic:
+		return &manager.Repo{Name: "ceramic-one", Public: true}, nil
 	default:
-		return "", fmt.Errorf("componentTask: unknown component: %s", component)
+		return nil, fmt.Errorf("componentEcrRepo: unknown component: %s", component)
 	}
 }
 
 func (d deployJob) envBranch(component manager.DeployComponent, env manager.EnvType) string {
+	// All rust-ceramic deploys are currently from the "main" branch
+	if component == manager.DeployComponent_RustCeramic {
+		return envBranch_Prod
+	}
 	switch env {
 	case manager.EnvType_Dev:
 		return envBranch_Dev

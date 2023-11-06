@@ -184,8 +184,8 @@ func (n JobNotifs) getDeployHashes(jobState job.JobState) string {
 
 func (n JobNotifs) getComponentMsg(component manager.DeployComponent, commitHashes map[manager.DeployComponent]string) string {
 	if commitHash, found := commitHashes[component]; found && (len(commitHash) >= shaTagLength) {
-		repo := manager.ComponentRepo(component)
-		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, commitHash[:shaTagLength], manager.GitHubOrg, repo, commitHash)
+		repo, _ := manager.ComponentRepo(component)
+		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo.Name, commitHash[:shaTagLength], repo.Org, repo.Name, commitHash)
 	}
 	return ""
 }
