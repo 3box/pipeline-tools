@@ -36,6 +36,7 @@ const (
 )
 
 const resourceTag = "Ceramic"
+const publicEcrUri = "public.ecr.aws/r5b3e0r5/3box/"
 
 func NewEcs(cfg aws.Config) manager.Deployment {
 	ecrUri := os.Getenv("AWS_ACCOUNT_ID") + ".dkr.ecr." + os.Getenv("AWS_REGION") + ".amazonaws.com/"
@@ -123,12 +124,23 @@ func (e Ecs) GetLayout(clusters []string) (*manager.Layout, error) {
 			layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
 			for _, serviceArn := range clusterServices.ServiceArns {
 				service := e.serviceNameFromArn(serviceArn)
-				ecsService, err := e.describeEcsService(cluster, service)
-				if err != nil {
+				if ecsService, err := e.describeEcsService(cluster, service); err != nil {
 					log.Printf("getLayout: describe service error: %s, %s, %v", cluster, service, err)
 					return nil, err
+				} else {
+					taskDefArn := *ecsService.Services[0].TaskDefinition
+					containerDefNames := make([]string, 0, 1)
+					if taskDef, err := e.getEcsTaskDefinition(taskDefArn); err != nil {
+						log.Printf("getLayout: get task def error: %s, %s, %s, %v", taskDefArn, cluster, service, err)
+						return nil, err
+					} else {
+						for _, containerDef := range taskDef.ContainerDefinitions {
+							containerDefNames = append(containerDefNames, *containerDef.Name)
+						}
+					}
+					// Return the names of all the containers associated with this task definition
+					layout.Clusters[cluster].ServiceTasks.Tasks[service] = &manager.Task{Id: taskDefArn, Name: strings.Join(containerDefNames, ",")}
 				}
-				layout.Clusters[cluster].ServiceTasks.Tasks[service] = &manager.Task{Id: *ecsService.Services[0].TaskDefinition}
 			}
 		}
 	}
@@ -137,9 +149,9 @@ func (e Ecs) GetLayout(clusters []string) (*manager.Layout, error) {
 
 func (e Ecs) UpdateLayout(layout *manager.Layout, commitHash string) error {
 	for clusterName, cluster := range layout.Clusters {
-		clusterRepo := layout.Repo
-		if len(cluster.Repo) > 0 {
-			clusterRepo = cluster.Repo
+		clusterRepo := e.getEcrRepo(*layout.Repo) // The main layout repo should never be null
+		if cluster.Repo != nil {
+			clusterRepo = e.getEcrRepo(*cluster.Repo)
 		}
 		if err := e.updateEnvCluster(cluster, clusterName, clusterRepo, commitHash); err != nil {
 			return err
@@ -242,7 +254,7 @@ func (e Ecs) updateEcsTaskDefinition(taskDefArn, image, containerName string) (s
 
 	for idx, containerDef := range taskDef.ContainerDefinitions {
 		if *containerDef.Name == containerName {
-			taskDef.ContainerDefinitions[idx].Image = aws.String(e.ecrUri + image)
+			taskDef.ContainerDefinitions[idx].Image = aws.String(image)
 			regTaskDefInput := &ecs.RegisterTaskDefinitionInput{
 				ContainerDefinitions:    taskDef.ContainerDefinitions,
 				Family:                  taskDef.Family,
@@ -432,8 +444,8 @@ func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType string, clust
 	if taskSet != nil {
 		for taskSetName, task := range taskSet.Tasks {
 			taskSetRepo := clusterRepo
-			if len(taskSet.Repo) > 0 {
-				taskSetRepo = taskSet.Repo
+			if taskSet.Repo != nil {
+				taskSetRepo = e.getEcrRepo(*taskSet.Repo)
 			}
 			switch deployType {
 			case deployType_Service:
@@ -454,8 +466,8 @@ func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType string, clust
 
 func (e Ecs) updateEnvServiceTask(task *manager.Task, cluster, service, taskSetRepo, commitHash string) error {
 	taskRepo := taskSetRepo
-	if len(task.Repo) > 0 {
-		taskRepo = task.Repo
+	if task.Repo != nil {
+		taskRepo = e.getEcrRepo(*task.Repo)
 	}
 	if id, err := e.updateEcsService(cluster, service, taskRepo+":"+commitHash, task.Name, task.Temp); err != nil {
 		return err
@@ -467,8 +479,8 @@ func (e Ecs) updateEnvServiceTask(task *manager.Task, cluster, service, taskSetR
 
 func (e Ecs) updateEnvTask(task *manager.Task, cluster, taskName, taskSetRepo, commitHash string) error {
 	taskRepo := taskSetRepo
-	if len(task.Repo) > 0 {
-		taskRepo = task.Repo
+	if task.Repo != nil {
+		taskRepo = e.getEcrRepo(*task.Repo)
 	}
 	if id, err := e.updateEcsTask(cluster, taskName, taskRepo+":"+commitHash, task.Name, task.Temp); err != nil {
 		return err
@@ -546,4 +558,11 @@ func (e Ecs) parseEcsFailures(ecsFailures []types.Failure) []ecsFailure {
 		}
 	}
 	return failures
+}
+
+func (e Ecs) getEcrRepo(repo manager.Repo) string {
+	if repo.Public {
+		return publicEcrUri + repo.Name
+	}
+	return e.ecrUri + repo.Name
 }

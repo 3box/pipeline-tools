@@ -24,27 +24,35 @@ const (
 type DeployComponent string
 
 const (
-	DeployComponent_Ceramic DeployComponent = "ceramic"
-	DeployComponent_Cas     DeployComponent = "cas"
-	DeployComponent_CasV5   DeployComponent = "casv5"
-	DeployComponent_Ipfs    DeployComponent = "ipfs"
+	DeployComponent_Ceramic     DeployComponent = "ceramic"
+	DeployComponent_Cas         DeployComponent = "cas"
+	DeployComponent_CasV5       DeployComponent = "casv5"
+	DeployComponent_Ipfs        DeployComponent = "ipfs"
+	DeployComponent_RustCeramic DeployComponent = "rust-ceramic"
 )
 
-type DeployRepo string
+type DeployRepo struct {
+	Org  string
+	Name string
+}
 
 const (
-	DeployRepo_Ceramic DeployRepo = "js-ceramic"
-	DeployRepo_Cas     DeployRepo = "ceramic-anchor-service"
-	DeployRepo_CasV5   DeployRepo = "go-cas"
-	DeployRepo_Ipfs    DeployRepo = "go-ipfs-daemon"
+	RepoName_Ceramic     = "js-ceramic"
+	RepoName_Cas         = "ceramic-anchor-service"
+	RepoName_CasV5       = "go-cas"
+	RepoName_Ipfs        = "go-ipfs-daemon"
+	RepoName_RustCeramic = "rust-ceramic"
+)
+
+const (
+	GitHubOrg_CeramicNetwork = "ceramicnetwork"
+	GitHubOrg_3Box           = "3box"
 )
 
 var (
 	Error_StartupTimeout    = fmt.Errorf("startup timeout")
 	Error_CompletionTimeout = fmt.Errorf("completion timeout")
 )
-
-const GitHubOrg = "ceramicnetwork"
 
 const (
 	EnvVar_Env = "ENV"
@@ -61,27 +69,32 @@ const (
 
 const ServiceName = "cd-manager"
 
-// Layout (as well as Cluster, TaskSet, and Task) are a generic representation of our service structure within an
-// orchestration service (e.g. AWS ECS).
+// Layout (as well as Cluster, Repo, TaskSet, and Task) are a generic representation of our service structure within
+// an orchestration service (e.g. AWS ECS).
 type Layout struct {
 	Clusters map[string]*Cluster `dynamodbav:"clusters,omitempty"`
-	Repo     string              `dynamodbav:"repo,omitempty"` // Layout repo
+	Repo     *Repo               `dynamodbav:"repo,omitempty"` // Layout repo
+}
+
+type Repo struct {
+	Name   string `dynamodbav:"name,omitempty"`
+	Public bool   `dynamodbav:"public,omitempty"`
 }
 
 type Cluster struct {
 	ServiceTasks *TaskSet `dynamodbav:"serviceTasks,omitempty"`
 	Tasks        *TaskSet `dynamodbav:"tasks,omitempty"`
-	Repo         string   `dynamodbav:"repo,omitempty"` // Cluster repo override
+	Repo         *Repo    `dynamodbav:"repo,omitempty"` // Cluster repo override
 }
 
 type TaskSet struct {
 	Tasks map[string]*Task `dynamodbav:"tasks,omitempty"`
-	Repo  string           `dynamodbav:"repo,omitempty"` // TaskSet repo override
+	Repo  *Repo            `dynamodbav:"repo,omitempty"` // TaskSet repo override
 }
 
 type Task struct {
 	Id   string `dynamodbav:"id,omitempty"`
-	Repo string `dynamodbav:"repo,omitempty"` // Task repo override
+	Repo *Repo  `dynamodbav:"repo,omitempty"` // Task repo override
 	Temp bool   `dynamodbav:"temp,omitempty"` // Whether the task is meant to go down once it has completed
 	Name string `dynamodbav:"name,omitempty"` // Container name
 }
@@ -154,7 +167,7 @@ type Manager interface {
 
 // Repository represents a git service hosting our repositories (e.g. GitHub)
 type Repository interface {
-	GetLatestCommitHash(repo DeployRepo, branch, shaTag string) (string, error)
+	GetLatestCommitHash(org, repo, branch, shaTag string) (string, error)
 	StartWorkflow(Workflow) error
 	FindMatchingWorkflowRun(workflow Workflow, jobId string, searchTime time.Time) (int64, string, error)
 	CheckWorkflowStatus(workflow Workflow, workflowRunId int64) (WorkflowStatus, error)

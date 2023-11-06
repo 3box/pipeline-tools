@@ -22,6 +22,7 @@ type Github struct {
 }
 
 const (
+	github_CommitStatus_Pending string = "pending"
 	github_CommitStatus_Failure string = "failure"
 	github_CommitStatus_Success string = "success"
 )
@@ -48,11 +49,11 @@ func NewRepository() manager.Repository {
 	return &Github{github.NewClient(httpClient)}
 }
 
-func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch, shaTag string) (string, error) {
+func (g Github) GetLatestCommitHash(org, repo, branch, shaTag string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
-	if commits, resp, err := g.client.Repositories.ListCommits(ctx, manager.GitHubOrg, string(repo), &github.CommitsListOptions{
+	if commits, resp, err := g.client.Repositories.ListCommits(ctx, org, repo, &github.CommitsListOptions{
 		SHA: branch,
 		// We want to find the newest commit with all passed status checks so that we don't use a commit that doesn't
 		// already have a corresponding Docker image in ECR, and we might as well request the maximum number of commits.
@@ -65,7 +66,7 @@ func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch, shaTag stri
 		log.Printf("getLatestCommitHash: list commits rate limit=%d, remaining=%d, resetAt=%s", resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
 		for _, commit := range commits {
 			sha := *commit.SHA
-			if checksPassed, err := g.checkRefStatus(repo, sha); err != nil {
+			if checksPassed, err := g.checkRefStatus(org, repo, sha); err != nil {
 				return "", err
 			} else if checksPassed { // Return the newest commit with passed checks
 				return sha, nil
@@ -79,12 +80,12 @@ func (g Github) GetLatestCommitHash(repo manager.DeployRepo, branch, shaTag stri
 	}
 }
 
-func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error) {
+func (g Github) checkRefStatus(org, repo, ref string) (bool, error) {
 	getRefStatus := func() (*github.CombinedStatus, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 		defer cancel()
 
-		status, resp, err := g.client.Repositories.GetCombinedStatus(ctx, manager.GitHubOrg, string(repo), ref, &github.ListOptions{PerPage: 100})
+		status, resp, err := g.client.Repositories.GetCombinedStatus(ctx, org, repo, ref, &github.ListOptions{PerPage: 100})
 		log.Printf("checkRefStatus: status=%s, rate limit=%d, remaining=%d, resetAt=%s", status, resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
 		return status, err
 	}
@@ -106,6 +107,13 @@ func (g Github) checkRefStatus(repo manager.DeployRepo, ref string) (bool, error
 				}
 			case github_CommitStatus_Failure:
 				return false, nil
+			case github_CommitStatus_Pending:
+				// It's possible there are no statuses yet, and we consider the commit to have passed all checks. This
+				// shouldn't happen in reality because it is only several minutes after a commit has been made that a
+				// deployment job created.
+				if len(status.Statuses) == 0 {
+					return true, nil
+				}
 			}
 		}
 		// Sleep for a few seconds so we don't get rate limited
