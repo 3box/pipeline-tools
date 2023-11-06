@@ -221,7 +221,7 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 		log.Printf("generateEnvLayout: get layout error: %s, %v", component, err)
 		return nil, err
 	} else {
-		newLayout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: ecrRepo}
+		newLayout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: &ecrRepo}
 		for cluster, clusterLayout := range currentLayout.Clusters {
 			for service, task := range clusterLayout.ServiceTasks.Tasks {
 				if newTask := d.componentTask(component, cluster, service, strings.Split(task.Name, ",")); newTask != nil {
@@ -286,20 +286,20 @@ func (d deployJob) componentTask(component manager.DeployComponent, cluster, ser
 	return nil
 }
 
-func (d deployJob) componentEcrRepo(component manager.DeployComponent) (*manager.Repo, error) {
+func (d deployJob) componentEcrRepo(component manager.DeployComponent) (manager.Repo, error) {
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		return &manager.Repo{Name: "ceramic-prod"}, nil
+		return manager.Repo{Name: "ceramic-prod"}, nil
 	case manager.DeployComponent_Ipfs:
-		return &manager.Repo{Name: "go-ipfs-prod"}, nil
+		return manager.Repo{Name: "go-ipfs-prod"}, nil
 	case manager.DeployComponent_Cas:
-		return &manager.Repo{Name: "ceramic-prod-cas"}, nil
+		return manager.Repo{Name: "ceramic-prod-cas"}, nil
 	case manager.DeployComponent_CasV5:
-		return &manager.Repo{Name: "app-cas-scheduler"}, nil
+		return manager.Repo{Name: "app-cas-scheduler"}, nil
 	case manager.DeployComponent_RustCeramic:
-		return &manager.Repo{Name: "ceramic-one", Public: true}, nil
+		return manager.Repo{Name: "ceramic-one", Public: true}, nil
 	default:
-		return nil, fmt.Errorf("componentEcrRepo: unknown component: %s", component)
+		return manager.Repo{}, fmt.Errorf("componentEcrRepo: unknown component: %s", component)
 	}
 }
 

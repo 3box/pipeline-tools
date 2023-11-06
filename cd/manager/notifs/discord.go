@@ -178,14 +178,16 @@ func (n JobNotifs) getDeployHashes(jobState job.JobState) string {
 		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes)
 		casV5Msg := n.getComponentMsg(manager.DeployComponent_CasV5, commitHashes)
 		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, commitHashes)
-		return n.combineComponentMsgs(ceramicMsg, casMsg, casV5Msg, ipfsMsg)
+		rustCeramicMsg := n.getComponentMsg(manager.DeployComponent_RustCeramic, commitHashes)
+		return n.combineComponentMsgs(ceramicMsg, casMsg, casV5Msg, ipfsMsg, rustCeramicMsg)
 	}
 }
 
 func (n JobNotifs) getComponentMsg(component manager.DeployComponent, commitHashes map[manager.DeployComponent]string) string {
 	if commitHash, found := commitHashes[component]; found && (len(commitHash) >= shaTagLength) {
-		repo, _ := manager.ComponentRepo(component)
-		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo.Name, commitHash[:shaTagLength], repo.Org, repo.Name, commitHash)
+		if repo, err := manager.ComponentRepo(component); err == nil {
+			return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo.Name, commitHash[:shaTagLength], repo.Org, repo.Name, commitHash)
+		}
 	}
 	return ""
 }
