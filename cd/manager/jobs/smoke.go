@@ -26,7 +26,7 @@ type smokeTestJob struct {
 }
 
 func SmokeTestJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment) manager.JobSm {
-	return &smokeTestJob{baseJob{jobState, db, notifs}, os.Getenv("ENV"), d}
+	return &smokeTestJob{baseJob{jobState, db, notifs}, os.Getenv(manager.EnvVar_Env), d}
 }
 
 func (s smokeTestJob) Advance() (job.JobState, error) {

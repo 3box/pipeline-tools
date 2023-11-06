@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -28,9 +27,20 @@ const (
 	discordColor_Alert   = 16711712
 )
 
-const DiscordPacing = 2 * time.Second
+const (
+	notifField_CommitHashes string = "Commit Hashes"
+	notifField_JobId        string = "Job ID"
+	notifField_Time         string = "Time"
+	notifField_Deploy       string = "Deployment(s)"
+	notifField_Anchor       string = "Anchor Worker(s)"
+	notifField_TestE2E      string = "E2E Tests"
+	notifField_TestSmoke    string = "Smoke Tests"
+	notifField_Workflow     string = "Workflow(s)"
+)
 
-const ShaTagLength = 12
+const discordPacing = 2 * time.Second
+
+const shaTagLength = 12
 
 var _ manager.Notifs = &JobNotifs{}
 
@@ -121,7 +131,7 @@ func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color di
 		SetEmbeds(messageEmbed).
 		SetUsername(manager.ServiceName).
 		Build(),
-		rest.WithDelay(DiscordPacing),
+		rest.WithDelay(discordPacing),
 	); err != nil {
 		log.Printf("notifyJob: error sending discord notification: %v, %s, %v, %d", err, title, fields, color)
 	}
@@ -130,19 +140,19 @@ func (n JobNotifs) sendNotif(title string, fields []discord.EmbedField, color di
 func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 	fields := []discord.EmbedField{
 		{
-			Name:  manager.NotifField_JobId,
+			Name:  notifField_JobId,
 			Value: jobState.JobId,
 		},
 	}
 	// Return deploy hashes for all jobs, if we were able to retrieve them successfully.
 	if commitHashes := n.getDeployHashes(jobState); len(commitHashes) > 0 {
 		fields = append(fields, discord.EmbedField{
-			Name:  manager.NotifField_CommitHashes,
+			Name:  notifField_CommitHashes,
 			Value: commitHashes,
 		})
 	}
 	fields = append(fields, discord.EmbedField{
-		Name:  manager.NotifField_Time,
+		Name:  notifField_Time,
 		Value: time.Now().Format(time.RFC1123), // "Mon, 02 Jan 2006 15:04:05 MST"
 	})
 	// Add the list of jobs in progress
@@ -159,7 +169,7 @@ func (n JobNotifs) getDeployHashes(jobState job.JobState) string {
 		if jobState.Type == job.JobType_Deploy {
 			sha := jobState.Params[job.DeployJobParam_Sha].(string)
 			// If the specified hash is valid, overwrite the previous hash from the database.
-			if isValidSha, _ := regexp.MatchString(manager.CommitHashRegex, sha); isValidSha {
+			if manager.IsValidSha(sha) {
 				commitHashes[manager.DeployComponent(jobState.Params[job.DeployJobParam_Component].(string))] = sha
 			}
 		}
@@ -173,9 +183,9 @@ func (n JobNotifs) getDeployHashes(jobState job.JobState) string {
 }
 
 func (n JobNotifs) getComponentMsg(component manager.DeployComponent, commitHashes map[manager.DeployComponent]string) string {
-	if commitHash, found := commitHashes[component]; found && (len(commitHash) >= ShaTagLength) {
+	if commitHash, found := commitHashes[component]; found && (len(commitHash) >= shaTagLength) {
 		repo := manager.ComponentRepo(component)
-		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, commitHash[:ShaTagLength], manager.GitHubOrg, repo, commitHash)
+		return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo, commitHash[:shaTagLength], manager.GitHubOrg, repo, commitHash)
 	}
 	return ""
 }
@@ -225,12 +235,29 @@ func (n JobNotifs) getActiveJobsByType(jobState job.JobState, jobType job.JobTyp
 		}
 	}
 	return discord.EmbedField{
-		Name:  manager.NotifField(jobType) + " In Progress:",
+		Name:  notifField(jobType) + " In Progress:",
 		Value: message,
 	}, len(message) > 0
 }
 
-func getColorForStage(jobStage job.JobStage) discordColor {
+func notifField(jt job.JobType) string {
+	switch jt {
+	case job.JobType_Deploy:
+		return notifField_Deploy
+	case job.JobType_Anchor:
+		return notifField_Anchor
+	case job.JobType_TestE2E:
+		return notifField_TestE2E
+	case job.JobType_TestSmoke:
+		return notifField_TestSmoke
+	case job.JobType_Workflow:
+		return notifField_Workflow
+	default:
+		return ""
+	}
+}
+
+func colorForStage(jobStage job.JobStage) discordColor {
 	switch jobStage {
 	case job.JobStage_Dequeued:
 		return discordColor_Info
@@ -247,7 +274,7 @@ func getColorForStage(jobStage job.JobStage) discordColor {
 	case job.JobStage_Completed:
 		return discordColor_Ok
 	default:
-		log.Printf("getColorForStage: unknown job stage: %s", jobStage)
+		log.Printf("colorForStage: unknown job stage: %s", jobStage)
 		return discordColor_Alert
 	}
 }

@@ -61,5 +61,5 @@ func (w workflowNotif) getFields() []discord.EmbedField {
 }
 
 func (w workflowNotif) getColor() discordColor {
-	return getColorForStage(w.state.Stage)
+	return colorForStage(w.state.Stage)
 }

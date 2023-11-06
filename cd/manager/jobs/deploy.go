@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager"
@@ -19,9 +20,38 @@ type deployJob struct {
 	manual    bool
 	rollback  bool
 	force     bool
+	env       string
 	d         manager.Deployment
 	repo      manager.Repository
 }
+
+const (
+	envBranch_Dev  string = "develop"
+	envBranch_Qa   string = "qa"
+	envBranch_Tnet string = "release-candidate"
+	envBranch_Prod string = "main"
+)
+
+const (
+	serviceSuffix_CeramicNode  string = "node"
+	serviceSuffix_IpfsNode     string = "ipfs-nd"
+	serviceSuffix_CasApi       string = "api"
+	serviceSuffix_CasWorker    string = "anchor"
+	serviceSuffix_CasScheduler string = "scheduler"
+	serviceSuffix_Elp          string = "elp"
+)
+
+const (
+	containerName_CeramicNode    string = "ceramic_node"
+	containerName_IpfsNode       string = "go-ipfs"
+	containerName_CasApi         string = "cas_api"
+	containerName_CasWorker      string = "cas_anchor"
+	containerName_CasV5Scheduler string = "scheduler"
+)
+
+const defaultFailureTime = 30 * time.Minute
+const buildHashLatest = "latest"
+const anchorWorkerRepo = "ceramic-prod-cas-runner"
 
 func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment, repo manager.Repository) (manager.JobSm, error) {
 	if component, found := jobState.Params[job.DeployJobParam_Component].(string); !found {
@@ -32,7 +62,7 @@ func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs
 		manual, _ := jobState.Params[job.DeployJobParam_Manual].(bool)
 		rollback, _ := jobState.Params[job.DeployJobParam_Rollback].(bool)
 		force, _ := jobState.Params[job.DeployJobParam_Force].(bool)
-		return &deployJob{baseJob{jobState, db, notifs}, manager.DeployComponent(component), sha, manual, rollback, force, d, repo}, nil
+		return &deployJob{baseJob{jobState, db, notifs}, manager.DeployComponent(component), sha, manual, rollback, force, os.Getenv(manager.EnvVar_Env), d, repo}, nil
 	}
 }
 
@@ -52,7 +82,7 @@ func (d deployJob) Advance() (job.JobState, error) {
 				// Rollbacks are also force deploys, so we don't need to check for the former explicitly since we're
 				// already checking for force deploys.
 				return d.advance(job.JobStage_Skipped, now, nil)
-			} else if envLayout, err := d.d.GenerateEnvLayout(d.component); err != nil {
+			} else if envLayout, err := d.generateEnvLayout(d.component); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else {
 				d.state.Params[job.DeployJobParam_Layout] = *envLayout
@@ -86,7 +116,7 @@ func (d deployJob) Advance() (job.JobState, error) {
 					log.Printf("deployJob: failed to update deploy hash: %v, %s", err, manager.PrintJob(d.state))
 				}
 				return d.advance(job.JobStage_Completed, now, nil)
-			} else if job.IsTimedOut(d.state, manager.DefaultFailureTime) {
+			} else if job.IsTimedOut(d.state, defaultFailureTime) {
 				return d.advance(job.JobStage_Failed, now, manager.Error_CompletionTimeout)
 			} else {
 				// Return so we come back again to check
@@ -114,11 +144,11 @@ func (d deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) e
 	// - Else use the latest build hash from the database.
 	//
 	// The last two cases will only happen when redeploying manually, so we can note that in the notification.
-	if d.sha == manager.BuildHashLatest {
+	if d.sha == buildHashLatest {
 		shaTag, _ := d.state.Params[job.DeployJobParam_ShaTag].(string)
 		if latestSha, err := d.repo.GetLatestCommitHash(
 			manager.ComponentRepo(d.component),
-			manager.EnvBranch(d.component, manager.EnvType(os.Getenv("ENV"))),
+			d.envBranch(d.component, manager.EnvType(os.Getenv(manager.EnvVar_Env))),
 			shaTag,
 		); err != nil {
 			return err
@@ -144,16 +174,15 @@ func (d deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) e
 }
 
 func (d deployJob) updateEnv(commitHash string) error {
-	if layout, found := d.state.Params[job.DeployJobParam_Layout].(manager.Layout); found {
-		return d.d.UpdateEnv(&layout, commitHash)
-	}
-	return fmt.Errorf("updateEnv: missing env layout")
+	// Layout should already be present
+	layout, _ := d.state.Params[job.DeployJobParam_Layout].(manager.Layout)
+	return d.d.UpdateLayout(&layout, commitHash)
 }
 
 func (d deployJob) checkEnv() (bool, error) {
-	if layout, found := d.state.Params[job.DeployJobParam_Layout].(manager.Layout); !found {
-		return false, fmt.Errorf("checkEnv: missing env layout")
-	} else if deployed, err := d.d.CheckEnv(&layout); err != nil {
+	// Layout should already be present
+	layout, _ := d.state.Params[job.DeployJobParam_Layout].(manager.Layout)
+	if deployed, err := d.d.CheckLayout(&layout); err != nil {
 		return false, err
 	} else if !deployed || (d.component != manager.DeployComponent_Ipfs) {
 		return deployed, nil
@@ -164,9 +193,127 @@ func (d deployJob) checkEnv() (bool, error) {
 	// In this case, we want to check whether *some* version of Ceramic is stable and not any specific version, like we
 	// normally do when checking for successful deployments, so it's OK to rebuild the Ceramic layout on-the-fly each
 	// time instead of storing it in the database.
-	if ceramicLayout, err := d.d.GenerateEnvLayout(manager.DeployComponent_Ceramic); err != nil {
+	if ceramicLayout, err := d.generateEnvLayout(manager.DeployComponent_Ceramic); err != nil {
 		return false, err
 	} else {
-		return d.d.CheckEnv(ceramicLayout)
+		return d.d.CheckLayout(ceramicLayout)
+	}
+}
+
+func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manager.Layout, error) {
+	privateCluster := "ceramic-" + d.env
+	publicCluster := "ceramic-" + d.env + "-ex"
+	casCluster := "ceramic-" + d.env + "-cas"
+	casV5Cluster := "app-cas-" + d.env
+	ecrRepo, err := d.componentEcrRepo(component)
+	if err != nil {
+		log.Printf("generateEnvLayout: ecr repo error: %s, %v", component, err)
+		return nil, err
+	}
+	clusters := []string{privateCluster, publicCluster, casCluster, casV5Cluster}
+	// Populate the service layout by retrieving the clusters/services from ECS
+	if currentLayout, err := d.d.GetLayout(clusters); err != nil {
+		log.Printf("generateEnvLayout: get layout error: %s, %v", component, err)
+		return nil, err
+	} else {
+		newLayout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: ecrRepo}
+		for cluster, clusterLayout := range currentLayout.Clusters {
+			for service, task := range clusterLayout.ServiceTasks.Tasks {
+				if newTask := d.componentTask(component, cluster, service); newTask != nil {
+					if newLayout.Clusters[cluster] == nil {
+						// We found at least one matching task, so we can start populating the cluster layout.
+						newLayout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
+					}
+					// Set the task definition to the one currently running. For most cases, this will be overwritten by
+					// a new definition, but for some cases, we might want to use a layout with currently running
+					// definitions and not updated ones, e.g. to check if an existing deployment is stable.
+					newTask.Id = task.Id
+					newLayout.Clusters[cluster].ServiceTasks.Tasks[service] = newTask
+				}
+			}
+		}
+		// If CAS is bing deployed, add the Anchor Worker to the layout since it doesn't get updated through an ECS
+		// service.
+		if component == manager.DeployComponent_Cas {
+			newLayout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
+				casCluster + "-" + serviceSuffix_CasWorker: {
+					Repo: anchorWorkerRepo,
+					Temp: true, // Anchor workers do not stay up permanently
+					Name: containerName_CasWorker,
+				},
+			}}
+		}
+		return newLayout, nil
+	}
+}
+
+func (d deployJob) componentTask(component manager.DeployComponent, cluster, service string) *manager.Task {
+	// Skip any ELP services (e.g. "ceramic-elp-1-1-node")
+	serviceNameParts := strings.Split(service, "-")
+	if (len(serviceNameParts) >= 2) && (serviceNameParts[1] == serviceSuffix_Elp) {
+		return nil
+	}
+	switch component {
+	case manager.DeployComponent_Ceramic:
+		// All clusters have Ceramic nodes
+		if strings.Contains(service, serviceSuffix_CeramicNode) {
+			return &manager.Task{Name: containerName_CeramicNode}
+		}
+	case manager.DeployComponent_Ipfs:
+		// All clusters have IPFS nodes
+		if strings.Contains(service, serviceSuffix_IpfsNode) {
+			return &manager.Task{Name: containerName_IpfsNode}
+		}
+	case manager.DeployComponent_Cas:
+		if (cluster == "ceramic-"+d.env+"-cas") && strings.Contains(service, serviceSuffix_CasApi) {
+			return &manager.Task{Name: containerName_CasApi}
+		}
+	case manager.DeployComponent_CasV5:
+		if (cluster == "app-cas-"+d.env) && strings.Contains(service, serviceSuffix_CasScheduler) {
+			return &manager.Task{Name: containerName_CasV5Scheduler}
+		}
+	default:
+		log.Printf("componentTask: unknown component: %s", component)
+	}
+	return nil
+}
+
+func (d deployJob) componentEcrRepo(component manager.DeployComponent) (string, error) {
+	switch component {
+	case manager.DeployComponent_Ceramic:
+		return "ceramic-prod", nil
+	case manager.DeployComponent_Ipfs:
+		return "go-ipfs-prod", nil
+	case manager.DeployComponent_Cas:
+		return "ceramic-prod-cas", nil
+	case manager.DeployComponent_CasV5:
+		return "app-cas-scheduler", nil
+	default:
+		return "", fmt.Errorf("componentTask: unknown component: %s", component)
+	}
+}
+
+func (d deployJob) envBranch(component manager.DeployComponent, env manager.EnvType) string {
+	switch env {
+	case manager.EnvType_Dev:
+		return envBranch_Dev
+	case manager.EnvType_Qa:
+		// Ceramic and CAS "qa" deploys correspond to the "develop" branch
+		switch component {
+		case manager.DeployComponent_Ceramic:
+			return envBranch_Dev
+		case manager.DeployComponent_Cas:
+			return envBranch_Dev
+		case manager.DeployComponent_CasV5:
+			return envBranch_Dev
+		default:
+			return envBranch_Qa
+		}
+	case manager.EnvType_Tnet:
+		return envBranch_Tnet
+	case manager.EnvType_Prod:
+		return envBranch_Prod
+	default:
+		return ""
 	}
 }

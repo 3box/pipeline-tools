@@ -30,9 +30,16 @@ type ecsFailure struct {
 	arn, detail, reason string
 }
 
+const (
+	deployType_Service string = "service"
+	deployType_Task    string = "task"
+)
+
+const resourceTag = "Ceramic"
+
 func NewEcs(cfg aws.Config) manager.Deployment {
 	ecrUri := os.Getenv("AWS_ACCOUNT_ID") + ".dkr.ecr." + os.Getenv("AWS_REGION") + ".amazonaws.com/"
-	return &Ecs{ecs.NewFromConfig(cfg), ssm.NewFromConfig(cfg), manager.EnvType(os.Getenv("ENV")), ecrUri}
+	return &Ecs{ecs.NewFromConfig(cfg), ssm.NewFromConfig(cfg), manager.EnvType(os.Getenv(manager.EnvVar_Env)), ecrUri}
 }
 
 func (e Ecs) LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error) {
@@ -106,124 +113,29 @@ func (e Ecs) CheckTask(cluster, taskDefId string, running, stable bool, taskIds 
 	return tasksFound && tasksInState, nil
 }
 
-func (e Ecs) GenerateEnvLayout(component manager.DeployComponent) (*manager.Layout, error) {
-	privateCluster := manager.CeramicEnvPfx()
-	publicCluster := manager.CeramicEnvPfx() + "-ex"
-	casCluster := manager.CeramicEnvPfx() + "-cas"
-	casV5Cluster := "app-cas-" + string(e.env)
-	ecrRepo, err := e.componentEcrRepo(component)
-	if err != nil {
-		log.Printf("generateEnvLayout: ecr repo error: %s, %v", component, err)
-		return nil, err
-	}
-	// Populate the service layout by retrieving the clusters/services from ECS
-	layout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: ecrRepo}
-	casSchedulerFound := false
-	for _, cluster := range []string{privateCluster, publicCluster, casCluster, casV5Cluster} {
+func (e Ecs) GetLayout(clusters []string) (*manager.Layout, error) {
+	layout := &manager.Layout{Clusters: map[string]*manager.Cluster{}}
+	for _, cluster := range clusters {
 		if clusterServices, err := e.listEcsServices(cluster); err != nil {
-			log.Printf("generateEnvLayout: list services error: %s, %v", cluster, err)
+			log.Printf("getLayout: list services error: %s, %v", cluster, err)
 			return nil, err
-		} else {
+		} else if len(clusterServices.ServiceArns) > 0 {
+			layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
 			for _, serviceArn := range clusterServices.ServiceArns {
 				service := e.serviceNameFromArn(serviceArn)
-				if task := e.componentTask(component, cluster, service); task != nil {
-					if _, found := layout.Clusters[cluster]; !found {
-						// We found at least one matching task, so we can start populating the cluster layout.
-						layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
-					}
-					descSvcOutput, err := e.describeEcsService(cluster, service)
-					if err != nil {
-						log.Printf("generateEnvLayout: describe service error: %s, %s, %v", cluster, service, err)
-						return nil, err
-					}
-					// Set the task definition to the one currently running. For most cases, this will be overwritten by
-					// a new definition, but for some cases, we might want to use a layout with currently running
-					// definitions and not updated ones, e.g. to check if an existing deployment is stable.
-					task.Id = *descSvcOutput.Services[0].TaskDefinition
-					layout.Clusters[cluster].ServiceTasks.Tasks[service] = task
-					casSchedulerFound = casSchedulerFound ||
-						((component == manager.DeployComponent_Cas) && strings.Contains(service, manager.ServiceSuffix_CasScheduler))
+				ecsService, err := e.describeEcsService(cluster, service)
+				if err != nil {
+					log.Printf("getLayout: describe service error: %s, %s, %v", cluster, service, err)
+					return nil, err
 				}
+				layout.Clusters[cluster].ServiceTasks.Tasks[service] = &manager.Task{Id: *ecsService.Services[0].TaskDefinition}
 			}
 		}
-	}
-	// If the CAS Scheduler service was present, add the CASv2 worker to the layout since it doesn't get updated through
-	// an ECS Service.
-	if casSchedulerFound {
-		layout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
-			casCluster + "-" + manager.ServiceSuffix_CasWorker: {
-				Repo: "ceramic-prod-cas-runner",
-				Temp: true, // Anchor workers do not stay up permanently
-				Name: manager.ContainerName_CasWorker,
-			},
-		}}
 	}
 	return layout, nil
 }
 
-func (e Ecs) componentTask(component manager.DeployComponent, cluster, service string) *manager.Task {
-	// Skip any ELP services (e.g. "ceramic-elp-1-1-node")
-	serviceNameParts := strings.Split(service, "-")
-	if (len(serviceNameParts) >= 2) && (serviceNameParts[1] == manager.ServiceSuffix_Elp) {
-		return nil
-	}
-	switch component {
-	case manager.DeployComponent_Ceramic:
-		if strings.Contains(service, manager.ServiceSuffix_CeramicNode) {
-			return &manager.Task{Name: manager.ContainerName_CeramicNode}
-		}
-	case manager.DeployComponent_Ipfs:
-		if strings.Contains(service, manager.ServiceSuffix_IpfsNode) {
-			return &manager.Task{Name: manager.ContainerName_IpfsNode}
-		}
-	case manager.DeployComponent_Cas:
-		// All pre-CASv5 services are only present in the CAS cluster
-		if cluster == manager.CeramicEnvPfx()+"-cas" {
-			// Until all environments are moved to CASv2, the CAS Scheduler (CASv2) and CAS Worker (CASv1) ECS Services will
-			// exist in some environments and not others. This is ok because only if a service exists in an environment will
-			// we attempt to update it during a deployment.
-			if strings.Contains(service, manager.ServiceSuffix_CasApi) {
-				return &manager.Task{Name: manager.ContainerName_CasApi}
-			} else if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
-				// CASv2
-				return &manager.Task{Name: manager.ContainerName_CasScheduler}
-			} else if strings.Contains(service, manager.ServiceSuffix_CasWorker) { // CASv1
-				return &manager.Task{
-					Repo: "ceramic-prod-cas-runner",
-					Temp: true, // Anchor workers do not stay up permanently
-					Name: manager.ContainerName_CasWorker,
-				}
-			}
-		}
-	case manager.DeployComponent_CasV5:
-		// All CASv5 services will exist in a separate "app-cas" cluster
-		if cluster == "app-cas-"+string(e.env) {
-			if strings.Contains(service, manager.ServiceSuffix_CasScheduler) {
-				return &manager.Task{Name: manager.ContainerName_CasV5Scheduler}
-			}
-		}
-	default:
-		log.Printf("componentTask: unknown component: %s", component)
-	}
-	return nil
-}
-
-func (e Ecs) componentEcrRepo(component manager.DeployComponent) (string, error) {
-	switch component {
-	case manager.DeployComponent_Ceramic:
-		return "ceramic-prod", nil
-	case manager.DeployComponent_Ipfs:
-		return "go-ipfs-prod", nil
-	case manager.DeployComponent_Cas:
-		return "ceramic-prod-cas", nil
-	case manager.DeployComponent_CasV5:
-		return "app-cas-scheduler", nil
-	default:
-		return "", fmt.Errorf("componentTask: unknown component: %s", component)
-	}
-}
-
-func (e Ecs) UpdateEnv(layout *manager.Layout, commitHash string) error {
+func (e Ecs) UpdateLayout(layout *manager.Layout, commitHash string) error {
 	for clusterName, cluster := range layout.Clusters {
 		clusterRepo := layout.Repo
 		if len(cluster.Repo) > 0 {
@@ -236,7 +148,7 @@ func (e Ecs) UpdateEnv(layout *manager.Layout, commitHash string) error {
 	return nil
 }
 
-func (e Ecs) CheckEnv(layout *manager.Layout) (bool, error) {
+func (e Ecs) CheckLayout(layout *manager.Layout) (bool, error) {
 	for clusterName, cluster := range layout.Clusters {
 		if deployed, err := e.checkEnvCluster(cluster, clusterName); err != nil {
 			return false, err
@@ -294,7 +206,7 @@ func (e Ecs) runEcsTask(cluster, family, container string, networkConfig *types.
 		LaunchType:           "FARGATE",
 		NetworkConfiguration: networkConfig,
 		StartedBy:            aws.String(manager.ServiceName),
-		Tags:                 []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
+		Tags:                 []types.Tag{{Key: aws.String(resourceTag), Value: aws.String(string(e.env))}},
 	}
 	if (overrides != nil) && (len(overrides) > 0) {
 		overrideEnv := make([]types.KeyValuePair, 0, len(overrides))
@@ -348,7 +260,7 @@ func (e Ecs) updateEcsTaskDefinition(taskDefArn, image, containerName string) (s
 				RuntimePlatform:         taskDef.RuntimePlatform,
 				TaskRoleArn:             taskDef.TaskRoleArn,
 				Volumes:                 taskDef.Volumes,
-				Tags:                    []types.Tag{{Key: aws.String(manager.ResourceTag), Value: aws.String(string(e.env))}},
+				Tags:                    []types.Tag{{Key: aws.String(resourceTag), Value: aws.String(string(e.env))}},
 			}
 			if regTaskDefOutput, err := e.ecsClient.RegisterTaskDefinition(ctx, regTaskDefInput); err != nil {
 				log.Printf("updateEcsTaskDefinition: register task def error: %s, %s, %s, %v", taskDefArn, image, containerName, err)
@@ -508,15 +420,15 @@ func (e Ecs) listEcsTasks(cluster, family string) ([]string, error) {
 }
 
 func (e Ecs) updateEnvCluster(cluster *manager.Cluster, clusterName, clusterRepo, commitHash string) error {
-	if err := e.updateEnvTaskSet(cluster.ServiceTasks, manager.DeployType_Service, clusterName, clusterRepo, commitHash); err != nil {
+	if err := e.updateEnvTaskSet(cluster.ServiceTasks, deployType_Service, clusterName, clusterRepo, commitHash); err != nil {
 		return err
-	} else if err = e.updateEnvTaskSet(cluster.Tasks, manager.DeployType_Task, clusterName, clusterRepo, commitHash); err != nil {
+	} else if err = e.updateEnvTaskSet(cluster.Tasks, deployType_Task, clusterName, clusterRepo, commitHash); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType manager.DeployType, cluster, clusterRepo, commitHash string) error {
+func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType string, cluster, clusterRepo, commitHash string) error {
 	if taskSet != nil {
 		for taskSetName, task := range taskSet.Tasks {
 			taskSetRepo := clusterRepo
@@ -524,11 +436,11 @@ func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType manager.Deplo
 				taskSetRepo = taskSet.Repo
 			}
 			switch deployType {
-			case manager.DeployType_Service:
+			case deployType_Service:
 				if err := e.updateEnvServiceTask(task, cluster, taskSetName, taskSetRepo, commitHash); err != nil {
 					return err
 				}
-			case manager.DeployType_Task:
+			case deployType_Task:
 				if err := e.updateEnvTask(task, cluster, taskSetName, taskSetRepo, commitHash); err != nil {
 					return err
 				}
@@ -567,29 +479,29 @@ func (e Ecs) updateEnvTask(task *manager.Task, cluster, taskName, taskSetRepo, c
 }
 
 func (e Ecs) checkEnvCluster(cluster *manager.Cluster, clusterName string) (bool, error) {
-	if deployed, err := e.checkEnvTaskSet(cluster.ServiceTasks, manager.DeployType_Service, clusterName); err != nil {
+	if deployed, err := e.checkEnvTaskSet(cluster.ServiceTasks, deployType_Service, clusterName); err != nil {
 		return false, err
 	} else if !deployed {
 		return false, nil
-	} else if deployed, err = e.checkEnvTaskSet(cluster.Tasks, manager.DeployType_Task, clusterName); err != nil {
+	} else if deployed, err = e.checkEnvTaskSet(cluster.Tasks, deployType_Task, clusterName); err != nil {
 		return false, err
 	} else {
 		return deployed, nil
 	}
 }
 
-func (e Ecs) checkEnvTaskSet(taskSet *manager.TaskSet, deployType manager.DeployType, cluster string) (bool, error) {
+func (e Ecs) checkEnvTaskSet(taskSet *manager.TaskSet, deployType string, cluster string) (bool, error) {
 	if taskSet != nil {
 		for _, task := range taskSet.Tasks {
 			switch deployType {
-			case manager.DeployType_Service:
+			case deployType_Service:
 				if deployed, err := e.checkEcsService(cluster, task.Id); err != nil {
 					return false, err
 				} else if !deployed {
 					return false, nil
 				}
 				return true, nil
-			case manager.DeployType_Task:
+			case deployType_Task:
 				// Only check tasks that are meant to stay up permanently
 				if !task.Temp {
 					if deployed, err := e.CheckTask(cluster, "", true, true, task.Id); err != nil {

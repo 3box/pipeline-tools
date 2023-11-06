@@ -65,9 +65,7 @@ func (a anchorNotif) getColor() discordColor {
 			return discordColor_Alert
 		} else if delayed, _ := a.state.Params[job.AnchorJobParam_Delayed].(bool); delayed {
 			return discordColor_Warning
-		} else {
-			return discordColor_Info
 		}
 	}
-	return getColorForStage(a.state.Stage)
+	return colorForStage(a.state.Stage)
 }

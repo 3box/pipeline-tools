@@ -3,12 +3,14 @@ package manager
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"time"
 
 	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
+
+const commitHashRegex = "[0-9a-f]{40}"
+const casV5Version = "5"
 
 func PrintJob(jobStates ...job.JobState) string {
 	prettyString := ""
@@ -20,46 +22,6 @@ func PrintJob(jobStates ...job.JobState) string {
 		prettyString += "\n" + string(prettyBytes)
 	}
 	return prettyString
-}
-
-func EnvName(env EnvType) string {
-	switch env {
-	case EnvType_Dev:
-		return EnvName_Dev
-	case EnvType_Qa:
-		return EnvName_Qa
-	case EnvType_Tnet:
-		return EnvName_Tnet
-	case EnvType_Prod:
-		return EnvName_Prod
-	default:
-		return ""
-	}
-}
-
-func EnvBranch(component DeployComponent, env EnvType) string {
-	switch env {
-	case EnvType_Dev:
-		return EnvBranch_Dev
-	case EnvType_Qa:
-		// Ceramic and CAS "qa" deploys correspond to the "develop" branch
-		switch component {
-		case DeployComponent_Ceramic:
-			return EnvBranch_Dev
-		case DeployComponent_Cas:
-			return EnvBranch_Dev
-		case DeployComponent_CasV5:
-			return EnvBranch_Dev
-		default:
-			return EnvBranch_Qa
-		}
-	case EnvType_Tnet:
-		return EnvBranch_Tnet
-	case EnvType_Prod:
-		return EnvBranch_Prod
-	default:
-		return ""
-	}
 }
 
 func ComponentRepo(component DeployComponent) DeployRepo {
@@ -77,35 +39,14 @@ func ComponentRepo(component DeployComponent) DeployRepo {
 	}
 }
 
-func NotifField(jt job.JobType) string {
-	switch jt {
-	case job.JobType_Deploy:
-		return NotifField_Deploy
-	case job.JobType_Anchor:
-		return NotifField_Anchor
-	case job.JobType_TestE2E:
-		return NotifField_TestE2E
-	case job.JobType_TestSmoke:
-		return NotifField_TestSmoke
-	case job.JobType_Workflow:
-		return NotifField_Workflow
-	default:
-		return ""
-	}
-}
-
-func CeramicEnvPfx() string {
-	return "ceramic-" + os.Getenv("ENV")
-}
-
 func IsValidSha(sha string) bool {
-	isValidSha, err := regexp.MatchString(CommitHashRegex, sha)
+	isValidSha, err := regexp.MatchString(commitHashRegex, sha)
 	return err == nil && isValidSha
 }
 
 func IsV5WorkerJob(jobState job.JobState) bool {
 	if jobState.Type == job.JobType_Anchor {
-		if version, found := jobState.Params[job.AnchorJobParam_Version].(string); found && (version == CasV5Version) {
+		if version, found := jobState.Params[job.AnchorJobParam_Version].(string); found && (version == casV5Version) {
 			return true
 		}
 	}
