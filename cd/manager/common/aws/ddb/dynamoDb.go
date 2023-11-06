@@ -38,9 +38,9 @@ const buildHashTag = "sha_tag"
 // buildState represents build/deploy commit hash information. This information is maintained in a legacy DynamoDB table
 // used by our utility AWS Lambdas.
 type buildState struct {
-	key       manager.DeployComponent `dynamodbav:"key"`
-	deployTag string                  `dynamodbav:"deployTag"`
-	buildInfo map[string]interface{}  `dynamodbav:"buildInfo"`
+	Key       manager.DeployComponent `dynamodbav:"key"`
+	DeployTag string                  `dynamodbav:"deployTag"`
+	BuildInfo map[string]interface{}  `dynamodbav:"buildInfo"`
 }
 
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
@@ -368,7 +368,7 @@ func (db DynamoDb) GetBuildHashes() (map[manager.DeployComponent]string, error) 
 	} else {
 		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
 		for _, state := range buildStates {
-			commitHashes[state.key] = state.buildInfo[buildHashTag].(string)
+			commitHashes[state.Key] = state.BuildInfo[buildHashTag].(string)
 		}
 		return commitHashes, nil
 	}
@@ -380,7 +380,7 @@ func (db DynamoDb) GetDeployHashes() (map[manager.DeployComponent]string, error)
 	} else {
 		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
 		for _, state := range buildStates {
-			commitHashes[state.key] = state.deployTag
+			commitHashes[state.Key] = state.DeployTag
 		}
 		return commitHashes, nil
 	}
