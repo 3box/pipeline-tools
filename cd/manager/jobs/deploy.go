@@ -190,11 +190,11 @@ func (d deployJob) checkEnv() (bool, error) {
 	layout, _ := d.state.Params[job.DeployJobParam_Layout].(manager.Layout)
 	if deployed, err := d.d.CheckLayout(&layout); err != nil {
 		return false, err
-	} else if !deployed || (d.component != manager.DeployComponent_Ipfs) {
+	} else if !deployed || ((d.component != manager.DeployComponent_Ipfs) && (d.component != manager.DeployComponent_RustCeramic)) {
 		return deployed, nil
 	} else
-	// Make sure that after IPFS is deployed, we find Ceramic tasks that have been stable for a few minutes before
-	// marking the job complete.
+	// Make sure that after IPFS or rust-ceramic is deployed, we find Ceramic tasks that have been stable for a few
+	// minutes before marking the job complete.
 	//
 	// In this case, we want to check whether *some* version of Ceramic is stable and not any specific version, like we
 	// normally do when checking for successful deployments, so it's OK to rebuild the Ceramic layout on-the-fly each
