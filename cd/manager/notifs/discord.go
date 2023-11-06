@@ -28,14 +28,14 @@ const (
 )
 
 const (
-	notifField_CommitHashes string = "Commit Hashes"
-	notifField_JobId        string = "Job ID"
-	notifField_Time         string = "Time"
-	notifField_Deploy       string = "Deployment(s)"
-	notifField_Anchor       string = "Anchor Worker(s)"
-	notifField_TestE2E      string = "E2E Tests"
-	notifField_TestSmoke    string = "Smoke Tests"
-	notifField_Workflow     string = "Workflow(s)"
+	notifField_References string = "References"
+	notifField_JobId      string = "Job ID"
+	notifField_Time       string = "Time"
+	notifField_Deploy     string = "Deployment(s)"
+	notifField_Anchor     string = "Anchor Worker(s)"
+	notifField_TestE2E    string = "E2E Tests"
+	notifField_TestSmoke  string = "Smoke Tests"
+	notifField_Workflow   string = "Workflow(s)"
 )
 
 const discordPacing = 2 * time.Second
@@ -144,11 +144,11 @@ func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 			Value: jobState.JobId,
 		},
 	}
-	// Return deploy hashes for all jobs, if we were able to retrieve them successfully.
-	if commitHashes := n.getDeployHashes(jobState); len(commitHashes) > 0 {
+	// Return deploy tags for all jobs if we were able to retrieve them successfully.
+	if deployTags := n.getDeployTags(jobState); len(deployTags) > 0 {
 		fields = append(fields, discord.EmbedField{
-			Name:  notifField_CommitHashes,
-			Value: commitHashes,
+			Name:  notifField_References,
+			Value: deployTags,
 		})
 	}
 	fields = append(fields, discord.EmbedField{
@@ -162,31 +162,38 @@ func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 	return fields
 }
 
-func (n JobNotifs) getDeployHashes(jobState job.JobState) string {
-	if commitHashes, err := n.db.GetDeployHashes(); err != nil {
+func (n JobNotifs) getDeployTags(jobState job.JobState) string {
+	if deployTags, err := n.db.GetDeployTags(); err != nil {
 		return ""
 	} else {
 		if jobState.Type == job.JobType_Deploy {
-			sha := jobState.Params[job.DeployJobParam_Sha].(string)
-			// If the specified hash is valid, overwrite the previous hash from the database.
-			if manager.IsValidSha(sha) {
-				commitHashes[manager.DeployComponent(jobState.Params[job.DeployJobParam_Component].(string))] = sha
+			if deployTag, found := jobState.Params[job.DeployJobParam_DeployTag].(string); found {
+				// This should always be present
+				sha := jobState.Params[job.DeployJobParam_Sha].(string)
+				deployTags[manager.DeployComponent(jobState.Params[job.DeployJobParam_Component].(string))] = deployTag + "," + sha
 			}
 		}
 		// Prepare component messages with GitHub commit hashes and hyperlinks
-		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, commitHashes)
-		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, commitHashes)
-		casV5Msg := n.getComponentMsg(manager.DeployComponent_CasV5, commitHashes)
-		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, commitHashes)
-		rustCeramicMsg := n.getComponentMsg(manager.DeployComponent_RustCeramic, commitHashes)
+		ceramicMsg := n.getComponentMsg(manager.DeployComponent_Ceramic, deployTags)
+		casMsg := n.getComponentMsg(manager.DeployComponent_Cas, deployTags)
+		casV5Msg := n.getComponentMsg(manager.DeployComponent_CasV5, deployTags)
+		ipfsMsg := n.getComponentMsg(manager.DeployComponent_Ipfs, deployTags)
+		rustCeramicMsg := n.getComponentMsg(manager.DeployComponent_RustCeramic, deployTags)
 		return n.combineComponentMsgs(ceramicMsg, casMsg, casV5Msg, ipfsMsg, rustCeramicMsg)
 	}
 }
 
-func (n JobNotifs) getComponentMsg(component manager.DeployComponent, commitHashes map[manager.DeployComponent]string) string {
-	if commitHash, found := commitHashes[component]; found && (len(commitHash) >= shaTagLength) {
+func (n JobNotifs) getComponentMsg(component manager.DeployComponent, deployTags map[manager.DeployComponent]string) string {
+	if deployTag, found := deployTags[component]; found && len(deployTag) > 0 {
 		if repo, err := manager.ComponentRepo(component); err == nil {
-			return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo.Name, commitHash[:shaTagLength], repo.Org, repo.Name, commitHash)
+			deployTagParts := strings.Split(deployTag, ",")
+			tagString := deployTagParts[0]
+			// Check if we have metadata associated with the deployed tag
+			if (len(deployTagParts) > 1) && (deployTagParts[1] == job.DeployJobTarget_Release) {
+				return fmt.Sprintf("[%s (v%s)](https://github.com/%s/%s/releases/tag/v%s)", repo.Name, tagString, repo.Org, repo.Name, tagString)
+			} else if manager.IsValidSha(tagString) {
+				return fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/commit/%s)", repo.Name, tagString[:shaTagLength], repo.Org, repo.Name, tagString)
+			}
 		}
 	}
 	return ""

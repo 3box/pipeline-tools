@@ -500,18 +500,27 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 						log.Printf("postProcessJob: failed to queue test workflow after deploy: %v, %s", err, manager.PrintJob(jobState))
 					}
 				}
-			// For failed deployments, rollback to the previously deployed commit hash.
+			// For failed deployments, rollback to the previously deployed tag.
 			case job.JobStage_Failed:
 				{
 					// Only rollback if this wasn't already a rollback attempt that failed
 					if rollback, _ := jobState.Params[job.DeployJobParam_Rollback].(bool); !rollback {
-						if _, err := m.NewJob(job.JobState{
+						if component, found := jobState.Params[job.DeployJobParam_Component].(string); !found {
+							log.Printf("postProcessJob: missing component (ceramic, ipfs, cas, casv5, rust-ceramic): %s", manager.PrintJob(jobState))
+						} else
+						// Get the latest deployed tag from the database. We're getting this from the build tags because
+						// the last successfully deployed tag would have been the same as the current build tag.
+						if buildTags, err := m.db.GetBuildTags(); err != nil {
+							log.Printf("postProcessJob: failed to retrieve build tags: %v, %s", err, manager.PrintJob(jobState))
+						} else if buildTag, found := buildTags[manager.DeployComponent(component)]; !found {
+							log.Printf("postProcessJob: missing component build tag: %s, %s", component, manager.PrintJob(jobState))
+						} else if _, err := m.NewJob(job.JobState{
 							Type: job.JobType_Deploy,
 							Params: map[string]interface{}{
 								job.DeployJobParam_Component: jobState.Params[job.DeployJobParam_Component],
 								job.DeployJobParam_Rollback:  true,
-								// Make the job lookup the last successfully deployed commit hash from the database
-								job.DeployJobParam_Sha: ".",
+								job.DeployJobParam_Sha:       job.DeployJobTarget_Rollback,
+								job.DeployJobParam_ShaTag:    buildTag,
 								// No point in waiting for other jobs to complete before redeploying a working image
 								job.DeployJobParam_Force: true,
 								job.JobParam_Source:      manager.ServiceName,

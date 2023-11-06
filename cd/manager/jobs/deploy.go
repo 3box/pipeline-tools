@@ -19,6 +19,8 @@ type deployJob struct {
 	baseJob
 	component manager.DeployComponent
 	sha       string
+	shaTag    string
+	deployTag string
 	manual    bool
 	rollback  bool
 	force     bool
@@ -53,19 +55,21 @@ const (
 )
 
 const defaultFailureTime = 30 * time.Minute
-const buildHashLatest = "latest"
 const anchorWorkerRepo = "ceramic-prod-cas-runner"
 
 func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment, repo manager.Repository) (manager.JobSm, error) {
 	if component, found := jobState.Params[job.DeployJobParam_Component].(string); !found {
-		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas)")
+		return nil, fmt.Errorf("deployJob: missing component (ceramic, ipfs, cas, casv5, rust-ceramic)")
 	} else if sha, found := jobState.Params[job.DeployJobParam_Sha].(string); !found {
-		return nil, fmt.Errorf("deployJob: missing sha")
+		return nil, fmt.Errorf("deployJob: missing target")
+	} else if shaTag, found := jobState.Params[job.DeployJobParam_ShaTag].(string); !found {
+		return nil, fmt.Errorf("deployJob: missing tag")
 	} else {
+		deployTag, _ := jobState.Params[job.DeployJobParam_DeployTag].(string)
 		manual, _ := jobState.Params[job.DeployJobParam_Manual].(bool)
 		rollback, _ := jobState.Params[job.DeployJobParam_Rollback].(bool)
 		force, _ := jobState.Params[job.DeployJobParam_Force].(bool)
-		return &deployJob{baseJob{jobState, db, notifs}, manager.DeployComponent(component), sha, manual, rollback, force, os.Getenv(manager.EnvVar_Env), d, repo}, nil
+		return &deployJob{baseJob{jobState, db, notifs}, manager.DeployComponent(component), sha, shaTag, deployTag, manual, rollback, force, os.Getenv(manager.EnvVar_Env), d, repo}, nil
 	}
 }
 
@@ -74,14 +78,17 @@ func (d deployJob) Advance() (job.JobState, error) {
 	switch d.state.Stage {
 	case job.JobStage_Queued:
 		{
-			if deployHashes, err := d.db.GetDeployHashes(); err != nil {
+			if deployTags, err := d.db.GetDeployTags(); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
-			} else if err = d.prepareJob(deployHashes); err != nil {
+			} else if err = d.prepareJob(deployTags); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
-			} else if !d.manual && !d.force && (d.sha == deployHashes[d.component]) {
-				// Skip automated jobs if the commit hash being deployed is the same as the commit hash already
-				// deployed. We don't do this for manual jobs because deploying an already deployed hash might be
-				// intentional, or for force deploys/rollbacks because we WANT to push through such deployments.
+			} else if deployTag, found := d.state.Params[job.DeployJobParam_DeployTag].(string); found &&
+				!d.manual && !d.force &&
+				(deployTag == strings.Split(deployTags[d.component], ",")[0]) {
+				// Skip automated jobs if the tag being deployed is the same as the tag already deployed. We don't do
+				// this for manual jobs because deploying an already deployed tag might be intentional, or for force
+				// deploys/rollbacks because we WANT to push through such deployments.
+				//
 				// Rollbacks are also force deploys, so we don't need to check for the former explicitly since we're
 				// already checking for force deploys.
 				return d.advance(job.JobStage_Skipped, now, nil)
@@ -96,14 +103,14 @@ func (d deployJob) Advance() (job.JobState, error) {
 		}
 	case job.JobStage_Dequeued:
 		{
-			if err := d.updateEnv(d.sha); err != nil {
+			if err := d.updateEnv(); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else {
 				d.state.Params[job.JobParam_Start] = float64(time.Now().UnixNano())
-				// For started deployments update the build commit hash in the DB.
-				if err = d.db.UpdateBuildHash(d.component, d.sha); err != nil {
+				// For started deployments update the build tag in the DB
+				if err = d.db.UpdateBuildTag(d.component, d.deployTag); err != nil {
 					// This isn't an error big enough to fail the job, just report and move on.
-					log.Printf("deployJob: failed to update build hash: %v, %s", err, manager.PrintJob(d.state))
+					log.Printf("deployJob: failed to update build tag: %v, %s", err, manager.PrintJob(d.state))
 				}
 				return d.advance(job.JobStage_Started, now, nil)
 			}
@@ -113,10 +120,10 @@ func (d deployJob) Advance() (job.JobState, error) {
 			if deployed, err := d.checkEnv(); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else if deployed {
-				// For completed deployments update the deployed commit hash in the DB.
-				if err = d.db.UpdateDeployHash(d.component, d.sha); err != nil {
+				// For completed deployments update the deployed tag in the DB, and append the deployment target.
+				if err = d.db.UpdateDeployTag(d.component, d.deployTag+","+d.sha); err != nil {
 					// This isn't an error big enough to fail the job, just report and move on.
-					log.Printf("deployJob: failed to update deploy hash: %v, %s", err, manager.PrintJob(d.state))
+					log.Printf("deployJob: failed to update deploy tag: %v, %s", err, manager.PrintJob(d.state))
 				}
 				return d.advance(job.JobStage_Completed, now, nil)
 			} else if job.IsTimedOut(d.state, defaultFailureTime) {
@@ -137,52 +144,52 @@ func (d deployJob) Advance() (job.JobState, error) {
 	}
 }
 
-func (d deployJob) prepareJob(deployHashes map[manager.DeployComponent]string) error {
+func (d deployJob) prepareJob(deployTags map[manager.DeployComponent]string) error {
+	deployTag := ""
+	manual := false
 	if d.rollback {
-		// Use the latest successfully deployed commit hash when rolling back
-		d.sha = deployHashes[d.component]
+		// Use the latest successfully deployed tag when rolling back
+		deployTag = deployTags[d.component]
 	} else
-	// - If the specified commit hash is "latest", fetch the latest branch commit hash from GitHub.
+	// - If the specified deployment target is "latest", fetch the latest branch commit hash from GitHub.
+	// - Else if the specified deployment target is "release", use the specified release tag.
 	// - Else if it's a valid hash, use it.
-	// - Else use the latest build hash from the database.
+	// - Else use the last successfully deployed target from the database.
 	//
-	// The last two cases will only happen when redeploying manually, so we can note that in the notification.
-	if d.sha == buildHashLatest {
-		shaTag, _ := d.state.Params[job.DeployJobParam_ShaTag].(string)
+	// The last 3 cases will only happen when (re)deploying manually, so we can note that in the notification.
+	if d.sha == job.DeployJobTarget_Latest {
 		if repo, err := manager.ComponentRepo(d.component); err != nil {
 			return err
 		} else if latestSha, err := d.repo.GetLatestCommitHash(
 			repo.Org,
 			repo.Name,
 			d.envBranch(d.component, manager.EnvType(os.Getenv(manager.EnvVar_Env))),
-			shaTag,
+			d.shaTag,
 		); err != nil {
 			return err
 		} else {
-			d.sha = latestSha
+			deployTag = latestSha
 		}
+	} else if (d.sha == job.DeployJobTarget_Release) || (d.sha == job.DeployJobTarget_Rollback) {
+		deployTag = d.shaTag
+		manual = true
+	} else if manager.IsValidSha(d.sha) {
+		deployTag = d.sha
+		manual = true
 	} else {
-		if !manager.IsValidSha(d.sha) {
-			// Get the latest build commit hash from the database when making a fresh deployment
-			if buildHashes, err := d.db.GetBuildHashes(); err != nil {
-				return err
-			} else {
-				d.sha = buildHashes[d.component]
-			}
-		}
-		d.manual = true
+		return fmt.Errorf("prepareJob: invalid deployment type")
 	}
-	d.state.Params[job.DeployJobParam_Sha] = d.sha
-	if d.manual {
+	d.state.Params[job.DeployJobParam_DeployTag] = deployTag
+	if manual {
 		d.state.Params[job.DeployJobParam_Manual] = true
 	}
 	return nil
 }
 
-func (d deployJob) updateEnv(commitHash string) error {
+func (d deployJob) updateEnv() error {
 	// Layout should already be present
 	layout, _ := d.state.Params[job.DeployJobParam_Layout].(manager.Layout)
-	return d.d.UpdateLayout(&layout, commitHash)
+	return d.d.UpdateLayout(&layout, d.deployTag)
 }
 
 func (d deployJob) checkEnv() (bool, error) {
@@ -213,12 +220,10 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 	casV5Cluster := "app-cas-" + d.env
 	clusters := []string{privateCluster, publicCluster, casCluster, casV5Cluster}
 	if ecrRepo, err := d.componentEcrRepo(component); err != nil {
-		log.Printf("generateEnvLayout: get ecr repo error: %s, %v", component, err)
 		return nil, err
 	} else
 	// Populate the service layout by retrieving the clusters/services from ECS
 	if currentLayout, err := d.d.GetLayout(clusters); err != nil {
-		log.Printf("generateEnvLayout: get layout error: %s, %v", component, err)
 		return nil, err
 	} else {
 		newLayout := &manager.Layout{Clusters: map[string]*manager.Cluster{}, Repo: &ecrRepo}

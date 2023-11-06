@@ -147,13 +147,13 @@ func (e Ecs) GetLayout(clusters []string) (*manager.Layout, error) {
 	return layout, nil
 }
 
-func (e Ecs) UpdateLayout(layout *manager.Layout, commitHash string) error {
+func (e Ecs) UpdateLayout(layout *manager.Layout, deployTag string) error {
 	for clusterName, cluster := range layout.Clusters {
 		clusterRepo := e.getEcrRepo(*layout.Repo) // The main layout repo should never be null
 		if cluster.Repo != nil {
 			clusterRepo = e.getEcrRepo(*cluster.Repo)
 		}
-		if err := e.updateEnvCluster(cluster, clusterName, clusterRepo, commitHash); err != nil {
+		if err := e.updateEnvCluster(cluster, clusterName, clusterRepo, deployTag); err != nil {
 			return err
 		}
 	}
@@ -431,16 +431,16 @@ func (e Ecs) listEcsTasks(cluster, family string) ([]string, error) {
 	return listTasksOutput.TaskArns, nil
 }
 
-func (e Ecs) updateEnvCluster(cluster *manager.Cluster, clusterName, clusterRepo, commitHash string) error {
-	if err := e.updateEnvTaskSet(cluster.ServiceTasks, deployType_Service, clusterName, clusterRepo, commitHash); err != nil {
+func (e Ecs) updateEnvCluster(cluster *manager.Cluster, clusterName, clusterRepo, deployTag string) error {
+	if err := e.updateEnvTaskSet(cluster.ServiceTasks, deployType_Service, clusterName, clusterRepo, deployTag); err != nil {
 		return err
-	} else if err = e.updateEnvTaskSet(cluster.Tasks, deployType_Task, clusterName, clusterRepo, commitHash); err != nil {
+	} else if err = e.updateEnvTaskSet(cluster.Tasks, deployType_Task, clusterName, clusterRepo, deployTag); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType string, cluster, clusterRepo, commitHash string) error {
+func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType string, cluster, clusterRepo, deployTag string) error {
 	if taskSet != nil {
 		for taskSetName, task := range taskSet.Tasks {
 			taskSetRepo := clusterRepo
@@ -449,11 +449,11 @@ func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType string, clust
 			}
 			switch deployType {
 			case deployType_Service:
-				if err := e.updateEnvServiceTask(task, cluster, taskSetName, taskSetRepo, commitHash); err != nil {
+				if err := e.updateEnvServiceTask(task, cluster, taskSetName, taskSetRepo, deployTag); err != nil {
 					return err
 				}
 			case deployType_Task:
-				if err := e.updateEnvTask(task, cluster, taskSetName, taskSetRepo, commitHash); err != nil {
+				if err := e.updateEnvTask(task, cluster, taskSetName, taskSetRepo, deployTag); err != nil {
 					return err
 				}
 			default:
@@ -464,12 +464,12 @@ func (e Ecs) updateEnvTaskSet(taskSet *manager.TaskSet, deployType string, clust
 	return nil
 }
 
-func (e Ecs) updateEnvServiceTask(task *manager.Task, cluster, service, taskSetRepo, commitHash string) error {
+func (e Ecs) updateEnvServiceTask(task *manager.Task, cluster, service, taskSetRepo, deployTag string) error {
 	taskRepo := taskSetRepo
 	if task.Repo != nil {
 		taskRepo = e.getEcrRepo(*task.Repo)
 	}
-	if id, err := e.updateEcsService(cluster, service, taskRepo+":"+commitHash, task.Name, task.Temp); err != nil {
+	if id, err := e.updateEcsService(cluster, service, taskRepo+":"+deployTag, task.Name, task.Temp); err != nil {
 		return err
 	} else {
 		task.Id = id
@@ -477,12 +477,12 @@ func (e Ecs) updateEnvServiceTask(task *manager.Task, cluster, service, taskSetR
 	}
 }
 
-func (e Ecs) updateEnvTask(task *manager.Task, cluster, taskName, taskSetRepo, commitHash string) error {
+func (e Ecs) updateEnvTask(task *manager.Task, cluster, taskName, taskSetRepo, deployTag string) error {
 	taskRepo := taskSetRepo
 	if task.Repo != nil {
 		taskRepo = e.getEcrRepo(*task.Repo)
 	}
-	if id, err := e.updateEcsTask(cluster, taskName, taskRepo+":"+commitHash, task.Name, task.Temp); err != nil {
+	if id, err := e.updateEcsTask(cluster, taskName, taskRepo+":"+deployTag, task.Name, task.Temp); err != nil {
 		return err
 	} else {
 		task.Id = id

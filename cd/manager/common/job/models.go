@@ -42,10 +42,17 @@ const (
 	DeployJobParam_Component string = "component"
 	DeployJobParam_Sha       string = "sha"
 	DeployJobParam_ShaTag    string = "shaTag"
+	DeployJobParam_DeployTag string = "deployTag"
 	DeployJobParam_Layout    string = "layout"
 	DeployJobParam_Manual    string = "manual"
 	DeployJobParam_Force     string = "force"
 	DeployJobParam_Rollback  string = "rollback"
+)
+
+const (
+	DeployJobTarget_Latest   = "latest"
+	DeployJobTarget_Release  = "release"
+	DeployJobTarget_Rollback = "rollback"
 )
 
 const (

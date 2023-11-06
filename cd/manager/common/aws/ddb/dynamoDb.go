@@ -33,10 +33,10 @@ type DynamoDb struct {
 }
 
 const defaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
-const buildHashTag = "sha_tag"
+const buildTag = "sha_tag"
 
-// buildState represents build/deploy commit hash information. This information is maintained in a legacy DynamoDB table
-// used by our utility AWS Lambdas.
+// buildState represents build/deploy tag information. This information is maintained in a legacy DynamoDB table used by
+// our utility AWS Lambdas.
 type buildState struct {
 	Key       manager.DeployComponent `dynamodbav:"key"`
 	DeployTag string                  `dynamodbav:"deployTag"`
@@ -321,7 +321,7 @@ func (db DynamoDb) WriteJob(jobState job.JobState) error {
 	}
 }
 
-func (db DynamoDb) UpdateBuildHash(component manager.DeployComponent, sha string) error {
+func (db DynamoDb) UpdateBuildTag(component manager.DeployComponent, buildTag string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -336,13 +336,13 @@ func (db DynamoDb) UpdateBuildHash(component manager.DeployComponent, sha string
 			"#shaTag":    "sha_tag",
 		},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":sha": &types.AttributeValueMemberS{Value: sha},
+			":sha": &types.AttributeValueMemberS{Value: buildTag},
 		},
 	})
 	return err
 }
 
-func (db DynamoDb) UpdateDeployHash(component manager.DeployComponent, sha string) error {
+func (db DynamoDb) UpdateDeployTag(component manager.DeployComponent, deployTag string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -356,33 +356,33 @@ func (db DynamoDb) UpdateDeployHash(component manager.DeployComponent, sha strin
 			"#deployTag": "deployTag",
 		},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":sha": &types.AttributeValueMemberS{Value: sha},
+			":sha": &types.AttributeValueMemberS{Value: deployTag},
 		},
 	})
 	return err
 }
 
-func (db DynamoDb) GetBuildHashes() (map[manager.DeployComponent]string, error) {
+func (db DynamoDb) GetBuildTags() (map[manager.DeployComponent]string, error) {
 	if buildStates, err := db.getBuildStates(); err != nil {
 		return nil, err
 	} else {
-		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
+		buildTags := make(map[manager.DeployComponent]string, len(buildStates))
 		for _, state := range buildStates {
-			commitHashes[state.Key] = state.BuildInfo[buildHashTag].(string)
+			buildTags[state.Key] = state.BuildInfo[buildTag].(string)
 		}
-		return commitHashes, nil
+		return buildTags, nil
 	}
 }
 
-func (db DynamoDb) GetDeployHashes() (map[manager.DeployComponent]string, error) {
+func (db DynamoDb) GetDeployTags() (map[manager.DeployComponent]string, error) {
 	if buildStates, err := db.getBuildStates(); err != nil {
 		return nil, err
 	} else {
-		commitHashes := make(map[manager.DeployComponent]string, len(buildStates))
+		deployTags := make(map[manager.DeployComponent]string, len(buildStates))
 		for _, state := range buildStates {
-			commitHashes[state.Key] = state.DeployTag
+			deployTags[state.Key] = state.DeployTag
 		}
-		return commitHashes, nil
+		return deployTags, nil
 	}
 }
 

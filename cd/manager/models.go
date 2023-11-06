@@ -128,10 +128,10 @@ type Database interface {
 	AdvanceJob(job.JobState) error
 	WriteJob(job.JobState) error
 	IterateByType(job.JobType, bool, func(job.JobState) bool) error
-	UpdateBuildHash(DeployComponent, string) error
-	UpdateDeployHash(DeployComponent, string) error
-	GetBuildHashes() (map[DeployComponent]string, error)
-	GetDeployHashes() (map[DeployComponent]string, error)
+	UpdateBuildTag(DeployComponent, string) error
+	UpdateDeployTag(DeployComponent, string) error
+	GetBuildTags() (map[DeployComponent]string, error)
+	GetDeployTags() (map[DeployComponent]string, error)
 }
 
 // Cache represents an in-memory cache for job states
