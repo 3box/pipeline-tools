@@ -115,36 +115,43 @@ func (e Ecs) CheckTask(cluster, taskDefId string, running, stable bool, taskIds 
 }
 
 func (e Ecs) GetLayout(clusters []string) (*manager.Layout, error) {
-	layout := &manager.Layout{Clusters: map[string]*manager.Cluster{}}
-	for _, cluster := range clusters {
-		if clusterServices, err := e.listEcsServices(cluster); err != nil {
-			log.Printf("getLayout: list services error: %s, %v", cluster, err)
-			return nil, err
-		} else if len(clusterServices.ServiceArns) > 0 {
-			layout.Clusters[cluster] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
-			for _, serviceArn := range clusterServices.ServiceArns {
-				service := e.serviceNameFromArn(serviceArn)
-				if ecsService, err := e.describeEcsService(cluster, service); err != nil {
-					log.Printf("getLayout: describe service error: %s, %s, %v", cluster, service, err)
-					return nil, err
-				} else {
-					taskDefArn := *ecsService.Services[0].TaskDefinition
-					containerDefNames := make([]string, 0, 1)
-					if taskDef, err := e.getEcsTaskDefinition(taskDefArn); err != nil {
-						log.Printf("getLayout: get task def error: %s, %s, %s, %v", taskDefArn, cluster, service, err)
+	// First validate and filter the list of clusters since not all clusters might be present in all envs.
+	if descClusterOutput, err := e.describeEcsClusters(clusters); err != nil {
+		log.Printf("getLayout: describe clusters error: %v, %v", clusters, err)
+		return nil, err
+	} else {
+		layout := &manager.Layout{Clusters: map[string]*manager.Cluster{}}
+		for _, cluster := range descClusterOutput.Clusters {
+			clusterName := *cluster.ClusterName
+			if clusterServices, err := e.listEcsServices(clusterName); err != nil {
+				log.Printf("getLayout: list services error: %s, %v", cluster, err)
+				return nil, err
+			} else if len(clusterServices.ServiceArns) > 0 {
+				layout.Clusters[clusterName] = &manager.Cluster{ServiceTasks: &manager.TaskSet{Tasks: map[string]*manager.Task{}}}
+				for _, serviceArn := range clusterServices.ServiceArns {
+					service := e.serviceNameFromArn(serviceArn)
+					if ecsService, err := e.describeEcsService(clusterName, service); err != nil {
+						log.Printf("getLayout: describe service error: %s, %s, %v", cluster, service, err)
 						return nil, err
 					} else {
-						for _, containerDef := range taskDef.ContainerDefinitions {
-							containerDefNames = append(containerDefNames, *containerDef.Name)
+						taskDefArn := *ecsService.Services[0].TaskDefinition
+						containerDefNames := make([]string, 0, 1)
+						if taskDef, err := e.getEcsTaskDefinition(taskDefArn); err != nil {
+							log.Printf("getLayout: get task def error: %s, %s, %s, %v", taskDefArn, cluster, service, err)
+							return nil, err
+						} else {
+							for _, containerDef := range taskDef.ContainerDefinitions {
+								containerDefNames = append(containerDefNames, *containerDef.Name)
+							}
 						}
+						// Return the names of all the containers associated with this task definition
+						layout.Clusters[clusterName].ServiceTasks.Tasks[service] = &manager.Task{Id: taskDefArn, Name: strings.Join(containerDefNames, ",")}
 					}
-					// Return the names of all the containers associated with this task definition
-					layout.Clusters[cluster].ServiceTasks.Tasks[service] = &manager.Task{Id: taskDefArn, Name: strings.Join(containerDefNames, ",")}
 				}
 			}
 		}
+		return layout, nil
 	}
-	return layout, nil
 }
 
 func (e Ecs) UpdateLayout(layout *manager.Layout, deployTag string) error {
@@ -169,6 +176,18 @@ func (e Ecs) CheckLayout(layout *manager.Layout) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (e Ecs) describeEcsClusters(clusters []string) (*ecs.DescribeClustersOutput, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
+	defer cancel()
+
+	if output, err := e.ecsClient.DescribeClusters(ctx, &ecs.DescribeClustersInput{Clusters: clusters}); err != nil {
+		log.Printf("describeEcsClusters: %v", err)
+		return nil, err
+	} else {
+		return output, nil
+	}
 }
 
 func (e Ecs) describeEcsService(cluster, service string) (*ecs.DescribeServicesOutput, error) {
