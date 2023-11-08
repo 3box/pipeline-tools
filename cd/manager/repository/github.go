@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-github/v56/github"
 
 	"github.com/3box/pipeline-tools/cd/manager"
+	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
 var _ manager.Repository = &Github{}
@@ -122,7 +123,7 @@ func (g Github) checkRefStatus(org, repo, ref string) (bool, error) {
 	return false, nil
 }
 
-func (g Github) StartWorkflow(workflow manager.Workflow) error {
+func (g Github) StartWorkflow(workflow job.Workflow) error {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -138,7 +139,7 @@ func (g Github) StartWorkflow(workflow manager.Workflow) error {
 	return nil
 }
 
-func (g Github) FindMatchingWorkflowRun(workflow manager.Workflow, jobId string, searchTime time.Time) (int64, string, error) {
+func (g Github) FindMatchingWorkflowRun(workflow job.Workflow, jobId string, searchTime time.Time) (int64, string, error) {
 	if workflowRuns, count, err := g.getWorkflowRuns(workflow, searchTime); err != nil {
 		return -1, "", err
 	} else if count > 0 {
@@ -161,7 +162,7 @@ func (g Github) FindMatchingWorkflowRun(workflow manager.Workflow, jobId string,
 	return -1, "", nil
 }
 
-func (g Github) getWorkflowRuns(workflow manager.Workflow, searchTime time.Time) ([]*github.WorkflowRun, int, error) {
+func (g Github) getWorkflowRuns(workflow job.Workflow, searchTime time.Time) ([]*github.WorkflowRun, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -192,7 +193,7 @@ func (g Github) getWorkflowJobs(org, repo string, workflowRun *github.WorkflowRu
 	}
 }
 
-func (g Github) CheckWorkflowStatus(workflow manager.Workflow, workflowRunId int64) (manager.WorkflowStatus, error) {
+func (g Github) CheckWorkflowStatus(workflow job.Workflow, workflowRunId int64) (manager.WorkflowStatus, error) {
 	if workflowRun, err := g.getWorkflowRun(workflow.Org, workflow.Repo, workflowRunId); err != nil {
 		return manager.WorkflowStatus_Failure, err
 	} else {

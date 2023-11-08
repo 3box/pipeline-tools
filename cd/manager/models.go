@@ -99,14 +99,6 @@ type Task struct {
 	Name string `dynamodbav:"name,omitempty"` // Container name
 }
 
-type Workflow struct {
-	Org      string
-	Repo     string
-	Workflow string
-	Ref      string
-	Inputs   map[string]interface{}
-}
-
 // JobSm represents job state machine objects processed by the job manager
 type JobSm interface {
 	Advance() (job.JobState, error)
@@ -168,7 +160,7 @@ type Manager interface {
 // Repository represents a git service hosting our repositories (e.g. GitHub)
 type Repository interface {
 	GetLatestCommitHash(org, repo, branch, shaTag string) (string, error)
-	StartWorkflow(Workflow) error
-	FindMatchingWorkflowRun(workflow Workflow, jobId string, searchTime time.Time) (int64, string, error)
-	CheckWorkflowStatus(workflow Workflow, workflowRunId int64) (WorkflowStatus, error)
+	StartWorkflow(job.Workflow) error
+	FindMatchingWorkflowRun(workflow job.Workflow, jobId string, searchTime time.Time) (int64, string, error)
+	CheckWorkflowStatus(workflow job.Workflow, workflowRunId int64) (WorkflowStatus, error)
 }

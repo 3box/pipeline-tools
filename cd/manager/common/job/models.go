@@ -85,3 +85,13 @@ type JobState struct {
 	Id     string                 `dynamodbav:"id" json:"-"`           // Globally unique ID for each job update
 	Ttl    time.Time              `dynamodbav:"ttl,unixtime" json:"-"` // Record expiration
 }
+
+type Workflow struct {
+	Org      string
+	Repo     string
+	Workflow string
+	Ref      string
+	Inputs   map[string]interface{}
+	Url      string
+	Id       int64
+}

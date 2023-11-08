@@ -23,31 +23,21 @@ var _ manager.JobSm = &githubWorkflowJob{}
 
 type githubWorkflowJob struct {
 	baseJob
-	workflow manager.Workflow
+	workflow job.Workflow
 	env      string
 	client   *github.Client
 	r        manager.Repository
 }
 
 func GitHubWorkflowJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, r manager.Repository) (manager.JobSm, error) {
-	if org, found := jobState.Params[job.WorkflowJobParam_Org].(string); !found {
-		return nil, fmt.Errorf("githubWorkflowJob: missing org")
-	} else if repo, found := jobState.Params[job.WorkflowJobParam_Repo].(string); !found {
-		return nil, fmt.Errorf("githubWorkflowJob: missing repo")
-	} else if ref, found := jobState.Params[job.WorkflowJobParam_Ref].(string); !found {
-		return nil, fmt.Errorf("githubWorkflowJob: missing ref")
-	} else if workflow, found := jobState.Params[job.WorkflowJobParam_Workflow].(string); !found {
-		return nil, fmt.Errorf("githubWorkflowJob: missing workflow")
+	if workflow, err := job.CreateWorkflowJob(jobState); err != nil {
+		return nil, err
 	} else {
-		inputs, _ := jobState.Params[job.WorkflowJobParam_Inputs].(map[string]interface{})
-		if len(inputs) == 0 {
-			inputs = make(map[string]interface{}, 1)
-		}
 		// Add the job ID to the inputs, so we can track the right workflow corresponding to this job.
-		inputs[job.WorkflowJobParam_JobId] = jobState.JobId
+		workflow.Inputs[job.WorkflowJobParam_JobId] = jobState.JobId
 		// Set the environment so that the workflow knows which environment to target
 		env := os.Getenv(manager.EnvVar_Env)
-		inputs[job.WorkflowJobParam_Environment] = env
+		workflow.Inputs[job.WorkflowJobParam_Environment] = env
 
 		var httpClient *http.Client = nil
 		if accessToken, found := os.LookupEnv("GITHUB_ACCESS_TOKEN"); found {
@@ -57,13 +47,7 @@ func GitHubWorkflowJob(jobState job.JobState, db manager.Database, notifs manage
 			httpClient = oauth2.NewClient(context.Background(), ts)
 		}
 
-		return &githubWorkflowJob{
-			baseJob{jobState, db, notifs},
-			manager.Workflow{org, repo, workflow, ref, inputs},
-			env,
-			github.NewClient(httpClient),
-			r,
-		}, nil
+		return &githubWorkflowJob{baseJob{jobState, db, notifs}, workflow, env, github.NewClient(httpClient), r}, nil
 	}
 }
 

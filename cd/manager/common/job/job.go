@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -112,4 +113,27 @@ func CreateJobTable(ctx context.Context, client *dynamodb.Client, table string) 
 		},
 	}
 	return utils.CreateTable(ctx, client, &createTableInput)
+}
+
+func CreateWorkflowJob(jobState JobState) (Workflow, error) {
+	if org, found := jobState.Params[WorkflowJobParam_Org].(string); !found {
+		return Workflow{}, fmt.Errorf("missing org")
+	} else if repo, found := jobState.Params[WorkflowJobParam_Repo].(string); !found {
+		return Workflow{}, fmt.Errorf("missing repo")
+	} else if ref, found := jobState.Params[WorkflowJobParam_Ref].(string); !found {
+		return Workflow{}, fmt.Errorf("missing ref")
+	} else if workflow, found := jobState.Params[WorkflowJobParam_Workflow].(string); !found {
+		return Workflow{}, fmt.Errorf("missing workflow")
+	} else {
+		workflowInputs := make(map[string]interface{}, 0)
+		if inputs, found := jobState.Params[WorkflowJobParam_Inputs].(map[string]interface{}); found {
+			workflowInputs = inputs
+		}
+		workflowRunUrl, _ := jobState.Params[WorkflowJobParam_Url].(string)
+		var workflowRunId int64 = 0
+		if id, found := jobState.Params[JobParam_Id].(float64); found {
+			workflowRunId = int64(id)
+		}
+		return Workflow{org, repo, workflow, ref, workflowInputs, workflowRunUrl, workflowRunId}, nil
+	}
 }
