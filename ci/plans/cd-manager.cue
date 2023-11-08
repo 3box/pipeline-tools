@@ -57,13 +57,10 @@ dagger.#Plan & {
 		}
 
 		push: [Region=aws.#Region]: [EnvTag=#EnvTag]: [Branch=#Branch]: [Sha=#Sha]: [ShaTag=#ShaTag]: {
-			_baseTags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
-			_tags: [...string]
-			{
-				Branch == "main"
-				_tags: _baseTags + ["latest"]
-			} | {
-				_tags: _baseTags
+			_tags: ["\(EnvTag)", "\(Branch)", "\(Sha)", "\(ShaTag)"]
+			_extraTags: [...string] | *[]
+			if EnvTag == "prod" {
+				_extraTags: ["latest"]
 			}
 			ecr: utils.#ECR & {
 				img: image.output
@@ -71,8 +68,8 @@ dagger.#Plan & {
 					AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
 					AWS_ECR_SECRET: client.commands.aws.stdout
 					AWS_REGION:     Region
-					REPO:           "ceramic-\(EnvTag)-ops-cd-manager"
-					TAGS:           _tags
+					REPO:           "ceramic-prod-ops-cd-manager"
+					TAGS:           _tags + _extraTags
 				}
 			}
 		}
