@@ -218,7 +218,8 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 	publicCluster := "ceramic-" + d.env + "-ex"
 	casCluster := "ceramic-" + d.env + "-cas"
 	casV5Cluster := "app-cas-" + d.env
-	clusters := []string{privateCluster, publicCluster, casCluster, casV5Cluster}
+	rustCluster := "ceramic-" + d.env + "-rust"
+	clusters := []string{privateCluster, publicCluster, casCluster, casV5Cluster, rustCluster}
 	if ecrRepo, err := d.componentEcrRepo(component); err != nil {
 		return nil, err
 	} else
