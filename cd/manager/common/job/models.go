@@ -32,10 +32,11 @@ const (
 )
 
 const (
-	JobParam_Id     string = "id"
-	JobParam_Error  string = "error"
-	JobParam_Start  string = "start"
-	JobParam_Source string = "source"
+	JobParam_Id      string = "id"
+	JobParam_Error   string = "error"
+	JobParam_Elapsed string = "elapsed"
+	JobParam_Start   string = "start"
+	JobParam_Source  string = "source"
 )
 
 const (

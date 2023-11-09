@@ -58,6 +58,8 @@ func IsV5WorkerJob(jobState job.JobState) bool {
 // AdvanceJob will move a JobState to a new JobStage in the Database and send an appropriate notification
 func AdvanceJob(jobState job.JobState, jobStage job.JobStage, ts time.Time, err error, db Database, notifs Notifs) (job.JobState, error) {
 	jobState.Stage = jobStage
+	// Store how much time has elapsed since the stage last changed for this job
+	jobState.Params[job.JobParam_Elapsed] = time.Since(jobState.Ts).String()
 	jobState.Ts = ts
 	if err != nil {
 		jobState.Params[job.JobParam_Error] = err.Error()

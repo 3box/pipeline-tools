@@ -31,6 +31,7 @@ const (
 	notifField_References string = "References"
 	notifField_JobId      string = "Job ID"
 	notifField_RunTime    string = "Time Running"
+	notifField_WaitTime   string = "Time Waiting"
 	notifField_Deploy     string = "Deployment(s)"
 	notifField_Anchor     string = "Anchor Worker(s)"
 	notifField_TestE2E    string = "E2E Tests"
@@ -151,15 +152,25 @@ func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 			Value: deployTags,
 		})
 	}
+	// If the job just started, also add the wait time.
+	if jobState.Stage == job.JobStage_Started {
+		if elapsedTime, found := jobState.Params[job.JobParam_Elapsed].(string); found {
+			parsedElapsedTime, _ := time.ParseDuration(elapsedTime)
+			waitTime := formattedDuration(parsedElapsedTime)
+			if len(waitTime) > 0 {
+				fields = append(fields, discord.EmbedField{
+					Name:  notifField_WaitTime,
+					Value: waitTime,
+				})
+			}
+		}
+	}
 	if startTime, found := jobState.Params[job.JobParam_Start].(float64); found {
-		runTime := time.Since(time.Unix(0, int64(startTime)))
-		hours := int(runTime.Seconds() / 3600)
-		minutes := int(runTime.Seconds()/60) % 60
-		seconds := int(runTime.Seconds()) % 60
-		if (hours != 0) || (minutes != 0) || (seconds != 0) {
+		runTime := formattedDuration(time.Since(time.Unix(0, int64(startTime))))
+		if len(runTime) > 0 {
 			fields = append(fields, discord.EmbedField{
 				Name:  notifField_RunTime,
-				Value: fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds),
+				Value: runTime,
 			})
 		}
 	}
@@ -294,4 +305,14 @@ func colorForStage(jobStage job.JobStage) discordColor {
 		log.Printf("colorForStage: unknown job stage: %s", jobStage)
 		return discordColor_Alert
 	}
+}
+
+func formattedDuration(duration time.Duration) string {
+	hours := int(duration.Seconds() / 3600)
+	minutes := int(duration.Seconds()/60) % 60
+	seconds := int(duration.Seconds()) % 60
+	if (hours != 0) || (minutes != 0) || (seconds != 0) {
+		return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
+	}
+	return ""
 }
