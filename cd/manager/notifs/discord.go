@@ -30,7 +30,7 @@ const (
 const (
 	notifField_References string = "References"
 	notifField_JobId      string = "Job ID"
-	notifField_Time       string = "Time"
+	notifField_RunTime    string = "Time Running"
 	notifField_Deploy     string = "Deployment(s)"
 	notifField_Anchor     string = "Anchor Worker(s)"
 	notifField_TestE2E    string = "E2E Tests"
@@ -151,10 +151,18 @@ func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 			Value: deployTags,
 		})
 	}
-	fields = append(fields, discord.EmbedField{
-		Name:  notifField_Time,
-		Value: time.Now().Format(time.RFC1123), // "Mon, 02 Jan 2006 15:04:05 MST"
-	})
+	if startTime, found := jobState.Params[job.JobParam_Start].(float64); found {
+		runTime := time.Since(time.Unix(0, int64(startTime)))
+		hours := int(runTime.Seconds() / 3600)
+		minutes := int(runTime.Seconds()/60) % 60
+		seconds := int(runTime.Seconds()) % 60
+		if (hours != 0) || (minutes != 0) || (seconds != 0) {
+			fields = append(fields, discord.EmbedField{
+				Name:  notifField_RunTime,
+				Value: fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds),
+			})
+		}
+	}
 	// Add the list of jobs in progress
 	if activeJobs := n.getActiveJobs(jobState); len(activeJobs) > 0 {
 		fields = append(fields, activeJobs...)

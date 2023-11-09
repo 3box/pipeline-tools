@@ -15,7 +15,7 @@ var _ jobNotif = &workflowNotif{}
 
 const defaultWorkflowJobName = "Workflow"
 const (
-	workflowNotifField_Ref          = "Ref"
+	workflowNotifField_Branch       = "Branch"
 	workflowNotifField_TestSelector = "Test Selector"
 	workflowNotifField_Logs         = "Logs"
 )
@@ -59,8 +59,8 @@ func (w workflowNotif) getTitle() string {
 func (w workflowNotif) getFields() []discord.EmbedField {
 	notifFields := []discord.EmbedField{
 		{
-			Name:  workflowNotifField_Ref,
-			Value: fmt.Sprintf("[%s](https://github.com/%s/%s/tree/%s)", w.workflow.Ref, w.workflow.Org, w.workflow.Repo, w.workflow.Ref),
+			Name:  workflowNotifField_Branch,
+			Value: fmt.Sprintf("[%s (%s)](https://github.com/%s/%s/tree/%s)", w.workflow.Repo, w.workflow.Ref, w.workflow.Org, w.workflow.Repo, w.workflow.Ref),
 		},
 	}
 	// If this is a test workflow, also report the test selector.
