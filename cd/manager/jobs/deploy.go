@@ -146,17 +146,13 @@ func (d deployJob) Advance() (job.JobState, error) {
 
 func (d deployJob) prepareJob(deployTags map[manager.DeployComponent]string) error {
 	deployTag := ""
-	manual := false
 	if d.rollback {
 		// Use the latest successfully deployed tag when rolling back
 		deployTag = deployTags[d.component]
 	} else
 	// - If the specified deployment target is "latest", fetch the latest branch commit hash from GitHub.
-	// - Else if the specified deployment target is "release", use the specified release tag.
+	// - Else if the specified deployment target is "release" or "rollback", use the specified tag.
 	// - Else if it's a valid hash, use it.
-	// - Else use the last successfully deployed target from the database.
-	//
-	// The last 3 cases will only happen when (re)deploying manually, so we can note that in the notification.
 	if d.sha == job.DeployJobTarget_Latest {
 		if repo, err := manager.ComponentRepo(d.component); err != nil {
 			return err
@@ -172,17 +168,12 @@ func (d deployJob) prepareJob(deployTags map[manager.DeployComponent]string) err
 		}
 	} else if (d.sha == job.DeployJobTarget_Release) || (d.sha == job.DeployJobTarget_Rollback) {
 		deployTag = d.shaTag
-		manual = true
 	} else if manager.IsValidSha(d.sha) {
 		deployTag = d.sha
-		manual = true
 	} else {
 		return fmt.Errorf("prepareJob: invalid deployment type")
 	}
 	d.state.Params[job.DeployJobParam_DeployTag] = deployTag
-	if manual {
-		d.state.Params[job.DeployJobParam_Manual] = true
-	}
 	return nil
 }
 
