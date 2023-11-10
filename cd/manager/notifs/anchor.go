@@ -2,11 +2,13 @@ package notifs
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/webhook"
 
+	"github.com/3box/pipeline-tools/cd/manager"
 	"github.com/3box/pipeline-tools/cd/manager/common/job"
 )
 
@@ -16,6 +18,8 @@ type anchorNotif struct {
 	state          job.JobState
 	alertWebhook   webhook.Client
 	warningWebhook webhook.Client
+	region         string
+	env            string
 }
 
 func newAnchorNotif(jobState job.JobState) (jobNotif, error) {
@@ -24,7 +28,13 @@ func newAnchorNotif(jobState job.JobState) (jobNotif, error) {
 	} else if w, err := parseDiscordWebhookUrl("DISCORD_WARNING_WEBHOOK"); err != nil {
 		return nil, err
 	} else {
-		return &anchorNotif{jobState, a, w}, nil
+		return &anchorNotif{
+			jobState,
+			a,
+			w,
+			os.Getenv("AWS_REGION"),
+			os.Getenv(manager.EnvVar_Env),
+		}, nil
 	}
 }
 
@@ -68,4 +78,18 @@ func (a anchorNotif) getColor() discordColor {
 		}
 	}
 	return colorForStage(a.state.Stage)
+}
+
+func (a anchorNotif) getUrl() string {
+	if taskId, found := a.state.Params[job.JobParam_Id].(string); found {
+		idParts := strings.Split(taskId, "/")
+		return fmt.Sprintf(
+			"https://%s.console.aws.amazon.com/cloudwatch/home?region=%s#logsV2:log-groups/log-group/$252Fecs$252Fceramic-%s-cas/log-events/cas_anchor$252Fcas_anchor$252F%s",
+			a.region,
+			a.region,
+			a.env,
+			idParts[len(idParts)-1],
+		)
+	}
+	return ""
 }

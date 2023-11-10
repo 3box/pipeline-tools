@@ -37,6 +37,7 @@ const (
 	notifField_TestE2E    string = "E2E Tests"
 	notifField_TestSmoke  string = "Smoke Tests"
 	notifField_Workflow   string = "Workflow(s)"
+	notifField_Logs       string = "Logs"
 )
 
 const discordPacing = 2 * time.Second
@@ -56,6 +57,7 @@ type jobNotif interface {
 	getTitle() string
 	getFields() []discord.EmbedField
 	getColor() discordColor
+	getUrl() string
 }
 
 func NewJobNotifs(db manager.Database, cache manager.Cache) (manager.Notifs, error) {
@@ -152,21 +154,22 @@ func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 			Value: deployTags,
 		})
 	}
-	// If the job just started, also add the wait time.
+	// If the job just started, also display the queue wait time.
 	if jobState.Stage == job.JobStage_Started {
-		if elapsedTime, found := jobState.Params[job.JobParam_Elapsed].(string); found {
-			parsedElapsedTime, _ := time.ParseDuration(elapsedTime)
-			waitTime := formattedDuration(parsedElapsedTime)
-			if len(waitTime) > 0 {
+		if waitTime, found := jobState.Params[job.JobParam_WaitTime].(string); found {
+			parsedWaitTime, _ := time.ParseDuration(waitTime)
+			prettyWaitTime := prettyDuration(parsedWaitTime)
+			if len(prettyWaitTime) > 0 {
 				fields = append(fields, discord.EmbedField{
 					Name:  notifField_WaitTime,
-					Value: waitTime,
+					Value: prettyWaitTime,
 				})
 			}
 		}
-	}
+	} else
+	// Only need to display the run time once the job progresses beyond the "started" stage
 	if startTime, found := jobState.Params[job.JobParam_Start].(float64); found {
-		runTime := formattedDuration(time.Since(time.Unix(0, int64(startTime))))
+		runTime := prettyDuration(time.Since(time.Unix(0, int64(startTime))))
 		if len(runTime) > 0 {
 			fields = append(fields, discord.EmbedField{
 				Name:  notifField_RunTime,
@@ -177,6 +180,14 @@ func (n JobNotifs) getNotifFields(jobState job.JobState) []discord.EmbedField {
 	// Add the list of jobs in progress
 	if activeJobs := n.getActiveJobs(jobState); len(activeJobs) > 0 {
 		fields = append(fields, activeJobs...)
+	}
+	if jn, err := n.getJobNotif(jobState); err == nil {
+		if len(jn.getUrl()) > 0 {
+			fields = append(fields, discord.EmbedField{
+				Name:  notifField_Logs,
+				Value: fmt.Sprintf("[%s](%s)", jobState.JobId, jn.getUrl()),
+			})
+		}
 	}
 	return fields
 }
@@ -259,7 +270,11 @@ func (n JobNotifs) getActiveJobsByType(jobState job.JobState, jobType job.JobTyp
 	for _, activeJob := range activeJobs {
 		// Exclude job for which this notification is being generated
 		if activeJob.JobId != jobState.JobId {
-			message += fmt.Sprintf("%s (%s)\n", activeJob.JobId, activeJob.Stage)
+			if jn, err := n.getJobNotif(activeJob); (err == nil) && (len(jn.getUrl()) > 0) {
+				message += fmt.Sprintf("[%s](%s)\n", activeJob.JobId, jn.getUrl())
+			} else {
+				message += activeJob.JobId + "\n"
+			}
 		}
 	}
 	return discord.EmbedField{
@@ -307,7 +322,7 @@ func colorForStage(jobStage job.JobStage) discordColor {
 	}
 }
 
-func formattedDuration(duration time.Duration) string {
+func prettyDuration(duration time.Duration) string {
 	hours := int(duration.Seconds() / 3600)
 	minutes := int(duration.Seconds()/60) % 60
 	seconds := int(duration.Seconds()) % 60

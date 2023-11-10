@@ -35,3 +35,7 @@ func (e e2eTestNotif) getFields() []discord.EmbedField {
 func (e e2eTestNotif) getColor() discordColor {
 	return colorForStage(e.state.Stage)
 }
+
+func (e e2eTestNotif) getUrl() string {
+	return ""
+}

@@ -169,10 +169,10 @@ func (m *JobManager) processJobs() {
 			// Decide how to proceed based on the first job from the list
 			if dequeuedJobs[0].Type == job.JobType_Deploy {
 				m.processDeployJobs(dequeuedJobs)
-				// There are two scenarios for anchor jobs on encountering a deploy job at the head of the queue:
-				// - Anchor jobs are started if no deployment was *started*, even if this deploy job was ahead of
+				// There are two scenarios for anchor jobs on encountering a deployment job at the head of the queue:
+				// - Anchor jobs are started if no deployment was *started*, even if this deployment job was ahead of
 				//   anchor jobs in the queue.
-				// - Anchor jobs are not started since a deploy job was *dequeued* ahead of them. (This would be the
+				// - Anchor jobs are not started since a deployment job was *dequeued* ahead of them. (This would be the
 				//   normal behavior for a job queue, i.e. jobs get processed in the order they were scheduled.)
 				//
 				// The first scenario only applies to the QA environment that is used for running the E2E tests. E2E

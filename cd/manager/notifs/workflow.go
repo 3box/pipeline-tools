@@ -2,7 +2,6 @@ package notifs
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
@@ -17,7 +16,6 @@ const defaultWorkflowJobName = "Workflow"
 const (
 	workflowNotifField_Branch       = "Branch"
 	workflowNotifField_TestSelector = "Test Selector"
-	workflowNotifField_Logs         = "Logs"
 )
 const (
 	workflowTestSelector_Wildcard = "."
@@ -77,18 +75,13 @@ func (w workflowNotif) getFields() []discord.EmbedField {
 			},
 		)
 	}
-	if len(w.workflow.Url) > 0 {
-		notifFields = append(
-			notifFields,
-			discord.EmbedField{
-				Name:  workflowNotifField_Logs,
-				Value: fmt.Sprintf("[%s (%s)](%s)", w.workflow.Repo, strconv.Itoa(int(w.workflow.Id)), w.workflow.Url),
-			},
-		)
-	}
 	return notifFields
 }
 
 func (w workflowNotif) getColor() discordColor {
 	return colorForStage(w.state.Stage)
+}
+
+func (w workflowNotif) getUrl() string {
+	return w.workflow.Url
 }

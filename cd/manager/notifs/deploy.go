@@ -93,3 +93,7 @@ func envName(env manager.EnvType) string {
 		return ""
 	}
 }
+
+func (d deployNotif) getUrl() string {
+	return ""
+}
