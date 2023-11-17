@@ -33,14 +33,17 @@ type DynamoDb struct {
 }
 
 const defaultJobStateTtl = 2 * 7 * 24 * time.Hour // Two weeks
-const buildTag = "sha_tag"
 
 // buildState represents build/deploy tag information. This information is maintained in a legacy DynamoDB table used by
 // our utility AWS Lambdas.
 type buildState struct {
 	Key       manager.DeployComponent `dynamodbav:"key"`
 	DeployTag string                  `dynamodbav:"deployTag"`
-	BuildInfo map[string]interface{}  `dynamodbav:"buildInfo"`
+	BuildInfo buildInfo               `dynamodbav:"buildInfo"`
+}
+
+type buildInfo struct {
+	BuildTag string `dynamodbav:"sha_tag"`
 }
 
 func NewDynamoDb(cfg aws.Config, cache manager.Cache) manager.Database {
@@ -368,7 +371,7 @@ func (db DynamoDb) GetBuildTags() (map[manager.DeployComponent]string, error) {
 	} else {
 		buildTags := make(map[manager.DeployComponent]string, len(buildStates))
 		for _, state := range buildStates {
-			buildTags[state.Key] = state.BuildInfo[buildTag].(string)
+			buildTags[state.Key] = state.BuildInfo.BuildTag
 		}
 		return buildTags, nil
 	}

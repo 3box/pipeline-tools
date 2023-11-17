@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -507,12 +508,9 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 					if rollback, _ := jobState.Params[job.DeployJobParam_Rollback].(bool); !rollback {
 						if component, found := jobState.Params[job.DeployJobParam_Component].(string); !found {
 							log.Printf("postProcessJob: missing component (ceramic, ipfs, cas, casv5, rust-ceramic): %s", manager.PrintJob(jobState))
-						} else
-						// Get the latest deployed tag from the database. We're getting this from the build tags because
-						// the last successfully deployed tag would have been the same as the current build tag.
-						if buildTags, err := m.db.GetBuildTags(); err != nil {
-							log.Printf("postProcessJob: failed to retrieve build tags: %v, %s", err, manager.PrintJob(jobState))
-						} else if buildTag, found := buildTags[manager.DeployComponent(component)]; !found {
+						} else if deployTags, err := m.db.GetDeployTags(); err != nil { // Get latest deployed tag from database
+							log.Printf("postProcessJob: failed to retrieve deploy tags: %v, %s", err, manager.PrintJob(jobState))
+						} else if deployTag, found := deployTags[manager.DeployComponent(component)]; !found {
 							log.Printf("postProcessJob: missing component build tag: %s, %s", component, manager.PrintJob(jobState))
 						} else if _, err := m.NewJob(job.JobState{
 							Type: job.JobType_Deploy,
@@ -520,7 +518,7 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 								job.DeployJobParam_Component: jobState.Params[job.DeployJobParam_Component],
 								job.DeployJobParam_Rollback:  true,
 								job.DeployJobParam_Sha:       job.DeployJobTarget_Rollback,
-								job.DeployJobParam_ShaTag:    buildTag,
+								job.DeployJobParam_ShaTag:    strings.Split(deployTag, ",")[0], // Strip deploy target
 								// No point in waiting for other jobs to complete before redeploying a working image
 								job.DeployJobParam_Force: true,
 								job.JobParam_Source:      manager.ServiceName,

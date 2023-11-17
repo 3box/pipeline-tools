@@ -80,7 +80,7 @@ func (d deployJob) Advance() (job.JobState, error) {
 		{
 			if deployTags, err := d.db.GetDeployTags(); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
-			} else if err = d.prepareJob(deployTags); err != nil {
+			} else if err = d.prepareJob(); err != nil {
 				return d.advance(job.JobStage_Failed, now, err)
 			} else if deployTag, found := d.state.Params[job.DeployJobParam_DeployTag].(string); found &&
 				!d.manual && !d.force &&
@@ -144,12 +144,8 @@ func (d deployJob) Advance() (job.JobState, error) {
 	}
 }
 
-func (d deployJob) prepareJob(deployTags map[manager.DeployComponent]string) error {
+func (d deployJob) prepareJob() error {
 	deployTag := ""
-	if d.rollback {
-		// Use the latest successfully deployed tag when rolling back
-		deployTag = deployTags[d.component]
-	} else
 	// - If the specified deployment target is "latest", fetch the latest branch commit hash from GitHub.
 	// - Else if the specified deployment target is "release" or "rollback", use the specified tag.
 	// - Else if it's a valid hash, use it.
