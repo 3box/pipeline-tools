@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -75,4 +76,34 @@ func AdvanceJob(jobState job.JobState, jobStage job.JobStage, ts time.Time, err 
 		notifs.NotifyJob(jobState)
 	}
 	return jobState, err
+}
+
+func RetryWithResultAndError[R any](parentCtx context.Context, timeout time.Duration, numRetries int, fn func(context.Context, ...interface{}) (R, error), args ...interface{}) (R, error) {
+	retry := func() (R, error) {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+
+		return fn(ctx, args)
+	}
+	for i := 0; i < numRetries-1; i++ {
+		if res, err := retry(); err != context.DeadlineExceeded {
+			return res, err
+		}
+	}
+	return retry()
+}
+
+func RetryWithError(parentCtx context.Context, timeout time.Duration, numRetries int, fn func(context.Context, ...interface{}) error, args ...interface{}) error {
+	retry := func() error {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+
+		return fn(ctx, args)
+	}
+	for i := 0; i < numRetries-1; i++ {
+		if err := retry(); err != context.DeadlineExceeded {
+			return err
+		}
+	}
+	return retry()
 }

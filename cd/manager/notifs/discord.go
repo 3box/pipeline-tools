@@ -44,6 +44,9 @@ const discordPacing = 2 * time.Second
 
 const shaTagLength = 12
 
+// Show "queued" for "dequeued" jobs to make it more understandable
+const prettyStageDequeued = "queued"
+
 var _ manager.Notifs = &JobNotifs{}
 
 type JobNotifs struct {

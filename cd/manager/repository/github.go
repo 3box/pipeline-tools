@@ -211,13 +211,16 @@ func (g Github) CheckWorkflowStatus(workflow job.Workflow, workflowRunId int64) 
 }
 
 func (g Github) getWorkflowRun(org, repo string, workflowRunId int64) (*github.WorkflowRun, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
-	defer cancel()
-
-	if workflowRun, resp, err := g.client.Actions.GetWorkflowRunByID(ctx, org, repo, workflowRunId); err != nil {
-		return nil, err
-	} else {
-		log.Printf("getWorkflowRun: run=%s, rate limit=%d, remaining=%d, resetAt=%s", workflowRun.GetHTMLURL(), resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
-		return workflowRun, nil
-	}
+	return manager.RetryWithResultAndError[*github.WorkflowRun](
+		context.Background(),
+		manager.DefaultHttpWaitTime,
+		manager.DefaultHttpRetries,
+		func(ctx context.Context, _ ...interface{}) (*github.WorkflowRun, error) {
+			if workflowRun, resp, err := g.client.Actions.GetWorkflowRunByID(ctx, org, repo, workflowRunId); err != nil {
+				return nil, err
+			} else {
+				log.Printf("getWorkflowRun: run=%s, rate limit=%d, remaining=%d, resetAt=%s", workflowRun.GetHTMLURL(), resp.Rate.Limit, resp.Rate.Remaining, resp.Rate.Reset)
+				return workflowRun, nil
+			}
+		})
 }

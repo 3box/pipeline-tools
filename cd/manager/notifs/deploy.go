@@ -61,13 +61,17 @@ func (d deployNotif) getTitle() string {
 	} else if manual, _ := d.state.Params[job.DeployJobParam_Manual].(bool); manual {
 		qualifier = job.DeployJobParam_Manual
 	}
+	prettyStage := string(d.state.Stage)
+	if d.state.Stage == job.JobStage_Dequeued {
+		prettyStage = prettyStageDequeued
+	}
 	return fmt.Sprintf(
 		"3Box Labs `%s` %s %s %s %s",
 		envName(d.env),
 		strings.ToUpper(component),
 		cases.Title(language.English).String(qualifier),
 		"Deployment",
-		strings.ToUpper(string(d.state.Stage)),
+		strings.ToUpper(prettyStage),
 	)
 }
 

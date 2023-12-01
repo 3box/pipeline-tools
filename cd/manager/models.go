@@ -10,6 +10,7 @@ import (
 const DefaultTick = 10 * time.Second
 const DefaultTtlDays = 1
 const DefaultHttpWaitTime = 30 * time.Second
+const DefaultHttpRetries = 3
 const DefaultWaitTime = 5 * time.Minute
 
 type EnvType string

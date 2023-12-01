@@ -51,7 +51,11 @@ func (w workflowNotif) getTitle() string {
 	if workflowName, found := w.state.Params[job.WorkflowJobParam_Name].(string); found {
 		jobName = workflowName
 	}
-	return fmt.Sprintf("%s %s", jobName, strings.ToUpper(string(w.state.Stage)))
+	prettyStage := string(w.state.Stage)
+	if w.state.Stage == job.JobStage_Dequeued {
+		prettyStage = prettyStageDequeued
+	}
+	return fmt.Sprintf("%s %s", jobName, strings.ToUpper(prettyStage))
 }
 
 func (w workflowNotif) getFields() []discord.EmbedField {
