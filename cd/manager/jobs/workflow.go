@@ -35,9 +35,14 @@ func GitHubWorkflowJob(jobState job.JobState, db manager.Database, notifs manage
 	} else {
 		// Add the job ID to the inputs, so we can track the right workflow corresponding to this job.
 		workflow.Inputs[job.WorkflowJobParam_JobId] = jobState.JobId
-		// Set the environment so that the workflow knows which environment to target
+
 		env := os.Getenv(manager.EnvVar_Env)
-		workflow.Inputs[job.WorkflowJobParam_Environment] = env
+		// If a target environment has not been specified, use the current environment.
+		if inputEnv, found := workflow.Inputs[job.WorkflowJobParam_Environment].(string); found {
+			workflow.Inputs[job.WorkflowJobParam_Environment] = inputEnv
+		} else {
+			workflow.Inputs[job.WorkflowJobParam_Environment] = env
+		}
 
 		var httpClient *http.Client = nil
 		if accessToken, found := os.LookupEnv("GITHUB_ACCESS_TOKEN"); found {
