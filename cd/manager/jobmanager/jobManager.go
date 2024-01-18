@@ -478,27 +478,17 @@ func (m *JobManager) postProcessJob(jobState job.JobState) {
 	case job.JobType_Deploy:
 		{
 			switch jobState.Stage {
-			// For completed deployments, also add a test workflow job 5 minutes in the future to allow the deployment
-			// to stabilize.
+			// For completed ECS deployments, run smoke tests after 5 minutes to give the services time to stabilize.
 			case job.JobStage_Completed:
 				{
 					if _, err := m.NewJob(job.JobState{
 						Ts:   time.Now().Add(manager.DefaultWaitTime),
-						Type: job.JobType_Workflow,
+						Type: job.JobType_TestSmoke,
 						Params: map[string]interface{}{
-							job.JobParam_Source:           manager.ServiceName,
-							job.WorkflowJobParam_Name:     tests_Name,
-							job.WorkflowJobParam_Org:      tests_Org,
-							job.WorkflowJobParam_Repo:     tests_Repo,
-							job.WorkflowJobParam_Ref:      tests_Ref,
-							job.WorkflowJobParam_Workflow: tests_Workflow,
-							job.WorkflowJobParam_Inputs: map[string]interface{}{
-								job.WorkflowJobParam_Environment:  m.env,
-								job.WorkflowJobParam_TestSelector: tests_Selector,
-							},
+							job.JobParam_Source: manager.ServiceName,
 						},
 					}); err != nil {
-						log.Printf("postProcessJob: failed to queue test workflow after deploy: %v, %s", err, manager.PrintJob(jobState))
+						log.Printf("postProcessJob: failed to queue smoke tests after deploy: %v, %s", err, manager.PrintJob(jobState))
 					}
 				}
 			// For failed deployments, rollback to the previously deployed tag.
