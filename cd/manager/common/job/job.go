@@ -125,7 +125,7 @@ func CreateWorkflowJob(jobState JobState) (Workflow, error) {
 	} else if workflow, found := jobState.Params[WorkflowJobParam_Workflow].(string); !found {
 		return Workflow{}, fmt.Errorf("missing workflow")
 	} else {
-		workflowInputs := make(map[string]interface{}, 0)
+		workflowInputs := make(map[string]interface{})
 		if inputs, found := jobState.Params[WorkflowJobParam_Inputs].(map[string]interface{}); found {
 			workflowInputs = inputs
 		}
@@ -134,6 +134,14 @@ func CreateWorkflowJob(jobState JobState) (Workflow, error) {
 		if id, found := jobState.Params[JobParam_Id].(float64); found {
 			workflowRunId = int64(id)
 		}
-		return Workflow{org, repo, workflow, ref, workflowInputs, workflowRunUrl, workflowRunId}, nil
+		workflowLabels := make([]string, 0)
+		if labels, found := jobState.Params[WorkflowJobParam_Labels].([]interface{}); found {
+			for _, label := range labels {
+				if l, ok := label.(string); ok {
+					workflowLabels = append(workflowLabels, l)
+				}
+			}
+		}
+		return Workflow{org, repo, workflow, ref, workflowInputs, workflowRunUrl, workflowRunId, workflowLabels}, nil
 	}
 }

@@ -88,6 +88,27 @@ func parseDiscordWebhookUrl(urlEnv string) (webhook.Client, error) {
 	return nil, nil
 }
 
+func webhooksForLabels(labels []string) ([]webhook.Client, error) {
+	webhooks := make([]webhook.Client, 0)
+	for _, label := range labels {
+		switch label {
+		case job.WorkflowJobLabel_Test:
+			if t, err := parseDiscordWebhookUrl("DISCORD_TESTS_WEBHOOK"); err != nil {
+				return nil, err
+			} else {
+				webhooks = append(webhooks, t)
+			}
+		case job.WorkflowJobLabel_Deploy:
+			if t, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
+				return nil, err
+			} else {
+				webhooks = append(webhooks, t)
+			}
+		}
+	}
+	return webhooks, nil
+}
+
 func (n JobNotifs) NotifyJob(jobs ...job.JobState) {
 	for _, jobState := range jobs {
 		if jn, err := n.getJobNotif(jobState); err != nil {

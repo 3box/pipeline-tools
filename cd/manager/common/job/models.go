@@ -74,6 +74,12 @@ const (
 	WorkflowJobParam_Url          string = "url"
 	WorkflowJobParam_JobId        string = "job_id"
 	WorkflowJobParam_TestSelector string = "test_selector"
+	WorkflowJobParam_Labels       string = "labels"
+)
+
+const (
+	WorkflowJobLabel_Test   string = "test"
+	WorkflowJobLabel_Deploy string = "deploy"
 )
 
 // JobState represents the state of a job in the database
@@ -95,4 +101,5 @@ type Workflow struct {
 	Inputs   map[string]interface{}
 	Url      string
 	Id       int64
+	Labels   []string
 }

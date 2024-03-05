@@ -23,25 +23,25 @@ const (
 )
 
 type workflowNotif struct {
-	state           job.JobState
-	workflow        job.Workflow
-	workflowWebhook webhook.Client
+	state            job.JobState
+	workflow         job.Workflow
+	workflowWebhooks []webhook.Client
 }
 
 func newWorkflowNotif(jobState job.JobState) (jobNotif, error) {
-	if w, err := parseDiscordWebhookUrl("DISCORD_WORKFLOWS_WEBHOOK"); err != nil {
+	if workflow, err := job.CreateWorkflowJob(jobState); err != nil {
 		return nil, err
-	} else if workflow, err := job.CreateWorkflowJob(jobState); err != nil {
+	} else if webhooks, err := webhooksForLabels(workflow.Labels); err != nil {
 		return nil, err
 	} else {
-		return &workflowNotif{jobState, workflow, w}, nil
+		return &workflowNotif{jobState, workflow, webhooks}, nil
 	}
 }
 
 func (w workflowNotif) getChannels() []webhook.Client {
 	// Skip "started" notifications so that the channel doesn't get too noisy
 	if w.state.Stage != job.JobStage_Started {
-		return []webhook.Client{w.workflowWebhook}
+		return w.workflowWebhooks
 	}
 	return nil
 }
