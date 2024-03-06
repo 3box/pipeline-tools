@@ -151,18 +151,19 @@ func (m *JobManager) processJobs() {
 		dequeuedJobs := m.db.OrderedJobs(job.JobStage_Dequeued)
 		if len(dequeuedJobs) > 0 {
 			// Try to start multiple jobs and collapse similar ones:
-			// - one deploy at a time
+			// - one deploy at a time (compatible with anchor jobs)
 			// - one smoke test at a time (compatible with non-deploy jobs)
 			// - one E2E test at a time (compatible with non-deploy jobs)
 			// - one workflow at a time (compatible with non-deploy jobs)
-			// - any number of anchor workers (independent of any other type of job)
+			// - any number of anchor workers (compatible with any other type of job)
 			//
 			// Loop over compatible dequeued jobs until we find an incompatible one and need to wait for existing jobs
 			// to complete.
 			log.Printf("processJobs: dequeued %d jobs...", len(dequeuedJobs))
 			// Check for any deployment jobs - first for forcible deployments, then for regular deployments. Only look
 			// at the remaining jobs if no deployments were kicked off.
-			if !m.processForceDeployJobs(dequeuedJobs) && !m.processDeployJobs(dequeuedJobs) {
+			if !m.processForceDeployJobs(dequeuedJobs) &&
+				((dequeuedJobs[0].Type != job.JobType_Deploy) || !m.processDeployJobs(dequeuedJobs)) {
 				m.processTestJobs(dequeuedJobs)
 				m.processWorkflowJobs(dequeuedJobs)
 			}
