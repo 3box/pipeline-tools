@@ -253,8 +253,8 @@ func (d deployJob) componentTask(component manager.DeployComponent, cluster, ser
 	}
 	switch component {
 	case manager.DeployComponent_Ceramic:
-		// All clusters have Ceramic nodes
-		if strings.Contains(service, serviceSuffix_CeramicNode) {
+		// Ceramic nodes are deployed to the private and public clusters, but not to the CAS cluster.
+		if (cluster != "ceramic-"+d.env+"-cas") && strings.Contains(service, serviceSuffix_CeramicNode) {
 			return &manager.Task{Name: containerName_CeramicNode}
 		}
 	case manager.DeployComponent_Ipfs:
