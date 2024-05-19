@@ -107,9 +107,13 @@ func (a anchorJob) launchWorker() (string, error) {
 }
 
 func (a anchorJob) checkWorker(expectedToBeRunning bool) (bool, error) {
-	if status, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", expectedToBeRunning, false, a.state.Params[job.JobParam_Id].(string)); err != nil {
+	if status, exitCode, err := a.d.CheckTask("ceramic-"+a.env+"-cas", "", expectedToBeRunning, false, a.state.Params[job.JobParam_Id].(string)); err != nil {
 		return false, err
 	} else if status {
+		// If a non-zero exit code was present, the worker failed to complete successfully.
+		if (exitCode != nil) && (*exitCode != 0) {
+			return false, fmt.Errorf("anchorJob: worker exited with code %d", *exitCode)
+		}
 		return true, nil
 	} else if expectedToBeRunning && job.IsTimedOut(a.state, manager.DefaultWaitTime) { // Worker did not start in time
 		return false, manager.Error_StartupTimeout

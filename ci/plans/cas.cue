@@ -62,11 +62,6 @@ dagger.#Plan & {
 			source: _source
 		}
 
-		_runnerImage: docker.#Dockerfile & {
-			target: "runner"
-			source: _source
-		}
-
 		verify: {
 			_endpoint:  "api/v0/healthcheck"
 			_port:      8081
@@ -177,16 +172,6 @@ dagger.#Plan & {
 								TAGS:           _tags + _extraTags + ["qa"]
 							}
 						}
-						_runner: utils.#ECR & {
-							img: _runnerImage.output
-							env: {
-								AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
-								AWS_ECR_SECRET: client.commands.aws.stdout
-								AWS_REGION:     Region
-								REPO:           "ceramic-prod-cas-runner"
-								TAGS:           _tags + _extraTags + ["qa"]
-							}
-						}
 					}
 				}
 				_base: utils.#ECR & {
@@ -196,16 +181,6 @@ dagger.#Plan & {
 						AWS_ECR_SECRET: client.commands.aws.stdout
 						AWS_REGION:     Region
 						REPO:           "ceramic-prod-cas"
-						TAGS:           _tags + _extraTags
-					}
-				}
-				_runner: utils.#ECR & {
-					img: _runnerImage.output
-					env: {
-						AWS_ACCOUNT_ID: client.env.AWS_ACCOUNT_ID
-						AWS_ECR_SECRET: client.commands.aws.stdout
-						AWS_REGION:     Region
-						REPO:           "ceramic-prod-cas-runner"
 						TAGS:           _tags + _extraTags
 					}
 				}

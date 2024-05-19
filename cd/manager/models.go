@@ -139,7 +139,7 @@ type Cache interface {
 type Deployment interface {
 	LaunchServiceTask(cluster, service, family, container string, overrides map[string]string) (string, error)
 	LaunchTask(cluster, family, container, vpcConfigParam string, overrides map[string]string) (string, error)
-	CheckTask(cluster, taskDefId string, running, stable bool, taskIds ...string) (bool, error)
+	CheckTask(cluster, taskDefId string, running, stable bool, taskIds ...string) (bool, *int32, error)
 	GetLayout(clusters []string) (*Layout, error)
 	UpdateLayout(*Layout, string) error
 	CheckLayout(*Layout) (bool, error)

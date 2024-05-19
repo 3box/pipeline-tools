@@ -73,7 +73,7 @@ func (e Ecs) LaunchTask(cluster, family, container, vpcConfigParam string, overr
 	return e.runEcsTask(cluster, family, container, &types.NetworkConfiguration{AwsvpcConfiguration: &vpcConfig}, overrides)
 }
 
-func (e Ecs) CheckTask(cluster, taskDefId string, running, stable bool, taskIds ...string) (bool, error) {
+func (e Ecs) CheckTask(cluster, taskDefId string, running, stable bool, taskIds ...string) (bool, *int32, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), manager.DefaultHttpWaitTime)
 	defer cancel()
 
@@ -85,33 +85,41 @@ func (e Ecs) CheckTask(cluster, taskDefId string, running, stable bool, taskIds 
 	output, err := e.ecsClient.DescribeTasks(ctx, input)
 	if err != nil {
 		log.Printf("checkTask: describe service error: %s, %s, %v", cluster, taskIds, err)
-		return false, err
-	}
-	var checkStatus types.DesiredStatus
-	if running {
-		checkStatus = types.DesiredStatusRunning
-	} else {
-		checkStatus = types.DesiredStatusStopped
+		return false, nil, err
 	}
 	// If checking for running tasks, at least one task must be present, but when checking for stopped tasks, it's ok to
 	// have found no matching tasks (i.e. the tasks have already stopped and been removed from the list).
 	tasksFound := !running
 	tasksInState := true
+	var exitCode *int32 = nil
 	if len(output.Tasks) > 0 {
-		// We found one or more tasks, only return true if all specified tasks were in the right state for at least a
-		// few minutes.
 		for _, task := range output.Tasks {
 			// If a task definition ARN was specified, make sure that we found at least one task with that definition.
 			if (len(taskDefId) == 0) || (*task.TaskDefinitionArn == taskDefId) {
 				tasksFound = true
-				if (*task.LastStatus != string(checkStatus)) ||
-					(running && stable && time.Now().Add(-manager.DefaultWaitTime).Before(*task.StartedAt)) {
-					tasksInState = false
+				// If checking for stable tasks, make sure that the task has been running for a few minutes.
+				if running {
+					if (*task.LastStatus != string(types.DesiredStatusRunning)) ||
+						(stable && time.Now().After((*task.StartedAt).Add(manager.DefaultWaitTime))) {
+						tasksInState = false
+					}
+				} else {
+					if *task.LastStatus != string(types.DesiredStatusStopped) {
+						tasksInState = false
+					} else
+					// We always configure the primary application in a task as the first container, so we only care
+					// about its exit code. Among the first containers across all matching tasks, return the highest
+					// exit code.
+					if task.Containers[0].ExitCode != nil {
+						if (exitCode == nil) || (*task.Containers[0].ExitCode > *exitCode) {
+							exitCode = task.Containers[0].ExitCode
+						}
+					}
 				}
 			}
 		}
 	}
-	return tasksFound && tasksInState, nil
+	return tasksFound && tasksInState, exitCode, nil
 }
 
 func (e Ecs) GetLayout(clusters []string) (*manager.Layout, error) {
@@ -422,7 +430,7 @@ func (e Ecs) checkEcsService(cluster, taskDefArn string) (bool, error) {
 		return false, err
 	} else if len(taskArns) > 0 {
 		// For each running task, check if it's been up for a few minutes.
-		if deployed, err := e.CheckTask(cluster, taskDefArn, true, true, taskArns...); err != nil {
+		if deployed, _, err := e.CheckTask(cluster, taskDefArn, true, true, taskArns...); err != nil {
 			log.Printf("checkEcsService: check task error: %s, %s, %s, %v", cluster, family, taskDefArn, err)
 			return false, err
 		} else if !deployed {
@@ -535,7 +543,7 @@ func (e Ecs) checkEnvTaskSet(taskSet *manager.TaskSet, deployType string, cluste
 			case deployType_Task:
 				// Only check tasks that are meant to stay up permanently
 				if !task.Temp {
-					if deployed, err := e.CheckTask(cluster, "", true, true, task.Id); err != nil {
+					if deployed, _, err := e.CheckTask(cluster, "", true, true, task.Id); err != nil {
 						return false, err
 					} else if !deployed {
 						return false, nil

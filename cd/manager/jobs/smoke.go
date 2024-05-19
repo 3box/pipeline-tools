@@ -81,9 +81,13 @@ func (s smokeTestJob) Advance() (job.JobState, error) {
 }
 
 func (s smokeTestJob) checkTests(expectedToBeRunning bool) (bool, error) {
-	if status, err := s.d.CheckTask(ClusterName, "", expectedToBeRunning, false, s.state.Params[job.JobParam_Id].(string)); err != nil {
+	if status, exitCode, err := s.d.CheckTask(ClusterName, "", expectedToBeRunning, false, s.state.Params[job.JobParam_Id].(string)); err != nil {
 		return false, err
 	} else if status {
+		// If a non-zero exit code was present, the test failed to complete successfully.
+		if (exitCode != nil) && (*exitCode != 0) {
+			return false, fmt.Errorf("anchorJob: worker exited with code %d", *exitCode)
+		}
 		return true, nil
 	} else if expectedToBeRunning && job.IsTimedOut(s.state, manager.DefaultWaitTime) { // Tests did not start in time
 		return false, manager.Error_StartupTimeout

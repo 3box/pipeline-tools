@@ -271,9 +271,6 @@ func (n JobNotifs) getActiveJobs(jobState job.JobState) []discord.EmbedField {
 	if field, found := n.getActiveJobsByType(jobState, job.JobType_Deploy); found {
 		fields = append(fields, field)
 	}
-	if field, found := n.getActiveJobsByType(jobState, job.JobType_Anchor); found {
-		fields = append(fields, field)
-	}
 	if field, found := n.getActiveJobsByType(jobState, job.JobType_TestE2E); found {
 		fields = append(fields, field)
 	}

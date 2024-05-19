@@ -55,7 +55,6 @@ const (
 )
 
 const defaultFailureTime = 30 * time.Minute
-const anchorWorkerRepo = "ceramic-prod-cas-runner"
 
 func DeployJob(jobState job.JobState, db manager.Database, notifs manager.Notifs, d manager.Deployment, repo manager.Repository) (manager.JobSm, error) {
 	if component, found := jobState.Params[job.DeployJobParam_Component].(string); !found {
@@ -235,7 +234,6 @@ func (d deployJob) generateEnvLayout(component manager.DeployComponent) (*manage
 		if component == manager.DeployComponent_Cas {
 			newLayout.Clusters[casCluster].Tasks = &manager.TaskSet{Tasks: map[string]*manager.Task{
 				casCluster + "-" + serviceSuffix_CasWorker: {
-					Repo: &manager.Repo{Name: anchorWorkerRepo},
 					Temp: true, // Anchor workers do not stay up permanently
 					Name: containerName_CasWorker,
 				},
