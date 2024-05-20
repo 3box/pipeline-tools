@@ -127,9 +127,13 @@ func (e e2eTestJob) checkAllTests(expectedToBeRunning bool) (bool, error) {
 }
 
 func (e e2eTestJob) checkTests(taskId string, expectedToBeRunning bool) (bool, error) {
-	if status, err := e.d.CheckTask("ceramic-qa-tests", "", expectedToBeRunning, false, taskId); err != nil {
+	if status, exitCode, err := e.d.CheckTask("ceramic-qa-tests", "", expectedToBeRunning, false, taskId); err != nil {
 		return false, err
 	} else if status {
+		// If a non-zero exit code was present, at least one of the test tasks failed to complete successfully.
+		if (exitCode != nil) && (*exitCode != 0) {
+			return false, fmt.Errorf("e2eTestJob: test exited with code %d", *exitCode)
+		}
 		return true, nil
 	} else if expectedToBeRunning && job.IsTimedOut(e.state, manager.DefaultWaitTime) { // Tests did not start in time
 		return false, manager.Error_StartupTimeout
