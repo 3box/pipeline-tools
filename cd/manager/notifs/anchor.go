@@ -15,18 +15,15 @@ import (
 var _ jobNotif = &anchorNotif{}
 
 type anchorNotif struct {
-	state          job.JobState
-	alertWebhook   webhook.Client
-	warningWebhook webhook.Client
-	infoWebhook    webhook.Client
-	region         string
-	env            string
+	state        job.JobState
+	alertWebhook webhook.Client
+	infoWebhook  webhook.Client
+	region       string
+	env          string
 }
 
 func newAnchorNotif(jobState job.JobState) (jobNotif, error) {
 	if a, err := parseDiscordWebhookUrl("DISCORD_ALERT_WEBHOOK"); err != nil {
-		return nil, err
-	} else if w, err := parseDiscordWebhookUrl("DISCORD_WARNING_WEBHOOK"); err != nil {
 		return nil, err
 	} else if i, err := parseDiscordWebhookUrl("DISCORD_INFO_WEBHOOK"); err != nil {
 		return nil, err
@@ -34,7 +31,6 @@ func newAnchorNotif(jobState job.JobState) (jobNotif, error) {
 		return &anchorNotif{
 			jobState,
 			a,
-			w,
 			i,
 			os.Getenv("AWS_REGION"),
 			os.Getenv(manager.EnvVar_Env),
@@ -52,7 +48,7 @@ func (a anchorNotif) getChannels() []webhook.Client {
 	case job.JobStage_Failed:
 		webhooks = append(webhooks, a.alertWebhook)
 	}
-	return nil
+	return webhooks
 }
 
 func (a anchorNotif) getTitle() string {
