@@ -100,7 +100,7 @@ func (e Ecs) CheckTask(cluster, taskDefId string, running, stable bool, taskIds 
 				// If checking for stable tasks, make sure that the task has been running for a few minutes.
 				if running {
 					if (*task.LastStatus != string(types.DesiredStatusRunning)) ||
-						(stable && time.Now().After((*task.StartedAt).Add(manager.DefaultWaitTime))) {
+						(stable && time.Now().Before((*task.StartedAt).Add(manager.DefaultWaitTime))) {
 						tasksInState = false
 					}
 				} else {
