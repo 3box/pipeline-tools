@@ -21,6 +21,7 @@ type deployNotif struct {
 	state              job.JobState
 	deploymentsWebhook webhook.Client
 	communityWebhook   webhook.Client
+	alertWebhook       webhook.Client
 	env                manager.EnvType
 }
 
@@ -36,8 +37,10 @@ func newDeployNotif(jobState job.JobState) (jobNotif, error) {
 		return nil, err
 	} else if c, err := parseDiscordWebhookUrl("DISCORD_COMMUNITY_NODES_WEBHOOK"); err != nil {
 		return nil, err
+	} else if a, err := parseDiscordWebhookUrl("DISCORD_ALERT_WEBHOOK"); err != nil {
+		return nil, err
 	} else {
-		return &deployNotif{jobState, d, c, manager.EnvType(os.Getenv(manager.EnvVar_Env))}, nil
+		return &deployNotif{jobState, d, c, a, manager.EnvType(os.Getenv(manager.EnvVar_Env))}, nil
 	}
 }
 
@@ -46,6 +49,10 @@ func (d deployNotif) getChannels() []webhook.Client {
 	// Don't send Dev/QA notifications to the community channel
 	if (d.env != manager.EnvType_Dev) && (d.env != manager.EnvType_Qa) {
 		webhooks = append(webhooks, d.communityWebhook)
+	}
+	// Also send deployment failures to the alerts channel
+	if d.state.Stage == job.JobStage_Failed {
+		webhooks = append(webhooks, d.alertWebhook)
 	}
 	return webhooks
 }
