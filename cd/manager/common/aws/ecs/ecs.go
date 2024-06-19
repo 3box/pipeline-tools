@@ -354,8 +354,11 @@ func (e Ecs) updateEcsService(cluster, service, image, containerName string, tem
 	if _, err = e.ecsClient.UpdateService(ctx, updateSvcInput); err != nil {
 		log.Printf("updateEcsService: update service error: %s, %s, %s, %s, %v, %v", cluster, service, image, newTaskDefArn, tempTask, err)
 		return "", err
-	} else if !tempTask {
-		// Stop all permanently running tasks in the service
+	} else
+	// Stop any permanently running tasks in the service if the deployment requires only a single instance of the
+	// service task to run. We use the latter configuration in special cases where the application cannot support
+	// running more than one instance of a service task at a time. Otherwise, ECS can manage the deployment for us.
+	if !tempTask && (*descSvcOutput.Services[0].DeploymentConfiguration.MaximumPercent < 200) {
 		if err = e.stopEcsTasks(cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
 			log.Printf("updateEcsService: stop tasks error: %s, %s, %s, %s, %v, %v", cluster, service, image, newTaskDefArn, tempTask, err)
 			return "", err
@@ -373,7 +376,8 @@ func (e Ecs) updateEcsTask(cluster, familyPfx, image, containerName string, temp
 		return "", err
 	} else {
 		if !tempTask {
-			// Stop all permanently running tasks in the service
+			// Stop all permanently running tasks in the service. Since there is no deployment configuration for tasks,
+			// we can't rely on ECS to manage the deployment for us.
 			if err = e.stopEcsTasks(cluster, e.taskFamilyFromArn(newTaskDefArn)); err != nil {
 				log.Printf("updateEcsTask: stop tasks error: %s, %s, %s, %s, %s, %v, %v", cluster, familyPfx, image, prevTaskDefArn, newTaskDefArn, tempTask, err)
 				return "", err
