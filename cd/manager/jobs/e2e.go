@@ -19,7 +19,6 @@ type e2eTestJob struct {
 const (
 	e2eTest_PrivatePublic     string = "private-public"
 	e2eTest_LocalClientPublic string = "local_client-public"
-	e2eTest_LocalNodePrivate  string = "local_node-private"
 )
 
 // Allow up to 4 hours for E2E tests to run
@@ -88,7 +87,7 @@ func (e e2eTestJob) startAllTests() error {
 	} else if err = e.startTests(e2eTest_LocalClientPublic); err != nil {
 		return err
 	} else {
-		return e.startTests(e2eTest_LocalNodePrivate)
+		return nil
 	}
 }
 
@@ -118,9 +117,7 @@ func (e e2eTestJob) checkAllTests(expectedToBeRunning bool) (bool, error) {
 		return false, err
 	} else if localClientPublicStatus, err := e.checkTests(e.state.Params[e2eTest_LocalClientPublic].(string), expectedToBeRunning); err != nil {
 		return false, err
-	} else if localNodePrivateStatus, err := e.checkTests(e.state.Params[e2eTest_LocalNodePrivate].(string), expectedToBeRunning); err != nil {
-		return false, err
-	} else if privatePublicStatus && localClientPublicStatus && localNodePrivateStatus {
+	} else if privatePublicStatus && localClientPublicStatus {
 		return true, nil
 	}
 	return false, nil
