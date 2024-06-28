@@ -17,10 +17,6 @@ const (
 	workflowNotifField_Branch       = "Branch"
 	workflowNotifField_TestSelector = "Test Selector"
 )
-const (
-	workflowTestSelector_Wildcard = "."
-	workflowTestSelector_All      = "all"
-)
 
 type workflowNotif struct {
 	state            job.JobState
@@ -67,10 +63,6 @@ func (w workflowNotif) getFields() []discord.EmbedField {
 	}
 	// If this is a test workflow, also report the test selector.
 	if testSelector, found := w.workflow.Inputs[job.WorkflowJobParam_TestSelector].(string); found {
-		// Convert wildcard selector to "all" selector
-		if testSelector == workflowTestSelector_Wildcard {
-			testSelector = workflowTestSelector_All
-		}
 		notifFields = append(
 			notifFields,
 			discord.EmbedField{
