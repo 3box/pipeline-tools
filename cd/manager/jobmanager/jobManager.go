@@ -41,7 +41,7 @@ const (
 	tests_Repo     = "ceramic-tests"
 	tests_Ref      = "main"
 	tests_Workflow = "run-durable.yml"
-	tests_Selector = "fast"
+	tests_Selector = "correctness/fast"
 )
 
 const defaultCasMaxAnchorWorkers = 1
