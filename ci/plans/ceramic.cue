@@ -8,6 +8,7 @@ import (
 	"universe.dagger.io/aws"
 	"universe.dagger.io/bash"
 	"universe.dagger.io/docker"
+	"universe.dagger.io/docker/cli"
 
 	"github.com/3box/pipeline-tools/ci/utils"
 )
@@ -108,13 +109,80 @@ dagger.#Plan & {
 			dockerfile: contents: _file.contents
 			target: "composedb"
 		}
-
 		verify: {
-			verifyCeramic: utils.#TestImage & {
-				testImage:  buildCeramic.output
-				endpoint:   "api/v0/node/healthcheck"
-				port:       7007
-				dockerHost: client.network."unix:///var/run/docker.sock".connect
+			verifyCeramic: {
+				_dockerHost: client.network."unix:///var/run/docker.sock".connect
+				_endpoint:  "api/v0/node/healthcheck"
+				_port:      7007
+				_imageName: "ci-test-image"
+				_loadImage: cli.#Load & {
+					image: buildCeramic.output
+					host:  _dockerHost
+					tag:   "\(_imageName)"
+				}
+				_cli: alpine.#Build & {
+					packages: {
+						bash: {}
+						curl: {}
+						"docker-cli": {}
+					}
+				}
+				healthcheck: bash.#Run & {
+					env: {
+						URL:        "http://0.0.0.0:\(_port)/\(_endpoint)"
+						TIMEOUT:    "60"
+						IMAGE_NAME: "\(_imageName)"
+						DEP:        "\(_loadImage.success)"
+						PORTS:      "\(_port):\(_port)"
+					}
+					input:   _cli.output
+					mounts: source: {
+						dest:     "/var/run/docker.sock"
+						contents: _dockerHost
+					}
+					mounts: docker: {
+						contents: _dockerHost
+						dest:     "/var/run/docker.sock"
+					}
+					always: true
+					script: contents: #"""
+							docker rm -f "$IMAGE_NAME" ceramic-one
+							docker network create ci-test || true
+							docker run -d --name ceramic-one \
+								--platform linux/x86_64 \
+								--network ci-test \
+								-p 5101:5101 \
+								-e CERAMIC_ONE_NETWORK='in-memory' \
+								public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest 
+							docker run -d --platform linux/x86_64 --network ci-test \
+								--name "$IMAGE_NAME" -p "$PORTS" "$IMAGE_NAME"
+
+							timeout=$TIMEOUT
+							until [[ $timeout -le 0 ]]; do
+								echo -e "\n=============== Startup Logs ===============\n"
+								docker logs --details --timestamps --tail 100 "$IMAGE_NAME"
+								curl --verbose --fail --connect-timeout 5 --location "$URL" > curl.out 2>&1 || true
+
+								if grep -q "200 OK" curl.out
+								then
+									echo Healthcheck passed
+									docker rm -f "$IMAGE_NAME" ceramic-one
+									docker network rm ci-test
+									exit 0
+								fi
+
+								sleep 1
+								timeout=$(( timeout - 1 ))
+							done
+
+							if [ $timeout -le 0 ]; then
+								echo Healthcheck failed
+								docker rm -f "$IMAGE_NAME" ceramic-one
+								docker network rm ci-test
+								exit 1
+							fi
+						"""#
+					}	
 			}
 			verifyComposeDB: utils.#TestImageCommand & {
 				testImage: buildComposeDB.output
