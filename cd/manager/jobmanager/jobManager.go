@@ -386,7 +386,7 @@ func (m *JobManager) processTestJobs(dequeuedJobs []job.JobState) bool {
 func (m *JobManager) processWorkflowJobs(dequeuedJobs []job.JobState) bool {
 	// Check if there are any deploy jobs in progress
 	if len(m.getActiveDeploys()) == 0 {
-		dequeuedWorkflows := make([]job.JobState, 0, 0)
+		dequeuedWorkflows := make([]job.JobState, 0)
 		// Do not collapse back-to-back workflow jobs because they could be pointing to different actual workflows
 		for _, dequeuedJob := range dequeuedJobs {
 			// Break out of the loop as soon as we find a deploy job so that we don't collapse workflow jobs across
@@ -521,6 +521,16 @@ func (m *JobManager) updateJobStage(jobState job.JobState, jobStage job.JobStage
 
 func (m *JobManager) getActiveDeploys() []job.JobState {
 	return m.cache.JobsByMatcher(func(js job.JobState) bool {
-		return job.IsActiveJob(js) && (js.Type == job.JobType_Deploy)
+		// We have active deployments if there are any deploy jobs in progress, or workflow jobs with a "deploy" label.
+		if job.IsActiveJob(js) {
+			if js.Type == job.JobType_Deploy {
+				return true
+			} else if js.Type == job.JobType_Workflow {
+				if workflow, err := job.CreateWorkflowJob(js); err == nil {
+					return workflow.IsType(job.WorkflowJobLabel_Deploy)
+				}
+			}
+		}
+		return false
 	})
 }

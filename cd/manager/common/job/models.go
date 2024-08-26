@@ -103,3 +103,12 @@ type Workflow struct {
 	Id       int64
 	Labels   []string
 }
+
+func (w Workflow) IsType(l string) bool {
+	for _, label := range w.Labels {
+		if label == l {
+			return true
+		}
+	}
+	return false
+}
