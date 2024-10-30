@@ -148,7 +148,9 @@ func (g Github) FindMatchingWorkflowRun(workflow job.Workflow, jobId string, sea
 				return -1, "", err
 			} else if count > 0 {
 				for _, workflowJob := range workflowJobs {
+					log.Printf("findMatchingWorkflowRun: run=%s, job=%s", workflowRun.GetHTMLURL(), workflowJob.GetHTMLURL())
 					for _, jobStep := range workflowJob.Steps {
+						log.Printf("findMatchingWorkflowRun: job=%s, step=%s", workflowJob.GetHTMLURL(), jobStep.GetName())
 						// If we found a job step with our job ID, then we know this is the workflow we're looking for
 						// and need to monitor.
 						if jobStep.GetName() == jobId {
