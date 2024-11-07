@@ -88,25 +88,36 @@ func parseDiscordWebhookUrl(urlEnv string) (webhook.Client, error) {
 	return nil, nil
 }
 
-func webhooksForLabels(labels []string) ([]webhook.Client, error) {
+func webhooksForLabels(labels []string) ([]webhook.Client, []webhook.Client, error) {
 	webhooks := make([]webhook.Client, 0)
+	failureWebhooks := make([]webhook.Client, 0)
 	for _, label := range labels {
 		switch label {
 		case job.WorkflowJobLabel_Test:
 			if t, err := parseDiscordWebhookUrl("DISCORD_TESTS_WEBHOOK"); err != nil {
-				return nil, err
+				return nil, nil, err
 			} else {
 				webhooks = append(webhooks, t)
+			}
+			if f, err := parseDiscordWebhookUrl("DISCORD_TEST_FAILURES_WEBHOOK"); err != nil {
+				return nil, nil, err
+			} else {
+				failureWebhooks = append(failureWebhooks, f)
 			}
 		case job.WorkflowJobLabel_Deploy:
 			if t, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENTS_WEBHOOK"); err != nil {
-				return nil, err
+				return nil, nil, err
 			} else {
 				webhooks = append(webhooks, t)
 			}
+			if f, err := parseDiscordWebhookUrl("DISCORD_DEPLOYMENT_FAILURES_WEBHOOK"); err != nil {
+				return nil, nil, err
+			} else {
+				failureWebhooks = append(failureWebhooks, f)
+			}
 		}
 	}
-	return webhooks, nil
+	return webhooks, failureWebhooks, nil
 }
 
 func (n JobNotifs) NotifyJob(jobs ...job.JobState) {
