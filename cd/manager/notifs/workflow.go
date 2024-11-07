@@ -37,7 +37,8 @@ func newWorkflowNotif(jobState job.JobState) (jobNotif, error) {
 
 func (w workflowNotif) getChannels() []webhook.Client {
 	if w.state.Stage == job.JobStage_Failed {
-		return w.failureWebhooks
+		// Send to both the normal and failure webhooks
+		return append(w.webhooks, w.failureWebhooks...)
 	} else
 	// Skip "started" notifications so that the channel doesn't get too noisy
 	if w.state.Stage != job.JobStage_Started {
